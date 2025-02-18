@@ -3,6 +3,18 @@
 version = 3
 
 [[package]]
+name = "Frostify"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "image",
+ "pollster",
+ "tokio",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1988,18 +2000,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eda41003dc44290527a59b13432d4a0379379fa074b70174882adfbdfd917844"
 dependencies = [
  "bitflags 2.8.0",
-]
-
-[[package]]
-name = "spotify-rs"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "image",
- "pollster",
- "tokio",
- "wgpu",
- "winit",
 ]
 
 [[package]]
