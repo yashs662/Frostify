@@ -1,5 +1,4 @@
-use super::bounds::Bounds;
-use super::{Component, ComponentPosition, ComponentSize, DrawableComponent};
+use super::{Bounds, Component, ComponentPosition, ComponentSize, DrawableComponent};
 use crate::img_utils::RgbaImg;
 use crate::vertex::Vertex;
 use wgpu::util::DeviceExt;

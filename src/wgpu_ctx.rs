@@ -1,5 +1,5 @@
-use crate::components::root::RootComponent;
-use crate::components::{Component, ComponentSize};
+use crate::components::core::root::RootComponent;
+use crate::components::core::{Component, ComponentSize};
 use crate::img_utils::RgbaImg;
 use crate::vertex::{create_vertex_buffer_layout, Vertex, VERTEX_INDEX_LIST};
 use std::borrow::Cow;
@@ -64,7 +64,7 @@ impl<'window> WgpuCtx<'window> {
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode,  // Use the supported alpha mode instead of hardcoding
+            alpha_mode, // Use the supported alpha mode instead of hardcoding
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };

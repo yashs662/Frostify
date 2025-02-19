@@ -20,8 +20,8 @@ unsafe impl bytemuck::Zeroable for Vertex {}
 unsafe impl bytemuck::Pod for Vertex {}
 
 pub const VERTEX_INDEX_LIST: &[u16] = &[
-    0, 1, 2,  // First triangle (top-left, top-right, bottom-right)
-    0, 2, 3,  // Second triangle (top-left, bottom-right, bottom-left)
+    0, 1, 2, // First triangle (top-left, top-right, bottom-right)
+    0, 2, 3, // Second triangle (top-left, bottom-right, bottom-left)
 ];
 
 pub fn create_vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {

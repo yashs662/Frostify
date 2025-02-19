@@ -1,5 +1,4 @@
-use super::bounds::Bounds;
-use super::{Component, ComponentPosition, ComponentSize};
+use super::{Bounds, Component, ComponentPosition, ComponentSize};
 
 pub struct RootComponent {
     children: Vec<Box<dyn Component>>,

@@ -1,11 +1,9 @@
-use super::bounds::Bounds;
-use super::{image::ImageComponent, Component};
-use super::{ComponentPosition, ComponentTransform};
+use super::{image::ImageComponent, Bounds, Component, ComponentPosition, ComponentTransform};
 
 pub struct Button {
     image: ImageComponent,
     on_click: Box<dyn Fn()>,
-    children: Vec<Box<dyn Component>>
+    children: Vec<Box<dyn Component>>,
 }
 
 impl Button {

@@ -1,5 +1,7 @@
-use super::bounds::{Anchor, Bounds};
-use super::{Component, ComponentOffset, ComponentPosition, ComponentSize, ComponentTransform};
+use super::{
+    Anchor, Bounds, Component, ComponentOffset, ComponentPosition, ComponentSize,
+    ComponentTransform,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FlexDirection {
