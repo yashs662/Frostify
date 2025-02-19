@@ -2,6 +2,7 @@ pub mod image;
 pub mod button;
 pub mod root;
 pub mod bounds;
+pub mod container;
 
 use crate::vertex::Vertex;
 use wgpu::Buffer;
@@ -32,7 +33,6 @@ pub struct DrawableComponent {
     pub bind_group: wgpu::BindGroup,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u16>,
-    pub children: Vec<Box<dyn Component>>,
 }
 
 #[derive(Debug, Clone, Copy)]

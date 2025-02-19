@@ -1,9 +1,9 @@
+use super::{ComponentPosition, ComponentSize};
+
 #[derive(Debug, Copy, Clone)]
 pub struct Bounds {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
+    pub position: ComponentPosition,
+    pub size: ComponentSize,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -20,21 +20,33 @@ pub enum Anchor {
 }
 
 impl Bounds {
-    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self { x, y, width, height }
+    pub fn new(position: ComponentPosition, size: ComponentSize) -> Self {
+        Self { position, size }
     }
 
     pub fn get_anchor_position(&self, anchor: Anchor) -> (f32, f32) {
         match anchor {
-            Anchor::TopLeft => (self.x, self.y),
-            Anchor::Top => (self.x + self.width/2.0, self.y),
-            Anchor::TopRight => (self.x + self.width, self.y),
-            Anchor::Left => (self.x, self.y + self.height/2.0),
-            Anchor::Center => (self.x + self.width/2.0, self.y + self.height/2.0),
-            Anchor::Right => (self.x + self.width, self.y + self.height/2.0),
-            Anchor::BottomLeft => (self.x, self.y + self.height),
-            Anchor::Bottom => (self.x + self.width/2.0, self.y + self.height),
-            Anchor::BottomRight => (self.x + self.width, self.y + self.height),
+            Anchor::TopLeft => (self.position.x, self.position.y),
+            Anchor::Top => (self.position.x + self.size.width / 2.0, self.position.y),
+            Anchor::TopRight => (self.position.x + self.size.width, self.position.y),
+            Anchor::Left => (self.position.x, self.position.y + self.size.height / 2.0),
+            Anchor::Center => (
+                self.position.x + self.size.width / 2.0,
+                self.position.y + self.size.height / 2.0,
+            ),
+            Anchor::Right => (
+                self.position.x + self.size.width,
+                self.position.y + self.size.height / 2.0,
+            ),
+            Anchor::BottomLeft => (self.position.x, self.position.y + self.size.height),
+            Anchor::Bottom => (
+                self.position.x + self.size.width / 2.0,
+                self.position.y + self.size.height,
+            ),
+            Anchor::BottomRight => (
+                self.position.x + self.size.width,
+                self.position.y + self.size.height,
+            ),
         }
     }
 }

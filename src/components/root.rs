@@ -1,18 +1,16 @@
 use super::bounds::Bounds;
-use super::{Component, ComponentPosition};
+use super::{Component, ComponentPosition, ComponentSize};
 
 pub struct RootComponent {
     children: Vec<Box<dyn Component>>,
-    width: u32,
-    height: u32,
+    size: ComponentSize,
 }
 
 impl RootComponent {
-    pub fn new(width: u32, height: u32) -> Self {
+    pub fn new(size: ComponentSize) -> Self {
         Self {
             children: Vec::new(),
-            width,
-            height,
+            size,
         }
     }
 }
@@ -31,8 +29,8 @@ impl Component for RootComponent {
     }
 
     fn resize(&mut self, queue: &wgpu::Queue, device: &wgpu::Device, width: u32, height: u32) {
-        self.width = width;
-        self.height = height;
+        self.size.width = width as f32;
+        self.size.height = height as f32;
         for child in &mut self.children {
             child.resize(queue, device, width, height);
         }
@@ -78,6 +76,7 @@ impl Component for RootComponent {
     }
 
     fn get_bounds(&self) -> Bounds {
-        Bounds::new(0.0, 0.0, self.width as f32, self.height as f32)
+        let position = ComponentPosition { x: 0.0, y: 0.0 };
+        Bounds::new(position, self.size)
     }
 }

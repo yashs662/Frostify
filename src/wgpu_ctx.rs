@@ -1,7 +1,7 @@
+use crate::components::root::RootComponent;
+use crate::components::{Component, ComponentSize};
 use crate::img_utils::RgbaImg;
 use crate::vertex::{create_vertex_buffer_layout, Vertex, VERTEX_INDEX_LIST};
-use crate::components::Component;
-use crate::components::root::RootComponent;
 use std::borrow::Cow;
 use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -53,11 +53,25 @@ impl<'window> WgpuCtx<'window> {
         let size = window.inner_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
-        let surface_config = surface.get_default_config(&adapter, width, height).unwrap();
+
+        // Get the supported alpha modes from the surface capabilities
+        let surface_caps = surface.get_capabilities(&adapter);
+        let alpha_mode = surface_caps.alpha_modes[0]; // Use the first supported alpha mode
+
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_caps.formats[0],
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode,  // Use the supported alpha mode instead of hardcoding
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
         surface.configure(&device, &surface_config);
 
         let img = RgbaImg::new("assets/test.png").unwrap();
-        
+
         let fixed_width = 300.0;
         let fixed_height = 300.0;
 
@@ -67,22 +81,22 @@ impl<'window> WgpuCtx<'window> {
 
         let vertices = [
             Vertex::new(
-                [-ndc_width/2.0, ndc_height/2.0, 0.0],
+                [-ndc_width / 2.0, ndc_height / 2.0, 0.0],
                 [1.0, 1.0, 1.0, 1.0],
                 [0.0, 0.0],
             ),
             Vertex::new(
-                [ndc_width/2.0, ndc_height/2.0, 0.0],
+                [ndc_width / 2.0, ndc_height / 2.0, 0.0],
                 [1.0, 1.0, 1.0, 1.0],
                 [1.0, 0.0],
             ),
             Vertex::new(
-                [ndc_width/2.0, -ndc_height/2.0, 0.0],
+                [ndc_width / 2.0, -ndc_height / 2.0, 0.0],
                 [1.0, 1.0, 1.0, 1.0],
                 [1.0, 1.0],
             ),
             Vertex::new(
-                [-ndc_width/2.0, -ndc_height/2.0, 0.0],
+                [-ndc_width / 2.0, -ndc_height / 2.0, 0.0],
                 [1.0, 1.0, 1.0, 1.0],
                 [0.0, 1.0],
             ),
@@ -172,7 +186,10 @@ impl<'window> WgpuCtx<'window> {
         let render_pipeline =
             create_pipeline(&device, surface_config.format, &render_pipeline_layout);
 
-        let root = RootComponent::new(size.width, size.height);
+        let root = RootComponent::new(ComponentSize {
+            width: width as f32,
+            height: height as f32,
+        });
 
         WgpuCtx {
             surface,
@@ -201,34 +218,6 @@ impl<'window> WgpuCtx<'window> {
     pub fn resize(&mut self, new_size: (u32, u32)) {
         let (width, height) = new_size;
         self.root.resize(&self.queue, &self.device, width, height);
-        
-        let ndc_width = (300.0 / width as f32) * 2.0;
-        let ndc_height = (300.0 / height as f32) * 2.0;
-
-        let vertices = [
-            Vertex::new(
-                [-ndc_width/2.0, ndc_height/2.0, 0.0],
-                [1.0, 1.0, 1.0, 1.0],
-                [0.0, 0.0],
-            ),
-            Vertex::new(
-                [ndc_width/2.0, ndc_height/2.0, 0.0],
-                [1.0, 1.0, 1.0, 1.0],
-                [1.0, 0.0],
-            ),
-            Vertex::new(
-                [ndc_width/2.0, -ndc_height/2.0, 0.0],
-                [1.0, 1.0, 1.0, 1.0],
-                [1.0, 1.0],
-            ),
-            Vertex::new(
-                [-ndc_width/2.0, -ndc_height/2.0, 0.0],
-                [1.0, 1.0, 1.0, 1.0],
-                [0.0, 1.0],
-            ),
-        ];
-
-        self.queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
 
         self.surface_config.width = width.max(1);
         self.surface_config.height = height.max(1);
@@ -253,7 +242,12 @@ impl<'window> WgpuCtx<'window> {
                     view: &texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: 0.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -268,7 +262,7 @@ impl<'window> WgpuCtx<'window> {
                 self.vertex_index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            
+
             self.root.draw(&mut rpass);
         }
         self.queue.write_texture(
@@ -313,11 +307,31 @@ fn create_pipeline(
             module: &shader,
             entry_point: Some("fs_main"),
             compilation_options: Default::default(),
-            targets: &[Some(swap_chain_format.into())],
+            targets: &[Some(wgpu::ColorTargetState {
+                format: swap_chain_format,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
-            ..Default::default()
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            unclipped_depth: false,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            conservative: false,
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),

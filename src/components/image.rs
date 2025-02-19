@@ -21,19 +21,7 @@ impl ImageComponent {
         position: ComponentPosition,
     ) -> Self {
         let img = RgbaImg::new(texture_path).unwrap();
-
-        // Get window size from the surface configuration
-        let window_width = device.limits().max_texture_dimension_2d;
-        let window_height = device.limits().max_texture_dimension_2d;
-
-        // Convert pixel coordinates to NDC (-1 to 1)
-        let ndc_x = (position.x / window_width as f32) * 2.0 - 1.0;
-        let ndc_y = -((position.y / window_height as f32) * 2.0 - 1.0); // Flip Y coordinate
-        let ndc_width = (size.width / window_width as f32) * 2.0;
-        let ndc_height = (size.height / window_height as f32) * 2.0;
-
-        // Create vertices using NDC coordinates
-        let vertices = create_vertices(ndc_x, ndc_y, ndc_width, ndc_height);
+        let vertices = create_vertices(position.x, position.y, size.width, size.height);
 
         // Create texture and bind group
         let texture_size = wgpu::Extent3d {
@@ -115,11 +103,7 @@ impl ImageComponent {
             ],
             label: None,
         });
-
-        // Create indices
         let indices = vec![0, 1, 2, 0, 2, 3];
-
-        // Create buffers
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&vertices),
@@ -139,11 +123,10 @@ impl ImageComponent {
                 bind_group,
                 vertices,
                 indices,
-                children: Vec::new(), // Initialize children
             },
             size,
             position,
-            children: Vec::new(), // Initialize children
+            children: Vec::new(),
         }
     }
 
@@ -181,12 +164,13 @@ impl Component for ImageComponent {
     }
 
     fn resize(&mut self, queue: &wgpu::Queue, device: &wgpu::Device, width: u32, height: u32) {
-        // Convert stored pixel coordinates to new NDC coordinates
+        // Convert pixel coordinates to NDC coordinates using top-left as reference
         let ndc_x = (self.position.x / width as f32) * 2.0 - 1.0;
-        let ndc_y = -((self.position.y / height as f32) * 2.0 - 1.0);
+        let ndc_y = 1.0 - (self.position.y / height as f32) * 2.0;
         let ndc_width = (self.size.width / width as f32) * 2.0;
         let ndc_height = (self.size.height / height as f32) * 2.0;
 
+        // Create vertices with top-left positioning
         self.drawable.vertices = create_vertices(ndc_x, ndc_y, ndc_width, ndc_height);
         self.update(queue);
 
@@ -199,21 +183,12 @@ impl Component for ImageComponent {
     fn set_position(
         &mut self,
         queue: &wgpu::Queue,
-        device: &wgpu::Device,
+        _device: &wgpu::Device,
         position: ComponentPosition,
     ) {
         self.position = position;
-        // Get current window size from one of the vertices
-        let width = device.limits().max_texture_dimension_2d;
-        let height = device.limits().max_texture_dimension_2d;
-
-        // Convert to NDC
-        let ndc_x = (position.x / width as f32) * 2.0 - 1.0;
-        let ndc_y = -((position.y / height as f32) * 2.0 - 1.0);
-        let ndc_width = (self.size.width / width as f32) * 2.0;
-        let ndc_height = (self.size.height / height as f32) * 2.0;
-
-        self.drawable.vertices = create_vertices(ndc_x, ndc_y, ndc_width, ndc_height);
+        self.drawable.vertices =
+            create_vertices(position.x, position.y, self.size.width, self.size.height);
         self.update(queue);
     }
 
@@ -249,36 +224,23 @@ impl Component for ImageComponent {
     }
 
     fn get_bounds(&self) -> Bounds {
-        Bounds::new(
-            self.position.x - self.size.width / 2.0, // x (convert from center to top-left)
-            self.position.y - self.size.height / 2.0, // y (convert from center to top-left)
-            self.size.width,
-            self.size.height,
-        )
+        Bounds::new(self.position, self.size)
     }
 }
 
 fn create_vertices(x: f32, y: f32, width: f32, height: f32) -> Vec<Vertex> {
     vec![
+        // Top-left
+        Vertex::new([x, y, 0.0], [1.0, 1.0, 1.0, 1.0], [0.0, 0.0]),
+        // Top-right
+        Vertex::new([x + width, y, 0.0], [1.0, 1.0, 1.0, 1.0], [1.0, 0.0]),
+        // Bottom-right
         Vertex::new(
-            [x - width / 2.0, y + height / 2.0, 0.0],
-            [1.0, 1.0, 1.0, 1.0],
-            [0.0, 0.0],
-        ),
-        Vertex::new(
-            [x + width / 2.0, y + height / 2.0, 0.0],
-            [1.0, 1.0, 1.0, 1.0],
-            [1.0, 0.0],
-        ),
-        Vertex::new(
-            [x + width / 2.0, y - height / 2.0, 0.0],
+            [x + width, y - height, 0.0],
             [1.0, 1.0, 1.0, 1.0],
             [1.0, 1.0],
         ),
-        Vertex::new(
-            [x - width / 2.0, y - height / 2.0, 0.0],
-            [1.0, 1.0, 1.0, 1.0],
-            [0.0, 1.0],
-        ),
+        // Bottom-left
+        Vertex::new([x, y - height, 0.0], [1.0, 1.0, 1.0, 1.0], [0.0, 1.0]),
     ]
 }

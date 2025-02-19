@@ -1,14 +1,11 @@
-use super::bounds::{Anchor, Bounds};
+use super::bounds::Bounds;
 use super::{image::ImageComponent, Component};
-use super::{ComponentOffset, ComponentPosition, ComponentTransform};
+use super::{ComponentPosition, ComponentTransform};
 
 pub struct Button {
     image: ImageComponent,
     on_click: Box<dyn Fn()>,
-    children: Vec<Box<dyn Component>>,
-    anchor: Anchor,
-    offset: ComponentOffset,
-    parent_bounds: Option<Bounds>,
+    children: Vec<Box<dyn Component>>
 }
 
 impl Button {
@@ -20,7 +17,6 @@ impl Button {
         parent_bounds: Option<Bounds>,
         on_click: Box<dyn Fn()>,
     ) -> Self {
-        // Calculate initial position based on anchor and parent bounds
         let ComponentTransform {
             size,
             offset,
@@ -39,9 +35,6 @@ impl Button {
             image: ImageComponent::new(device, queue, texture_path, size, position),
             on_click,
             children: Vec::new(),
-            anchor,
-            offset,
-            parent_bounds,
         }
     }
 
@@ -49,10 +42,10 @@ impl Button {
         let btn_pos = self.image.get_position();
         let btn_size = self.image.get_size();
 
-        x >= btn_pos.x - btn_size.width / 2.0
-            && x <= btn_pos.x + btn_size.width / 2.0
-            && y >= btn_pos.y - btn_size.height / 2.0
-            && y <= btn_pos.y + btn_size.height / 2.0
+        x >= btn_pos.x
+            && x <= btn_pos.x + btn_size.width
+            && y >= btn_pos.y
+            && y <= btn_pos.y + btn_size.height
     }
 }
 
@@ -71,18 +64,6 @@ impl Component for Button {
     }
 
     fn resize(&mut self, queue: &wgpu::Queue, device: &wgpu::Device, width: u32, height: u32) {
-        // Update position based on anchor and parent bounds
-        if let Some(mut bounds) = self.parent_bounds {
-            bounds.width = width as f32;
-            bounds.height = height as f32;
-            let (anchor_x, anchor_y) = bounds.get_anchor_position(self.anchor);
-            let position = ComponentPosition {
-                x: anchor_x + self.offset.x,
-                y: anchor_y + self.offset.y,
-            };
-            self.image.set_position(queue, device, position);
-        }
-
         self.image.resize(queue, device, width, height);
 
         // Resize children
@@ -116,7 +97,6 @@ impl Component for Button {
         }
     }
 
-    // Implement new Component trait methods
     fn add_child(&mut self, child: Box<dyn Component>) {
         self.children.push(child);
     }
