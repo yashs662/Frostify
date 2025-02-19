@@ -1,4 +1,4 @@
-use super::{Bounds, Component, ComponentPosition, ComponentSize};
+use super::{Bounds, Component, ComponentPosition, ComponentSize, RenderPassExt};
 
 pub struct RootComponent {
     children: Vec<Box<dyn Component>>,
@@ -21,7 +21,7 @@ impl Component for RootComponent {
         }
     }
 
-    fn draw<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+    fn draw<'a>(&'a self, render_pass: &mut dyn RenderPassExt<'a>) {
         for child in &self.children {
             child.draw(render_pass);
         }

@@ -3,7 +3,7 @@ use crate::{app::AppWindowEvents, wgpu_ctx};
 use super::core::{
     button::Button,
     container::{Container, FlexAlign, FlexDirection},
-    Anchor, Component, ComponentOffset, ComponentSize, ComponentTransform,
+    Anchor, Component, ComponentBackground, ComponentOffset, ComponentSize, ComponentTransform,
 };
 
 pub fn create_window_controls(
@@ -31,7 +31,7 @@ pub fn create_window_controls(
     let minimize_btn = Button::new(
         &wgpu_ctx.device,
         &wgpu_ctx.queue,
-        "assets/minus.png",
+        ComponentBackground::Image("assets/minus.png".to_string()),
         ComponentTransform {
             size: ComponentSize {
                 width: 32.0,
@@ -50,7 +50,7 @@ pub fn create_window_controls(
     let maximize_btn = Button::new(
         &wgpu_ctx.device,
         &wgpu_ctx.queue,
-        "assets/expand.png",
+        ComponentBackground::Image("assets/expand.png".to_string()),
         ComponentTransform {
             size: ComponentSize {
                 width: 32.0,
@@ -68,7 +68,7 @@ pub fn create_window_controls(
     let close_btn = Button::new(
         &wgpu_ctx.device,
         &wgpu_ctx.queue,
-        "assets/close.png",
+        ComponentBackground::Image("assets/close.png".to_string()),
         ComponentTransform {
             size: ComponentSize {
                 width: 32.0,

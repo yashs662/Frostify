@@ -1,4 +1,6 @@
-use super::{Bounds, Component, ComponentPosition, ComponentSize, DrawableComponent};
+use super::{
+    Bounds, Component, ComponentPosition, ComponentSize, DrawableComponent, RenderPassExt,
+};
 use crate::img_utils::RgbaImg;
 use crate::vertex::Vertex;
 use wgpu::util::DeviceExt;
@@ -128,14 +130,6 @@ impl ImageComponent {
             children: Vec::new(),
         }
     }
-
-    pub fn get_position(&self) -> ComponentPosition {
-        self.position
-    }
-
-    pub fn get_size(&self) -> ComponentSize {
-        self.size
-    }
 }
 
 impl Component for ImageComponent {
@@ -147,7 +141,7 @@ impl Component for ImageComponent {
         );
     }
 
-    fn draw<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+    fn draw<'a>(&'a self, render_pass: &mut dyn RenderPassExt<'a>) {
         render_pass.set_bind_group(0, &self.drawable.bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.drawable.vertex_buffer.slice(..));
         render_pass.set_index_buffer(

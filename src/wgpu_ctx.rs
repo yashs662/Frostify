@@ -1,5 +1,5 @@
 use crate::components::core::root::RootComponent;
-use crate::components::core::{Component, ComponentSize};
+use crate::components::core::{Component, ComponentSize, RenderPassExt};
 use crate::img_utils::RgbaImg;
 use crate::vertex::{create_vertex_buffer_layout, Vertex, VERTEX_INDEX_LIST};
 use std::borrow::Cow;
@@ -15,13 +15,11 @@ pub struct WgpuCtx<'window> {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    vertex_index_buffer: wgpu::Buffer,
     texture: wgpu::Texture,
     texture_image: RgbaImg,
     texture_size: wgpu::Extent3d,
-    bind_group: wgpu::BindGroup,
     pub root: RootComponent,
+    pub color_pipeline: wgpu::RenderPipeline,
 }
 
 impl<'window> WgpuCtx<'window> {
@@ -176,15 +174,69 @@ impl<'window> WgpuCtx<'window> {
             ],
             label: None,
         });
-        let render_pipeline_layout =
+
+        // Create separate pipeline layouts for texture and color
+        let texture_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
+                label: Some("Texture Pipeline Layout"),
                 bind_group_layouts: &[&bind_group_layout],
                 push_constant_ranges: &[],
             });
 
+        let color_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Color Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
         let render_pipeline =
-            create_pipeline(&device, surface_config.format, &render_pipeline_layout);
+            create_pipeline(&device, surface_config.format, &texture_pipeline_layout);
+
+        // Create color shader
+        let color_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Color Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/color.wgsl").into()),
+        });
+
+        // Create color pipeline with its own layout
+        let color_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Color Pipeline"),
+            layout: Some(&color_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &color_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[create_vertex_buffer_layout()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &color_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
 
         let root = RootComponent::new(ComponentSize {
             width: width as f32,
@@ -197,13 +249,11 @@ impl<'window> WgpuCtx<'window> {
             device,
             queue,
             render_pipeline,
-            vertex_buffer,
-            vertex_index_buffer,
             texture,
             texture_image: img,
             texture_size,
-            bind_group,
             root,
+            color_pipeline,
         }
     }
 
@@ -236,35 +286,31 @@ impl<'window> WgpuCtx<'window> {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: 0.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
                 occlusion_query_set: None,
+                timestamp_writes: None,
             });
-            rpass.set_bind_group(0, &self.bind_group, &[]);
-            rpass.set_pipeline(&self.render_pipeline);
-            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            rpass.set_index_buffer(
-                self.vertex_index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
 
-            self.root.draw(&mut rpass);
+            let mut render_pass_pipelines = RenderPassPipelines {
+                render_pass,
+                texture_pipeline: &self.render_pipeline,
+                color_pipeline: &self.color_pipeline,
+            };
+
+            render_pass_pipelines.set_pipeline(&self.color_pipeline);
+            self.root.draw(&mut render_pass_pipelines);
         }
+
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
@@ -285,6 +331,53 @@ impl<'window> WgpuCtx<'window> {
     }
 }
 
+pub struct RenderPassPipelines<'a> {
+    render_pass: wgpu::RenderPass<'a>,
+    texture_pipeline: &'a wgpu::RenderPipeline,
+    color_pipeline: &'a wgpu::RenderPipeline,
+}
+
+impl<'a> super::components::core::RenderPassExt<'a> for RenderPassPipelines<'a> {
+    fn parent_pipeline(&self) -> &'a wgpu::RenderPipeline {
+        self.color_pipeline
+    }
+
+    fn texture_pipeline(&self) -> &'a wgpu::RenderPipeline {
+        self.texture_pipeline
+    }
+
+    fn set_pipeline(&mut self, pipeline: &'a wgpu::RenderPipeline) {
+        self.render_pass.set_pipeline(pipeline);
+    }
+
+    fn set_bind_group(
+        &mut self,
+        index: u32,
+        bind_group: &'a wgpu::BindGroup,
+        offsets: &[wgpu::DynamicOffset],
+    ) {
+        self.render_pass.set_bind_group(index, bind_group, offsets);
+    }
+
+    fn set_vertex_buffer(&mut self, slot: u32, buffer: wgpu::BufferSlice<'a>) {
+        self.render_pass.set_vertex_buffer(slot, buffer);
+    }
+
+    fn set_index_buffer(&mut self, buffer: wgpu::BufferSlice<'a>, index_format: wgpu::IndexFormat) {
+        self.render_pass.set_index_buffer(buffer, index_format);
+    }
+
+    fn draw_indexed(
+        &mut self,
+        indices: std::ops::Range<u32>,
+        base_vertex: i32,
+        instances: std::ops::Range<u32>,
+    ) {
+        self.render_pass
+            .draw_indexed(indices, base_vertex, instances);
+    }
+}
+
 fn create_pipeline(
     device: &wgpu::Device,
     swap_chain_format: wgpu::TextureFormat,
@@ -292,7 +385,7 @@ fn create_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
-        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
+        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/shader.wgsl"))),
     });
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: None,

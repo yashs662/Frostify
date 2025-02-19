@@ -1,6 +1,6 @@
 use super::{
     Anchor, Bounds, Component, ComponentOffset, ComponentPosition, ComponentSize,
-    ComponentTransform,
+    ComponentTransform, RenderPassExt,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -244,7 +244,7 @@ impl Component for Container {
         }
     }
 
-    fn draw<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+    fn draw<'a>(&'a self, render_pass: &mut dyn RenderPassExt<'a>) {
         for child in &self.children {
             child.draw(render_pass);
         }

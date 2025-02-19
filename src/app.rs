@@ -1,6 +1,6 @@
 use crate::components::core::button::Button;
 use crate::components::core::{
-    Anchor, Component, ComponentOffset, ComponentSize, ComponentTransform,
+    Anchor, Component, ComponentBackground, ComponentOffset, ComponentSize, ComponentTransform,
 };
 use crate::components::window_controls::create_window_controls;
 use crate::wgpu_ctx::WgpuCtx;
@@ -101,11 +101,15 @@ impl<'window> ApplicationHandler for App<'window> {
             let normal_btn = Button::new(
                 &wgpu_ctx.device,
                 &wgpu_ctx.queue,
-                "assets/test.png",
+                ComponentBackground::Gradient {
+                    start_color: [1.0, 0.0, 0.0, 1.0],
+                    end_color: [0.0, 0.0, 1.0, 1.0],
+                    angle: 90.0,
+                },
                 ComponentTransform {
                     size: ComponentSize {
-                        width: 100.0,
-                        height: 100.0,
+                        width: 200.0,
+                        height: 200.0,
                     },
                     offset: ComponentOffset { x: 0.0, y: 0.0 },
                     anchor: Anchor::Center,
@@ -161,8 +165,16 @@ impl<'window> ApplicationHandler for App<'window> {
                 ..
             } => {
                 if let (Some((x, y)), Some(wgpu_ctx)) = (self.cursor_position, &mut self.wgpu_ctx) {
-                    wgpu_ctx.root.handle_mouse_click(x as f32, y as f32);
-                    if self.try_handle_window_event(event_loop) {}
+                    // Use physical coordinates for click handling
+                    if let Some(window) = &self.window {
+                        let scale_factor = window.scale_factor();
+                        let logical_x = x / scale_factor;
+                        let logical_y = y / scale_factor;
+                        wgpu_ctx
+                            .root
+                            .handle_mouse_click(logical_x as f32, logical_y as f32);
+                        if self.try_handle_window_event(event_loop) {}
+                    }
                 }
             }
             _ => (),
