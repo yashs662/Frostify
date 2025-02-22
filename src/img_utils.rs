@@ -1,4 +1,5 @@
 use image::GenericImageView;
+use log::{error, info};
 use std::fs::File;
 use std::io;
 use std::io::Read;
@@ -12,18 +13,18 @@ pub struct RgbaImg {
 impl RgbaImg {
     pub fn new(file_path: &str) -> Option<Self> {
         if let Ok(file_bytes) = read_file_to_memory(file_path) {
-            println!("Loading image from: {}", file_path);
+            info!("Loading image from: {}", file_path);
             let dynamic_img = image::load_from_memory(&file_bytes[..]).unwrap();
             let rgba_img = dynamic_img.to_rgba8();
             let (width, height) = dynamic_img.dimensions();
-            println!("Image loaded: {}x{}", width, height);
+            info!("Image loaded: {}x{}", width, height);
             Some(Self {
                 width,
                 height,
                 bytes: rgba_img.into_raw(),
             })
         } else {
-            println!("Failed to load image: {}", file_path);
+            error!("Failed to load image: {}", file_path);
             None
         }
     }

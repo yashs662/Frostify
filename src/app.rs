@@ -1,23 +1,37 @@
-use crate::components::core::button::Button;
-use crate::components::core::{
-    Anchor, Component, ComponentBackground, ComponentOffset, ComponentSize, ComponentTransform,
+use crate::{
+    color::Color,
+    components::{
+        button::Button,
+        core::{
+            root::RootComponent, Anchor, Component, ComponentBackgroundConfig, ComponentOffset,
+            ComponentPosition, ComponentSize, ComponentTextOnGradientConfig, ComponentTransform,
+        },
+    },
+    text_renderer::OptionalTextUpdateData,
+    ui::navbar::create_navbar,
+    wgpu_ctx::WgpuCtx,
 };
-use crate::components::window_controls::create_window_controls;
-use crate::wgpu_ctx::WgpuCtx;
 use std::sync::Arc;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use log::{error, info};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use uuid::Uuid;
+use winit::{
+    application::ApplicationHandler,
+    event::{ElementState, MouseButton, WindowEvent},
+    event_loop::ActiveEventLoop,
+    platform::windows::WindowAttributesExtWindows,
+    window::{CursorIcon, Theme, Window, WindowId},
+};
 // use wgpu::rwh::HasWindowHandle;
-use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
-use winit::platform::windows::WindowAttributesExtWindows;
-use winit::window::{Theme, Window, WindowId};
 
-#[derive(Debug)]
-pub enum AppWindowEvents {
+#[derive(Debug, Clone)]
+pub enum AppEvent {
     Close,
     Maximize,
     Minimize,
+    ChangeCursorTo(CursorIcon),
+    PrintMessage(String),
+    SetPositionText(Uuid, ComponentPosition),
 }
 
 #[derive(Default)]
@@ -27,8 +41,9 @@ pub struct App<'window> {
     cursor_position: Option<(f64, f64)>,
     // #[cfg(target_os = "windows")]
     // initial_cloaked: bool,
-    event_sender: Option<Sender<AppWindowEvents>>,
-    event_receiver: Option<Receiver<AppWindowEvents>>,
+    event_sender: Option<UnboundedSender<AppEvent>>,
+    event_receiver: Option<UnboundedReceiver<AppEvent>>,
+    root: RootComponent,
 }
 
 impl App<'_> {
@@ -44,24 +59,55 @@ impl App<'_> {
         if let Some(receiver) = &mut self.event_receiver {
             if let Ok(event) = receiver.try_recv() {
                 match event {
-                    AppWindowEvents::Close => {
+                    AppEvent::Close => {
                         event_loop.exit();
                         return true;
                     }
-                    AppWindowEvents::Maximize => {
+                    AppEvent::Maximize => {
                         if let Some(window) = &self.window {
                             window.set_maximized(!window.is_maximized());
                             return true;
                         }
                     }
-                    AppWindowEvents::Minimize => {
+                    AppEvent::Minimize => {
                         if let Some(window) = &self.window {
                             window.set_minimized(true);
                             return true;
                         }
                     }
+                    AppEvent::ChangeCursorTo(cursor) => {
+                        if let Some(window) = &self.window {
+                            window.set_cursor(cursor);
+                            return true;
+                        }
+                    }
+                    AppEvent::PrintMessage(msg) => {
+                        info!("{}", msg);
+                        return true;
+                    }
+                    AppEvent::SetPositionText(id, position) => {
+                        if let Some(wgpu_ctx) = &mut self.wgpu_ctx {
+                            if let Some(bounds) = wgpu_ctx.text_handler.get_bounds(id) {
+                                let mut updated_bounds = bounds;
+                                updated_bounds.position = position;
+                                wgpu_ctx.text_handler.update((
+                                    id,
+                                    OptionalTextUpdateData::new().with_bounds(updated_bounds),
+                                ));
+                                return true;
+                            } else {
+                                error!("Could not find text with id: {:?}", id);
+                            }
+                        }
+                        return false;
+                    }
                 }
+            } else {
+                // no event = success
+                return true;
             }
+        } else {
+            error!("No event receiver");
         }
         false
     }
@@ -90,37 +136,42 @@ impl<'window> ApplicationHandler for App<'window> {
 
             self.window = Some(window.clone());
             let mut wgpu_ctx = WgpuCtx::new(window.clone());
-
+            self.root.resize(
+                &wgpu_ctx,
+                wgpu_ctx.surface_config.width,
+                wgpu_ctx.surface_config.height,
+            );
             // Create event channel
-            let (event_tx, event_rx) = channel(1);
+            let (event_tx, event_rx) = unbounded_channel();
             self.event_sender = Some(event_tx.clone());
             self.event_receiver = Some(event_rx);
 
-            let window_ctrl_container = create_window_controls(&wgpu_ctx, event_tx);
-
+            let navbar = create_navbar(&mut wgpu_ctx, event_tx.clone(), self.root.get_bounds());
             let normal_btn = Button::new(
-                &wgpu_ctx.device,
-                &wgpu_ctx.queue,
-                ComponentBackground::Gradient {
-                    start_color: [1.0, 0.0, 0.0, 1.0],
-                    end_color: [0.0, 0.0, 1.0, 1.0],
+                &mut wgpu_ctx,
+                ComponentBackgroundConfig::TextOnGradient(ComponentTextOnGradientConfig {
+                    text: "Hello".to_string(),
+                    text_color: Color::Black,
+                    start_color: Color::Bisque,
+                    end_color: Color::Beige,
+                    anchor: Anchor::Center,
                     angle: 90.0,
-                },
+                }),
                 ComponentTransform {
                     size: ComponentSize {
-                        width: 200.0,
-                        height: 200.0,
+                        width: self.root.get_bounds().size.width,
+                        height: self.root.get_bounds().size.height - 60.0,
                     },
-                    offset: ComponentOffset { x: 0.0, y: 0.0 },
-                    anchor: Anchor::Center,
+                    offset: ComponentOffset { x: 0.0, y: 60.0 },
+                    anchor: Anchor::TopLeft,
                 },
-                Some(wgpu_ctx.root.get_bounds()),
-                Box::new(|| println!("Button clicked!")),
+                Some(self.root.get_bounds()),
+                AppEvent::PrintMessage("Hello".to_string()),
+                Some(event_tx),
             );
 
-            wgpu_ctx.root.add_child(Box::new(window_ctrl_container));
-            wgpu_ctx.add_component(Box::new(normal_btn));
-
+            self.root.add_child(Box::new(navbar));
+            self.root.add_child(Box::new(normal_btn));
             self.wgpu_ctx = Some(wgpu_ctx);
         }
     }
@@ -139,14 +190,15 @@ impl<'window> ApplicationHandler for App<'window> {
                 if let (Some(wgpu_ctx), Some(window)) =
                     (self.wgpu_ctx.as_mut(), self.window.as_ref())
                 {
-                    wgpu_ctx.resize((new_size.width, new_size.height));
+                    info!("Resized to: {:?}", new_size);
+                    wgpu_ctx.resize((new_size.width, new_size.height), &mut self.root);
                     window.request_redraw();
                 }
             }
             WindowEvent::RedrawRequested => {
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    wgpu_ctx.draw();
-
+                    wgpu_ctx.draw(&mut self.root);
+                    wgpu_ctx.text_handler.trim_atlas();
                     // #[cfg(target_os = "windows")]
                     // if self.initial_cloaked {
                     //     set_cloak(false, self.window.as_ref().unwrap().window_handle());
@@ -164,16 +216,18 @@ impl<'window> ApplicationHandler for App<'window> {
                 button: MouseButton::Left,
                 ..
             } => {
-                if let (Some((x, y)), Some(wgpu_ctx)) = (self.cursor_position, &mut self.wgpu_ctx) {
+                if let Some((x, y)) = self.cursor_position {
                     // Use physical coordinates for click handling
                     if let Some(window) = &self.window {
                         let scale_factor = window.scale_factor();
                         let logical_x = x / scale_factor;
                         let logical_y = y / scale_factor;
-                        wgpu_ctx
-                            .root
+                        self.root
                             .handle_mouse_click(logical_x as f32, logical_y as f32);
-                        if self.try_handle_window_event(event_loop) {}
+                        if !self.try_handle_window_event(event_loop) {
+                            info!("Click at: ({}, {})", logical_x, logical_y);
+                            error!("Task failed to handle click");
+                        }
                     }
                 }
             }

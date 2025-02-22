@@ -1,15 +1,23 @@
-pub mod button;
-pub mod container;
+pub mod background;
 pub mod image;
 pub mod root;
+pub mod text;
 
-use crate::vertex::Vertex;
-use wgpu::{util::DeviceExt, Buffer};
+use crate::{
+    app::AppEvent,
+    color::Color,
+    wgpu_ctx::{AppPipelines, WgpuCtx},
+};
+use background::BackgroundComponent;
+use image::ImageComponent;
+use text::TextComponent;
+use uuid::Uuid;
 
 pub trait Component {
+    fn id(&self) -> Uuid;
     fn update(&mut self, queue: &wgpu::Queue);
-    fn draw<'a>(&'a self, render_pass: &mut dyn RenderPassExt<'a>);
-    fn resize(&mut self, queue: &wgpu::Queue, device: &wgpu::Device, width: u32, height: u32);
+    fn draw<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, app_pipelines: &mut AppPipelines);
+    fn resize(&mut self, wgpu_ctx: &WgpuCtx, width: u32, height: u32);
     fn set_position(
         &mut self,
         queue: &wgpu::Queue,
@@ -17,45 +25,24 @@ pub trait Component {
         position: ComponentPosition,
     );
     fn handle_mouse_click(&mut self, x: f32, y: f32) -> bool; // Returns true if click was handled
-
-    // New methods for managing child components
+    fn send_event(&self, event: AppEvent);
     fn add_child(&mut self, child: Box<dyn Component>);
-    fn remove_child(&mut self, index: usize) -> Option<Box<dyn Component>>;
-    fn get_children(&self) -> &Vec<Box<dyn Component>>;
-    fn get_children_mut(&mut self) -> &mut Vec<Box<dyn Component>>;
-
     fn get_bounds(&self) -> Bounds;
-    fn get_anchor_position(&self, anchor: Anchor) -> (f32, f32) {
-        self.get_bounds().get_anchor_position(anchor)
-    }
+    fn component_type(&self) -> ComponentType;
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
-pub trait RenderPassExt<'a> {
-    fn parent_pipeline(&self) -> &'a wgpu::RenderPipeline;
-    fn texture_pipeline(&self) -> &'a wgpu::RenderPipeline;
-    fn set_pipeline(&mut self, pipeline: &'a wgpu::RenderPipeline);
-    fn set_bind_group(
-        &mut self,
-        index: u32,
-        bind_group: &'a wgpu::BindGroup,
-        offsets: &[wgpu::DynamicOffset],
-    );
-    fn set_vertex_buffer(&mut self, slot: u32, buffer: wgpu::BufferSlice<'a>);
-    fn set_index_buffer(&mut self, buffer: wgpu::BufferSlice<'a>, index_format: wgpu::IndexFormat);
-    fn draw_indexed(
-        &mut self,
-        indices: std::ops::Range<u32>,
-        base_vertex: i32,
-        instances: std::ops::Range<u32>,
-    );
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComponentType {
+    Container,
+    Other
 }
 
-pub struct DrawableComponent {
-    pub vertex_buffer: Buffer,
-    pub index_buffer: Buffer,
-    pub bind_group: wgpu::BindGroup,
-    pub vertices: Vec<Vertex>,
-    pub indices: Vec<u16>,
+// TODO: Use this in ComponentSize
+pub enum FlexValue {
+    Fit,
+    Fill,
+    Fixed(f32),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -89,33 +76,6 @@ pub struct Bounds {
     pub size: ComponentSize,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum Anchor {
-    TopLeft,
-    Top,
-    TopRight,
-    Left,
-    Center,
-    Right,
-    BottomLeft,
-    Bottom,
-    BottomRight,
-}
-
-#[derive(Debug, Clone)]
-pub enum ComponentBackground {
-    None,
-    Color {
-        color: [f32; 4],
-    },
-    Gradient {
-        start_color: [f32; 4],
-        end_color: [f32; 4],
-        angle: f32, // angle in radians
-    },
-    Image(String),
-}
-
 impl Bounds {
     pub fn new(position: ComponentPosition, size: ComponentSize) -> Self {
         Self { position, size }
@@ -146,109 +106,101 @@ impl Bounds {
             ),
         }
     }
+
+    pub fn to_text_bounds(self) -> glyphon::TextBounds {
+        glyphon::TextBounds {
+            left: (self.position.x).round() as i32,
+            top: (self.position.y).round() as i32,
+            right: (self.position.x + self.size.width).round() as i32,
+            bottom: (self.position.y + self.size.height).round() as i32,
+        }
+    }
 }
 
-pub fn create_background_component(
-    device: &wgpu::Device,
-    bounds: Bounds,
-    start_color: [f32; 4],
-    end_color: [f32; 4],
-    angle: f32,
-) -> DrawableComponent {
-    // Calculate gradient direction vector based on angle
-    let (sin, cos) = angle.sin_cos();
-    let direction = [cos, sin];
+#[derive(Debug, Copy, Clone)]
+pub enum Anchor {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
 
-    // Calculate colors for each corner
-    let corners = [
-        [0.0, 0.0], // Top-left
-        [1.0, 0.0], // Top-right
-        [1.0, 1.0], // Bottom-right
-        [0.0, 1.0], // Bottom-left
-    ];
+#[derive(Debug, Clone)]
+pub struct ComponentTextConfig {
+    pub text: String,
+    pub anchor: Anchor,
+    pub color: Color,
+}
 
-    let colors: Vec<[f32; 4]> = corners
-        .iter()
-        .map(|corner| {
-            let projection = corner[0] * direction[0] + corner[1] * direction[1];
-            let t = (projection + 1.0) / 2.0;
-            [
-                start_color[0] * (1.0 - t) + end_color[0] * t,
-                start_color[1] * (1.0 - t) + end_color[1] * t,
-                start_color[2] * (1.0 - t) + end_color[2] * t,
-                start_color[3] * (1.0 - t) + end_color[3] * t,
-            ]
-        })
-        .collect();
+#[derive(Debug, Clone)]
+pub struct ComponentTextOnImageConfig {
+    pub text: String,
+    pub anchor: Anchor,
+    pub text_color: Color,
+    pub image_path: String,
+}
 
-    // Initial vertices in non-NDC space (will be converted during resize)
-    let vertices = vec![
-        Vertex::new(
-            [bounds.position.x, bounds.position.y, 0.0],
-            colors[0],
-            [0.0, 0.0],
-        ),
-        Vertex::new(
-            [
-                bounds.position.x + bounds.size.width,
-                bounds.position.y,
-                0.0,
-            ],
-            colors[1],
-            [1.0, 0.0],
-        ),
-        Vertex::new(
-            [
-                bounds.position.x + bounds.size.width,
-                bounds.position.y + bounds.size.height,
-                0.0,
-            ],
-            colors[2],
-            [1.0, 1.0],
-        ),
-        Vertex::new(
-            [
-                bounds.position.x,
-                bounds.position.y + bounds.size.height,
-                0.0,
-            ],
-            colors[3],
-            [0.0, 1.0],
-        ),
-    ];
+#[derive(Debug, Clone)]
+pub struct ComponentTextOnColorConfig {
+    pub text: String,
+    pub anchor: Anchor,
+    pub text_color: Color,
+    pub background_color: Color,
+}
 
-    let indices = vec![0, 1, 2, 0, 2, 3];
+#[derive(Debug, Clone)]
+pub struct ComponentTextOnGradientConfig {
+    pub text: String,
+    pub anchor: Anchor,
+    pub text_color: Color,
+    pub start_color: Color,
+    pub end_color: Color,
+    pub angle: f32,
+}
 
-    // Create buffers
-    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Background Vertex Buffer"),
-        contents: bytemuck::cast_slice(&vertices),
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-    });
+#[derive(Debug, Clone)]
+pub enum ComponentBackgroundConfig {
+    None,
+    Color {
+        color: Color,
+    },
+    Gradient {
+        start_color: Color,
+        end_color: Color,
+        angle: f32, // angle in radians
+    },
+    Image(String),
+    Text(ComponentTextConfig),
+    TextOnImage(ComponentTextOnImageConfig),
+    TextOnColor(ComponentTextOnColorConfig),
+    TextOnGradient(ComponentTextOnGradientConfig),
+}
 
-    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Background Index Buffer"),
-        contents: bytemuck::cast_slice(&indices),
-        usage: wgpu::BufferUsages::INDEX,
-    });
+pub enum ComponentRenderable {
+    Background(BackgroundComponent),
+    Image(ImageComponent),
+    Text(TextComponent),
+    TextOnBackground(TextComponent, BackgroundComponent),
+    TextOnImage(TextComponent, ImageComponent),
+}
 
-    // Create an empty bind group for solid colors and gradients
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[],
-        label: Some("Background Bind Group Layout"),
-    });
-
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &bind_group_layout,
-        entries: &[],
-        label: Some("Background Bind Group"),
-    });
-
-    DrawableComponent {
-        vertex_buffer,
-        index_buffer,
-        bind_group,
-        vertices,
-        indices,
+impl ComponentRenderable {
+    pub fn draw<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        app_pipelines: &mut AppPipelines,
+    ) {
+        match self {
+            ComponentRenderable::Background(bg) => bg.draw(render_pass, app_pipelines),
+            ComponentRenderable::Image(img) => img.draw(render_pass, app_pipelines),
+            ComponentRenderable::Text(_) => (),
+            ComponentRenderable::TextOnBackground(_, bg) => bg.draw(render_pass, app_pipelines),
+            ComponentRenderable::TextOnImage(_, img) => img.draw(render_pass, app_pipelines),
+        }
     }
 }

@@ -1,13 +1,15 @@
-use super::{
-    Bounds, Component, ComponentPosition, ComponentSize, DrawableComponent, RenderPassExt,
-};
+use super::ComponentType;
+use super::{background::BackgroundComponent, Bounds, Component, ComponentPosition, ComponentSize};
 use crate::img_utils::RgbaImg;
 use crate::vertex::Vertex;
+use crate::wgpu_ctx::{PipelinePreference, WgpuCtx};
+use uuid::Uuid;
 use wgpu::util::DeviceExt;
 use wgpu::SamplerDescriptor;
 
 pub struct ImageComponent {
-    drawable: DrawableComponent,
+    id: Uuid,
+    bg_component: BackgroundComponent,
     size: ComponentSize,
     position: ComponentPosition,
     children: Vec<Box<dyn Component>>,
@@ -21,6 +23,7 @@ impl ImageComponent {
         size: ComponentSize,
         position: ComponentPosition,
     ) -> Self {
+        let id = Uuid::new_v4();
         let img = RgbaImg::new(texture_path).unwrap();
         let vertices = create_vertices(position.x, position.y, size.width, size.height);
 
@@ -118,12 +121,14 @@ impl ImageComponent {
         });
 
         Self {
-            drawable: DrawableComponent {
+            id,
+            bg_component: BackgroundComponent {
                 vertex_buffer,
                 index_buffer,
                 bind_group,
                 vertices,
                 indices,
+                pipeline_preference: PipelinePreference::Texture,
             },
             size,
             position,
@@ -133,56 +138,65 @@ impl ImageComponent {
 }
 
 impl Component for ImageComponent {
+    fn id(&self) -> Uuid {
+        self.id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn component_type(&self) -> super::ComponentType {
+        ComponentType::Other
+    }
+
+    fn send_event(&self, _event: crate::app::AppEvent) {}
+
     fn update(&mut self, queue: &wgpu::Queue) {
         queue.write_buffer(
-            &self.drawable.vertex_buffer,
+            &self.bg_component.vertex_buffer,
             0,
-            bytemuck::cast_slice(&self.drawable.vertices),
+            bytemuck::cast_slice(&self.bg_component.vertices),
         );
     }
 
-    fn draw<'a>(&'a self, render_pass: &mut dyn RenderPassExt<'a>) {
-        render_pass.set_bind_group(0, &self.drawable.bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.drawable.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(
-            self.drawable.index_buffer.slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
-        render_pass.draw_indexed(0..self.drawable.indices.len() as u32, 0, 0..1);
+    fn draw<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
+    ) {
+        self.bg_component.draw(render_pass, app_pipelines);
 
         // Draw all children
         for child in &self.children {
-            child.draw(render_pass);
+            child.draw(render_pass, app_pipelines);
         }
     }
 
-    fn resize(&mut self, queue: &wgpu::Queue, device: &wgpu::Device, width: u32, height: u32) {
-        // Convert pixel coordinates to NDC coordinates using top-left as reference
-        let ndc_x = (self.position.x / width as f32) * 2.0 - 1.0;
-        let ndc_y = 1.0 - (self.position.y / height as f32) * 2.0;
-        let ndc_width = (self.size.width / width as f32) * 2.0;
-        let ndc_height = (self.size.height / height as f32) * 2.0;
+    fn resize(&mut self, wgpu_ctx: &WgpuCtx, width: u32, height: u32) {
+        let stored_position = self.position;
+        let stored_size = self.size;
 
-        // Create vertices with top-left positioning
-        self.drawable.vertices = create_vertices(ndc_x, ndc_y, ndc_width, ndc_height);
-        self.update(queue);
+        let ndc_x = (stored_position.x / width as f32) * 2.0 - 1.0;
+        let ndc_y = -((stored_position.y / height as f32) * 2.0 - 1.0);
+        let ndc_width = (stored_size.width / width as f32) * 2.0;
+        let ndc_height = (stored_size.height / height as f32) * 2.0;
 
-        // Resize children
+        self.bg_component.vertices = create_vertices(ndc_x, ndc_y, ndc_width, ndc_height);
+        self.update(&wgpu_ctx.queue);
+
         for child in &mut self.children {
-            child.resize(queue, device, width, height);
+            child.resize(wgpu_ctx, width, height);
         }
     }
 
     fn set_position(
         &mut self,
-        queue: &wgpu::Queue,
+        _queue: &wgpu::Queue,
         _device: &wgpu::Device,
         position: ComponentPosition,
     ) {
         self.position = position;
-        self.drawable.vertices =
-            create_vertices(position.x, position.y, self.size.width, self.size.height);
-        self.update(queue);
     }
 
     fn handle_mouse_click(&mut self, x: f32, y: f32) -> bool {
@@ -198,22 +212,6 @@ impl Component for ImageComponent {
     // Implement new Component trait methods
     fn add_child(&mut self, child: Box<dyn Component>) {
         self.children.push(child);
-    }
-
-    fn remove_child(&mut self, index: usize) -> Option<Box<dyn Component>> {
-        if index < self.children.len() {
-            Some(self.children.remove(index))
-        } else {
-            None
-        }
-    }
-
-    fn get_children(&self) -> &Vec<Box<dyn Component>> {
-        &self.children
-    }
-
-    fn get_children_mut(&mut self) -> &mut Vec<Box<dyn Component>> {
-        &mut self.children
     }
 
     fn get_bounds(&self) -> Bounds {
