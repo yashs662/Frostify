@@ -11,18 +11,19 @@ use crate::{
     vertex::Vertex,
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{debug, error, trace, warn};
+use log::{debug, error, warn};
 use uuid::Uuid;
 use wgpu::{util::DeviceExt, SamplerDescriptor};
 
 #[derive(Debug, Clone)]
 pub struct Component {
     pub id: Uuid,
+    pub debug_name: String,
     pub component_type: ComponentType,
     pub transform: ComponentTransform,
     pub layout: Layout,
-    pub children: Vec<Uuid>,
-    pub parent: Option<Uuid>,
+    children: Vec<Uuid>,
+    parent: Option<Uuid>,
     pub metadata: Vec<ComponentMetaData>,
     pub config: Option<ComponentConfig>,
 }
@@ -73,6 +74,7 @@ impl Component {
     pub fn new(id: Uuid, component_type: ComponentType) -> Self {
         Self {
             id,
+            debug_name: format!("{:?}:{:?}", component_type, id),
             component_type,
             transform: ComponentTransform {
                 size: Size::fill(),
@@ -88,117 +90,29 @@ impl Component {
         }
     }
 
+    pub fn get_parent_id(&self) -> Option<Uuid> {
+        self.parent
+    }
+
+    pub fn set_debug_name(&mut self, name: &str) {
+        self.debug_name = name.to_string();
+    }
+
+    pub fn get_all_children_ids(&self) -> Vec<Uuid> {
+        let mut children = Vec::new();
+        for child_id in &self.children {
+            children.push(*child_id);
+        }
+        children
+    }
+
     pub fn set_z_index(&mut self, z_index: i32) {
         self.transform.z_index = z_index;
     }
 
-    fn get_indices(&self) -> Vec<u16> {
-        vec![0, 1, 2, 0, 2, 3]
-    }
-
-    fn calculate_vertices(&self, bounds: Bounds) -> Vec<Vertex> {
-        let color = match &self.config {
-            Some(ComponentConfig::BackgroundColor(bg_config)) => bg_config.color.value(),
-            Some(ComponentConfig::Image(_)) => Color::White.value(),
-            _ => return Vec::new(),
-        };
-
-        // Define the four corners of the quad
-        let vertices = vec![
-            // Top left
-            Vertex::new(
-                [bounds.position.x, bounds.position.y, 0.0],
-                color,
-                [0.0, 0.0],
-            ),
-            // Top right
-            Vertex::new(
-                [
-                    bounds.position.x + bounds.size.width,
-                    bounds.position.y,
-                    0.0,
-                ],
-                color,
-                [1.0, 0.0],
-            ),
-            // Bottom right
-            Vertex::new(
-                [
-                    bounds.position.x + bounds.size.width,
-                    bounds.position.y - bounds.size.height,
-                    0.0,
-                ],
-                color,
-                [1.0, 1.0],
-            ),
-            // Bottom left
-            Vertex::new(
-                [
-                    bounds.position.x,
-                    bounds.position.y - bounds.size.height,
-                    0.0,
-                ],
-                color,
-                [0.0, 1.0],
-            ),
-        ];
-
-        vertices
-    }
-
-    fn convert_to_ndc(&self, bounds: Bounds, screen_size: ComponentSize) -> Bounds {
-        let ndc_x = (bounds.position.x / screen_size.width) * 2.0 - 1.0;
-        let ndc_y = ((1.0 - bounds.position.y / screen_size.height) * 2.0) - 1.0;
-        let ndc_width = (bounds.size.width / screen_size.width) * 2.0;
-        let ndc_height = (bounds.size.height / screen_size.height) * 2.0;
-
-        Bounds {
-            position: ComponentPosition { x: ndc_x, y: ndc_y },
-            size: ComponentSize {
-                width: ndc_width,
-                height: ndc_height,
-            },
-        }
-    }
-
-    fn get_metadata<T>(&self, matcher: fn(&ComponentMetaData) -> Option<&T>) -> Option<&T> {
-        self.metadata.iter().find_map(matcher)
-    }
-
-    fn get_vertex_buffer(&self) -> Option<&wgpu::Buffer> {
-        self.get_metadata(|m| match m {
-            ComponentMetaData::VertexBuffer(buf) => Some(buf),
-            _ => None,
-        })
-    }
-
-    fn get_index_buffer(&self) -> Option<&wgpu::Buffer> {
-        self.get_metadata(|m| match m {
-            ComponentMetaData::IndexBuffer(buf) => Some(buf),
-            _ => None,
-        })
-    }
-
-    fn get_bind_group(&self) -> Option<&wgpu::BindGroup> {
-        self.get_metadata(|m| match m {
-            ComponentMetaData::BindGroup(group) => Some(group),
-            _ => None,
-        })
-    }
-
     pub fn draw(&self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
         if self.config.is_none() {
-            warn!(
-                "Component with id: {}, type: {:?} has no configuration",
-                self.id, self.component_type
-            );
             return;
-        } else {
-            trace!(
-                "Drawing component with id: {} type: {:?}",
-                self.id,
-                self.component_type
-            );
         }
 
         match self.component_type {
@@ -256,10 +170,7 @@ impl Component {
                 render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
             }
             ComponentType::Button | ComponentType::Container => {
-                warn!(
-                    "Component with id: {}, type: {:?} is not drawable",
-                    self.id, self.component_type
-                );
+                // Containers and buttons are not drawn directly
             }
         }
     }
@@ -516,5 +427,99 @@ impl Component {
 
     pub fn set_parent(&mut self, parent_id: Uuid) {
         self.parent = Some(parent_id);
+    }
+
+    fn get_indices(&self) -> Vec<u16> {
+        vec![0, 1, 2, 0, 2, 3]
+    }
+
+    fn calculate_vertices(&self, bounds: Bounds) -> Vec<Vertex> {
+        let color = match &self.config {
+            Some(ComponentConfig::BackgroundColor(bg_config)) => bg_config.color.value(),
+            Some(ComponentConfig::Image(_)) => Color::White.value(),
+            _ => return Vec::new(),
+        };
+
+        // Define the four corners of the quad
+        let vertices = vec![
+            // Top left
+            Vertex::new(
+                [bounds.position.x, bounds.position.y, 0.0],
+                color,
+                [0.0, 0.0],
+            ),
+            // Top right
+            Vertex::new(
+                [
+                    bounds.position.x + bounds.size.width,
+                    bounds.position.y,
+                    0.0,
+                ],
+                color,
+                [1.0, 0.0],
+            ),
+            // Bottom right
+            Vertex::new(
+                [
+                    bounds.position.x + bounds.size.width,
+                    bounds.position.y - bounds.size.height,
+                    0.0,
+                ],
+                color,
+                [1.0, 1.0],
+            ),
+            // Bottom left
+            Vertex::new(
+                [
+                    bounds.position.x,
+                    bounds.position.y - bounds.size.height,
+                    0.0,
+                ],
+                color,
+                [0.0, 1.0],
+            ),
+        ];
+
+        vertices
+    }
+
+    fn convert_to_ndc(&self, bounds: Bounds, screen_size: ComponentSize) -> Bounds {
+        let ndc_x = (bounds.position.x / screen_size.width) * 2.0 - 1.0;
+        let ndc_y = ((1.0 - bounds.position.y / screen_size.height) * 2.0) - 1.0;
+        let ndc_width = (bounds.size.width / screen_size.width) * 2.0;
+        let ndc_height = (bounds.size.height / screen_size.height) * 2.0;
+
+        Bounds {
+            position: ComponentPosition { x: ndc_x, y: ndc_y },
+            size: ComponentSize {
+                width: ndc_width,
+                height: ndc_height,
+            },
+        }
+    }
+
+    fn get_metadata<T>(&self, matcher: fn(&ComponentMetaData) -> Option<&T>) -> Option<&T> {
+        self.metadata.iter().find_map(matcher)
+    }
+
+    fn get_vertex_buffer(&self) -> Option<&wgpu::Buffer> {
+        self.get_metadata(|m| match m {
+            ComponentMetaData::VertexBuffer(buf) => Some(buf),
+            _ => None,
+        })
+    }
+
+    fn get_index_buffer(&self) -> Option<&wgpu::Buffer> {
+        self.get_metadata(|m| match m {
+            ComponentMetaData::IndexBuffer(buf) => Some(buf),
+            _ => None,
+        })
+    }
+
+    fn get_bind_group(&self) -> Option<&wgpu::BindGroup> {
+        self.get_metadata(|m| match m {
+            ComponentMetaData::BindGroup(group) => Some(group),
+            _ => None,
+        })
     }
 }

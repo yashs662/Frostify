@@ -2,8 +2,8 @@ use crate::{
     ui::component::{Component, ComponentType},
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{debug, error, trace};
-use std::collections::HashMap;
+use log::{debug, error};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
@@ -178,10 +178,11 @@ pub struct Layout {
 // LayoutContext to manage component relationships and computed layouts
 #[derive(Debug, Default)]
 pub struct LayoutContext {
-    components: HashMap<Uuid, Component>,
-    computed_bounds: HashMap<Uuid, Bounds>,
+    components: BTreeMap<Uuid, Component>,
+    computed_bounds: BTreeMap<Uuid, Bounds>,
     viewport_size: ComponentSize,
     render_order: Vec<Uuid>,
+    initialized: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -321,12 +322,12 @@ impl Layout {
         layout
     }
 
-    pub fn with_padding(mut self, padding: Edges) -> Self {
+    pub fn with_padding(&mut self, padding: Edges) -> &mut Self {
         self.padding = padding;
         self
     }
 
-    pub fn with_margin(mut self, margin: Edges) -> Self {
+    pub fn with_margin(&mut self, margin: Edges) -> &mut Self {
         self.margin = margin;
         self
     }
@@ -416,9 +417,42 @@ impl FlexValue {
 
 // Layout Context implementation
 impl LayoutContext {
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    pub fn get_computed_bounds(&self) -> &BTreeMap<Uuid, Bounds> {
+        &self.computed_bounds
+    }
+
+    pub fn initialize(&mut self, width: f32, height: f32) {
+        self.viewport_size = ComponentSize { width, height };
+        self.initialized = true;
+        self.compute_layout();
+    }
+
+    pub fn debug_print_computed_bounds(&self) {
+        // Get all entries and sort them by component name
+        let mut debug_bounds: Vec<(String, Bounds)> = self
+            .computed_bounds
+            .iter()
+            .filter_map(|(id, bounds)| {
+                self.get_component(id)
+                    .map(|component| (component.debug_name.clone(), *bounds))
+            })
+            .collect();
+        debug_bounds.sort_by(|a, b| a.0.cmp(&b.0));
+
+        debug!(
+            "Computed bounds: {:#?}",
+            debug_bounds
+                .into_iter()
+                .collect::<std::collections::BTreeMap<_, _>>()
+        );
+    }
+
     pub fn draw(&self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
         for id in &self.render_order {
-            trace!("Drawing component id: {}", id);
             if let Some(component) = self.get_component(id) {
                 if component.component_type == ComponentType::Label {
                     // Text rendering is done in a separate pass
@@ -429,7 +463,7 @@ impl LayoutContext {
                     component.draw(render_pass, app_pipelines);
                 } else {
                     // check if component has a parent if so get the parent's bounds
-                    if let Some(parent_id) = &component.parent {
+                    if let Some(parent_id) = &component.get_parent_id() {
                         if let Some(parent_bounds) = self.computed_bounds.get(parent_id) {
                             component.draw(render_pass, app_pipelines);
                         } else {
@@ -455,6 +489,18 @@ impl LayoutContext {
     }
 
     pub fn add_component(&mut self, component: Component) {
+        if component.transform.position_type == Position::Flex
+            && component.get_parent_id().is_none()
+        {
+            error!("Flex component with id {} must have a parent", component.id);
+            return;
+        }
+
+        debug!(
+            "Adding component {:?} with position type {:?}",
+            component.id, component.transform.position_type
+        );
+
         self.components.insert(component.id, component);
     }
 
@@ -477,28 +523,42 @@ impl LayoutContext {
                 component.set_position(wgpu_ctx, *bounds, screen_size);
 
                 // set_position for children
-                children.extend(component.children.clone());
+                children.extend(component.get_all_children_ids());
             }
 
             while let Some(child_id) = children.pop() {
                 if let Some(child) = self.components.get_mut(&child_id) {
-                    if let Some(parent_bounds) = self.computed_bounds.get(&child.parent.unwrap()) {
+                    if let Some(parent_bounds) =
+                        self.computed_bounds.get(&child.get_parent_id().unwrap())
+                    {
                         child.set_position(wgpu_ctx, *parent_bounds, screen_size);
                     }
-                    children.extend(child.children.clone());
+                    children.extend(child.get_all_children_ids());
                 }
             }
         }
     }
 
     pub fn compute_layout(&mut self) {
+        if !self.initialized {
+            error!("Attempting to compute layout before initialization");
+            return;
+        }
+
+        debug!("Computing layout for {} components", self.components.len());
+
+        // Clear previous computed bounds
+        self.computed_bounds.clear();
+
         // Find root components (those without parents)
         let root_components: Vec<Uuid> = self
             .components
             .values()
-            .filter(|c| c.parent.is_none())
+            .filter(|c| c.get_parent_id().is_none())
             .map(|c| c.id)
             .collect();
+
+        debug!("Found {} root components", root_components.len());
 
         // Compute layout for each root component
         for root_id in root_components {
@@ -514,16 +574,33 @@ impl LayoutContext {
         // Sort by z-index lowest to highest
         render_order.sort_by(|a, b| a.0.cmp(&b.0));
         self.render_order = render_order.iter().map(|(_, id)| *id).collect();
+
+        self.debug_print_computed_bounds();
     }
 
     fn compute_component_layout(&mut self, component_id: &Uuid, parent_bounds: Option<Bounds>) {
-        let component = self.get_component(component_id).unwrap().clone();
+        let component = match self.get_component(component_id) {
+            Some(c) => c.clone(),
+            None => {
+                error!("Component {:?} not found during layout", component_id);
+                return;
+            }
+        };
 
-        // Determine the available space based on parent bounds or viewport
-        let available_space = parent_bounds.unwrap_or(Bounds {
-            position: ComponentPosition { x: 0.0, y: 0.0 },
-            size: self.viewport_size,
-        });
+        debug!("Computing layout for component {:?}", component_id);
+
+        // For root components with Position::Absolute, use viewport as available space
+        let available_space = match (parent_bounds, component.transform.position_type) {
+            (None, Position::Absolute(_)) => Bounds {
+                position: ComponentPosition { x: 0.0, y: 0.0 },
+                size: self.viewport_size,
+            },
+            (Some(bounds), _) => bounds,
+            _ => Bounds {
+                position: ComponentPosition { x: 0.0, y: 0.0 },
+                size: self.viewport_size,
+            },
+        };
 
         // Calculate this component's bounds based on layout properties
         let bounds = self.calculate_bounds(&component, available_space);
@@ -547,74 +624,26 @@ impl LayoutContext {
     }
 
     fn calculate_flex_bounds(&self, component: &Component, available_space: Bounds) -> Bounds {
-        // Get available width and height, accounting for parent's padding/margin/border
-        let available_width = available_space.size.width;
-        let available_height = available_space.size.height;
-
-        // Resolve component size based on FlexValues
-        let width = component
-            .transform
-            .size
-            .width
-            .resolve(available_width, self.viewport_size.width);
-
-        let height = component
-            .transform
-            .size
-            .height
-            .resolve(available_height, self.viewport_size.height);
-
-        // Apply min/max constraints
-        let min_width = component
-            .transform
-            .size
-            .min_width
-            .resolve(available_width, self.viewport_size.width);
-
-        let min_height = component
-            .transform
-            .size
-            .min_height
-            .resolve(available_height, self.viewport_size.height);
-
-        let max_width = component
-            .transform
-            .size
-            .max_width
-            .resolve(available_width, self.viewport_size.width);
-
-        let max_height = component
-            .transform
-            .size
-            .max_height
-            .resolve(available_height, self.viewport_size.height);
-
-        // Apply constraints
-        let constrained_width = if max_width > 0.0 {
-            f32::min(width, max_width)
-        } else {
-            width
+        // For flex items, inherit full size from parent when not explicitly set
+        let width = match &component.transform.size.width {
+            FlexValue::Fixed(w) => *w,
+            FlexValue::Fill | FlexValue::Auto => available_space.size.width,
+            _ => available_space.size.width, // Default to parent width
         };
 
-        let constrained_width = f32::max(constrained_width, min_width);
-
-        let constrained_height = if max_height > 0.0 {
-            f32::min(height, max_height)
-        } else {
-            height
+        let height = match &component.transform.size.height {
+            FlexValue::Fixed(h) => *h,
+            FlexValue::Fill | FlexValue::Auto => available_space.size.height,
+            _ => available_space.size.height, // Default to parent height
         };
 
-        let constrained_height = f32::max(constrained_height, min_height);
-
-        // Default position (will be adjusted by parent's layout_children)
-        let position = available_space.position;
-
+        // Maintain position relative to parent's content area
         Bounds {
-            position,
-            size: ComponentSize {
-                width: constrained_width,
-                height: constrained_height,
+            position: ComponentPosition {
+                x: available_space.position.x,
+                y: available_space.position.y,
             },
+            size: ComponentSize { width, height },
         }
     }
 
@@ -697,7 +726,7 @@ impl LayoutContext {
 
     fn calculate_grid_bounds(&self, component: &Component, available_space: Bounds) -> Bounds {
         if let Position::Grid(row, col) = component.transform.position_type {
-            if let Some(parent_id) = &component.parent {
+            if let Some(parent_id) = &component.get_parent_id() {
                 if let Some(parent) = self.get_component(parent_id) {
                     if let Some(grid) = &parent.layout.grid {
                         // Calculate cell position and size
@@ -755,12 +784,11 @@ impl LayoutContext {
         let parent = self.get_component(parent_id).unwrap().clone();
         let layout = &parent.layout;
 
-        // If no children or component not visible, skip layout
-        if parent.children.is_empty() || !layout.visible {
+        if parent.get_all_children_ids().is_empty() || !layout.visible {
             return;
         }
 
-        // Calculate available space for children
+        // Calculate available space for children inside the parent's content area
         let content_space = Bounds {
             position: ComponentPosition {
                 x: parent_bounds.position.x + layout.padding.left + layout.border.left,
@@ -780,293 +808,198 @@ impl LayoutContext {
             },
         };
 
-        // Sort children by order property (CSS order)
-        let mut sorted_children: Vec<(Uuid, &Component)> = parent
-            .children
+        let self_components = self.components.clone();
+        let mut children: Vec<(Uuid, &Component)> = parent
+            .get_all_children_ids()
             .iter()
-            .filter_map(|id| self.components.get(id).map(|component| (*id, component)))
+            .filter_map(|id| self_components.get(id).map(|component| (*id, component)))
             .collect();
 
-        sorted_children.sort_by_key(|(_, component)| component.layout.order);
+        children.sort_by_key(|(_, comp)| comp.layout.order);
 
-        // First pass: Measure all children to determine total flex and sizes
-        let mut flex_items: Vec<FlexItem> = Vec::new();
-        let mut total_main_size = 0.0;
+        let is_row = matches!(
+            layout.direction,
+            FlexDirection::Row | FlexDirection::RowReverse
+        );
+
+        // Calculate total sizes and flex grow
+        let mut total_fixed_size = 0.0;
         let mut total_flex_grow = 0.0;
-        let mut total_flex_shrink = 0.0;
+        let mut num_auto_sized = 0;
+        let mut num_flex_items = 0;
 
-        let is_horizontal = match layout.direction {
-            FlexDirection::Row | FlexDirection::RowReverse => true,
-            FlexDirection::Column | FlexDirection::ColumnReverse => false,
-        };
-
-        // First pass: Calculate child sizes
-        for (child_id, child) in &sorted_children {
-            // Skip invisible children
-            if !child.layout.visible {
+        for (_, child) in &children {
+            // Skip absolute positioned items in flex calculations
+            if matches!(child.transform.position_type, Position::Absolute(_)) {
                 continue;
             }
 
-            // Get measure size for the child
-            let child_bounds = self.calculate_bounds(child, content_space);
-
-            // Create a flex item for layout calculations
-            let flex_item = FlexItem {
-                id: *child_id,
-                bounds: child_bounds,
-                margin: child.layout.margin,
-                flex_grow: child.layout.flex_grow,
-                flex_shrink: child.layout.flex_shrink,
-                align_self: child.layout.align_self,
-            };
-
-            // Add to total sizes
-            let main_size = if is_horizontal {
-                flex_item.bounds.size.width + child.layout.margin.left + child.layout.margin.right
+            if is_row {
+                match &child.transform.size.width {
+                    FlexValue::Fixed(w) => total_fixed_size += w,
+                    FlexValue::Fill => {
+                        total_flex_grow += child.layout.flex_grow.max(1.0);
+                        num_flex_items += 1;
+                    }
+                    FlexValue::Auto => num_auto_sized += 1,
+                    _ => {}
+                }
             } else {
-                flex_item.bounds.size.height + child.layout.margin.top + child.layout.margin.bottom
-            };
-
-            total_main_size += main_size;
-            total_flex_grow += child.layout.flex_grow;
-            total_flex_shrink += child.layout.flex_shrink;
-
-            flex_items.push(flex_item);
+                match &child.transform.size.height {
+                    FlexValue::Fixed(h) => total_fixed_size += h,
+                    FlexValue::Fill => {
+                        total_flex_grow += child.layout.flex_grow.max(1.0);
+                        num_flex_items += 1;
+                    }
+                    FlexValue::Auto => num_auto_sized += 1,
+                    _ => {}
+                }
+            }
         }
 
-        // Second pass: Apply flex layout
-        let main_axis_size = if is_horizontal {
+        let main_axis_size = if is_row {
             content_space.size.width
         } else {
             content_space.size.height
         };
 
-        let free_space = main_axis_size - total_main_size;
+        let remaining_space = (main_axis_size - total_fixed_size).max(0.0);
+        let space_per_flex_unit = if total_flex_grow > 0.0 {
+            remaining_space / total_flex_grow
+        } else if num_auto_sized > 0 {
+            remaining_space / num_auto_sized as f32
+        } else {
+            0.0
+        };
 
-        // Distribute available space based on flex-grow/shrink
-        if free_space > 0.0 && total_flex_grow > 0.0 {
-            // Positive free space - distribute according to flex-grow
-            for flex_item in &mut flex_items {
-                if flex_item.flex_grow > 0.0 {
-                    let grow_amount = free_space * (flex_item.flex_grow / total_flex_grow);
-
-                    if is_horizontal {
-                        flex_item.bounds.size.width += grow_amount;
-                    } else {
-                        flex_item.bounds.size.height += grow_amount;
-                    }
-                }
-            }
-        } else if free_space < 0.0 && total_flex_shrink > 0.0 {
-            // Negative free space - distribute according to flex-shrink
-            for flex_item in &mut flex_items {
-                if flex_item.flex_shrink > 0.0 {
-                    let shrink_amount = (-free_space) * (flex_item.flex_shrink / total_flex_shrink);
-
-                    if is_horizontal {
-                        flex_item.bounds.size.width =
-                            f32::max(0.0, flex_item.bounds.size.width - shrink_amount);
-                    } else {
-                        flex_item.bounds.size.height =
-                            f32::max(0.0, flex_item.bounds.size.height - shrink_amount);
-                    }
-                }
-            }
-        }
-
-        // Third pass: Position items according to justification and alignment
-        let mut main_pos = if is_horizontal {
+        // Initialize current position using content_space position
+        let mut current_main = if is_row {
             content_space.position.x
         } else {
             content_space.position.y
         };
 
-        // Apply justification
-        match layout.justify_content {
-            JustifyContent::Start => {
-                // Start alignment is the default
+        // Layout each child
+        for (child_id, child) in children {
+            // Handle absolute positioned items separately
+            if let Position::Absolute(anchor) = child.transform.position_type {
+                // Absolute positioned items get positioned directly at the position they specify
+                let absolute_bounds = self.calculate_absolute_bounds(child, anchor);
+                self.computed_bounds.insert(child_id, absolute_bounds);
+                self.compute_component_layout(&child_id, Some(absolute_bounds));
+                continue;
             }
-            JustifyContent::Center => {
-                // Center items along the main axis
-                main_pos += free_space / 2.0;
-            }
-            JustifyContent::End => {
-                // End alignment
-                main_pos += free_space;
-            }
-            JustifyContent::SpaceBetween => {
-                // Space items evenly with no space at the ends
-                if flex_items.len() > 1 {
-                    let space_between = free_space / (flex_items.len() as f32 - 1.0);
 
-                    for (i, flex_item) in flex_items.iter_mut().enumerate() {
-                        if is_horizontal {
-                            flex_item.bounds.position.x = main_pos + (i as f32 * space_between);
+            // For non-absolute positioned items, calculate size based on flex rules
+            let main_size = if is_row {
+                match &child.transform.size.width {
+                    FlexValue::Fixed(w) => *w,
+                    FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
+                    FlexValue::Auto => {
+                        if num_flex_items == 0 && num_auto_sized > 0 {
+                            space_per_flex_unit // Distribute remaining space among auto items when no fill items
                         } else {
-                            flex_item.bounds.position.y = main_pos + (i as f32 * space_between);
+                            content_space.size.width // Default to container width
                         }
                     }
+                    _ => content_space.size.width,
                 }
-            }
-            JustifyContent::SpaceAround => {
-                // Space items evenly with half-size spaces at the ends
-                if !flex_items.is_empty() {
-                    let space_around = free_space / flex_items.len() as f32;
-                    main_pos += space_around / 2.0;
-
-                    for (i, flex_item) in flex_items.iter_mut().enumerate() {
-                        if is_horizontal {
-                            flex_item.bounds.position.x = main_pos + (i as f32 * space_around);
-                        } else {
-                            flex_item.bounds.position.y = main_pos + (i as f32 * space_around);
-                        }
-                    }
-                }
-            }
-            JustifyContent::SpaceEvenly => {
-                // Space items evenly with equal spaces including at the ends
-                if !flex_items.is_empty() {
-                    let space_evenly = free_space / (flex_items.len() as f32 + 1.0);
-                    main_pos += space_evenly;
-
-                    for (i, flex_item) in flex_items.iter_mut().enumerate() {
-                        if is_horizontal {
-                            flex_item.bounds.position.x = main_pos + (i as f32 * space_evenly);
-                        } else {
-                            flex_item.bounds.position.y = main_pos + (i as f32 * space_evenly);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Position items along the main axis (for Start justification)
-        if matches!(layout.justify_content, JustifyContent::Start) {
-            for flex_item in &mut flex_items {
-                if is_horizontal {
-                    flex_item.bounds.position.x = main_pos + flex_item.margin.left;
-                    main_pos += flex_item.bounds.size.width
-                        + flex_item.margin.left
-                        + flex_item.margin.right;
-                } else {
-                    flex_item.bounds.position.y = main_pos + flex_item.margin.top;
-                    main_pos += flex_item.bounds.size.height
-                        + flex_item.margin.top
-                        + flex_item.margin.bottom;
-                }
-            }
-        }
-
-        // Position items along the cross axis
-        for flex_item in &mut flex_items {
-            let align = flex_item.align_self.unwrap_or(layout.align_items);
-
-            let cross_size = if is_horizontal {
-                content_space.size.height
             } else {
-                content_space.size.width
+                match &child.transform.size.height {
+                    FlexValue::Fixed(h) => *h,
+                    FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
+                    FlexValue::Auto => {
+                        if num_flex_items == 0 && num_auto_sized > 0 {
+                            space_per_flex_unit // Distribute remaining space among auto items when no fill items
+                        } else {
+                            content_space.size.height // Default to container height
+                        }
+                    }
+                    _ => content_space.size.height,
+                }
             };
 
-            let item_cross_size = if is_horizontal {
-                flex_item.bounds.size.height
+            let cross_size = if is_row {
+                match &child.transform.size.height {
+                    FlexValue::Fixed(h) => *h,
+                    FlexValue::Fill | FlexValue::Auto => content_space.size.height,
+                    _ => content_space.size.height,
+                }
             } else {
-                flex_item.bounds.size.width
+                match &child.transform.size.width {
+                    FlexValue::Fixed(w) => *w,
+                    FlexValue::Fill | FlexValue::Auto => content_space.size.width,
+                    _ => content_space.size.width,
+                }
             };
 
-            match align {
+            // Calculate cross axis position based on align items
+            let cross = match layout.align_items {
                 AlignItems::Start => {
-                    // Start alignment is the default
-                    if is_horizontal {
-                        flex_item.bounds.position.y =
-                            content_space.position.y + flex_item.margin.top;
+                    if is_row {
+                        content_space.position.y
                     } else {
-                        flex_item.bounds.position.x =
-                            content_space.position.x + flex_item.margin.left;
+                        content_space.position.x
                     }
                 }
                 AlignItems::Center => {
-                    if is_horizontal {
-                        flex_item.bounds.position.y = content_space.position.y
-                            + (cross_size
-                                - item_cross_size
-                                - flex_item.margin.top
-                                - flex_item.margin.bottom)
-                                / 2.0
-                            + flex_item.margin.top;
+                    if is_row {
+                        content_space.position.y + (content_space.size.height - cross_size) / 2.0
                     } else {
-                        flex_item.bounds.position.x = content_space.position.x
-                            + (cross_size
-                                - item_cross_size
-                                - flex_item.margin.left
-                                - flex_item.margin.right)
-                                / 2.0
-                            + flex_item.margin.left;
+                        content_space.position.x + (content_space.size.width - cross_size) / 2.0
                     }
                 }
                 AlignItems::End => {
-                    if is_horizontal {
-                        flex_item.bounds.position.y = content_space.position.y + cross_size
-                            - item_cross_size
-                            - flex_item.margin.bottom;
+                    if is_row {
+                        content_space.position.y + content_space.size.height - cross_size
                     } else {
-                        flex_item.bounds.position.x = content_space.position.x + cross_size
-                            - item_cross_size
-                            - flex_item.margin.right;
+                        content_space.position.x + content_space.size.width - cross_size
                     }
                 }
-                AlignItems::Stretch => {
-                    // Stretch to fill the container
-                    if is_horizontal {
-                        flex_item.bounds.position.y =
-                            content_space.position.y + flex_item.margin.top;
-                        flex_item.bounds.size.height =
-                            cross_size - flex_item.margin.top - flex_item.margin.bottom;
+                _ => {
+                    if is_row {
+                        content_space.position.y
                     } else {
-                        flex_item.bounds.position.x =
-                            content_space.position.x + flex_item.margin.left;
-                        flex_item.bounds.size.width =
-                            cross_size - flex_item.margin.left - flex_item.margin.right;
+                        content_space.position.x
                     }
                 }
-                AlignItems::Baseline => {
-                    // For simplicity, treat baseline as start for now
-                    // Real baseline alignment would need to know the baselines of text elements
-                    if is_horizontal {
-                        flex_item.bounds.position.y =
-                            content_space.position.y + flex_item.margin.top;
-                    } else {
-                        flex_item.bounds.position.x =
-                            content_space.position.x + flex_item.margin.left;
-                    }
-                }
-            }
-        }
-
-        // Reverse item positions if using reverse direction
-        if matches!(
-            layout.direction,
-            FlexDirection::RowReverse | FlexDirection::ColumnReverse
-        ) {
-            let main_end = if is_horizontal {
-                content_space.position.x + content_space.size.width
-            } else {
-                content_space.position.y + content_space.size.height
             };
 
-            for flex_item in &mut flex_items {
-                if is_horizontal {
-                    flex_item.bounds.position.x =
-                        main_end - flex_item.bounds.position.x - flex_item.bounds.size.width;
-                } else {
-                    flex_item.bounds.position.y =
-                        main_end - flex_item.bounds.position.y - flex_item.bounds.size.height;
+            // Create bounds with the correct position based on layout direction
+            let child_bounds = if is_row {
+                Bounds {
+                    position: ComponentPosition {
+                        x: current_main,
+                        y: cross,
+                    },
+                    size: ComponentSize {
+                        width: main_size,
+                        height: cross_size,
+                    },
                 }
-            }
-        }
+            } else {
+                Bounds {
+                    position: ComponentPosition {
+                        x: cross,
+                        y: current_main,
+                    },
+                    size: ComponentSize {
+                        width: cross_size,
+                        height: main_size,
+                    },
+                }
+            };
 
-        // Layout children
-        for flex_item in flex_items {
-            self.compute_component_layout(&flex_item.id, Some(flex_item.bounds));
+            self.computed_bounds.insert(child_id, child_bounds);
+            self.compute_component_layout(&child_id, Some(child_bounds));
+
+            // Update current position including margin
+            current_main += main_size
+                + if is_row {
+                    child.layout.margin.left + child.layout.margin.right
+                } else {
+                    child.layout.margin.top + child.layout.margin.bottom
+                };
         }
     }
 

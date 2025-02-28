@@ -13,6 +13,7 @@ mod app;
 mod color;
 mod constants;
 mod img_utils;
+mod test;
 mod text_renderer;
 mod ui;
 mod vertex;

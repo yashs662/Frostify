@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
-use log::{debug, error, info};
+use log::{error, info};
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
@@ -132,17 +132,18 @@ impl<'window> ApplicationHandler for App<'window> {
             self.window = Some(window.clone());
             let mut wgpu_ctx = WgpuCtx::new(window.clone());
 
+            // Initialize layout context before creating UI
+            self.layout_context.initialize(
+                wgpu_ctx.surface_config.width as f32,
+                wgpu_ctx.surface_config.height as f32,
+            );
+
             // Create event channel
             let (event_tx, event_rx) = unbounded_channel();
             self.event_sender = Some(event_tx.clone());
             self.event_receiver = Some(event_rx);
 
             create_app_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
-            self.layout_context.resize_viewport(
-                wgpu_ctx.surface_config.width as f32,
-                wgpu_ctx.surface_config.height as f32,
-                &mut wgpu_ctx,
-            );
 
             self.wgpu_ctx = Some(wgpu_ctx);
         }
