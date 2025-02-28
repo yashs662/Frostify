@@ -3,14 +3,15 @@ use colored::*;
 use env_logger::Builder;
 use log::LevelFilter;
 use std::io::Write;
-use time::macros::format_description;
-use time::UtcOffset;
-use winit::error::EventLoopError;
-use winit::event_loop::{ControlFlow, EventLoop};
+use time::{macros::format_description, UtcOffset};
+use winit::{
+    error::EventLoopError,
+    event_loop::{ControlFlow, EventLoop},
+};
 
 mod app;
 mod color;
-mod components;
+mod constants;
 mod img_utils;
 mod text_renderer;
 mod ui;

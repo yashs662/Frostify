@@ -1,18 +1,13 @@
 use crate::{
-    color::Color,
-    components::{
-        button::Button,
-        core::{
-            root::RootComponent, Anchor, Component, ComponentBackgroundConfig, ComponentOffset,
-            ComponentPosition, ComponentSize, ComponentTextOnGradientConfig, ComponentTransform,
-        },
-    },
     text_renderer::OptionalTextUpdateData,
-    ui::navbar::create_navbar,
+    ui::{
+        create_app_ui,
+        layout::{self, ComponentPosition},
+    },
     wgpu_ctx::WgpuCtx,
 };
+use log::{debug, error, info};
 use std::sync::Arc;
-use log::{error, info};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
 use winit::{
@@ -43,7 +38,7 @@ pub struct App<'window> {
     // initial_cloaked: bool,
     event_sender: Option<UnboundedSender<AppEvent>>,
     event_receiver: Option<UnboundedReceiver<AppEvent>>,
-    root: RootComponent,
+    layout_context: layout::LayoutContext,
 }
 
 impl App<'_> {
@@ -136,42 +131,19 @@ impl<'window> ApplicationHandler for App<'window> {
 
             self.window = Some(window.clone());
             let mut wgpu_ctx = WgpuCtx::new(window.clone());
-            self.root.resize(
-                &wgpu_ctx,
-                wgpu_ctx.surface_config.width,
-                wgpu_ctx.surface_config.height,
-            );
+
             // Create event channel
             let (event_tx, event_rx) = unbounded_channel();
             self.event_sender = Some(event_tx.clone());
             self.event_receiver = Some(event_rx);
 
-            let navbar = create_navbar(&mut wgpu_ctx, event_tx.clone(), self.root.get_bounds());
-            let normal_btn = Button::new(
+            create_app_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
+            self.layout_context.resize_viewport(
+                wgpu_ctx.surface_config.width as f32,
+                wgpu_ctx.surface_config.height as f32,
                 &mut wgpu_ctx,
-                ComponentBackgroundConfig::TextOnGradient(ComponentTextOnGradientConfig {
-                    text: "Hello".to_string(),
-                    text_color: Color::Black,
-                    start_color: Color::Bisque,
-                    end_color: Color::Beige,
-                    anchor: Anchor::Center,
-                    angle: 90.0,
-                }),
-                ComponentTransform {
-                    size: ComponentSize {
-                        width: self.root.get_bounds().size.width,
-                        height: self.root.get_bounds().size.height - 60.0,
-                    },
-                    offset: ComponentOffset { x: 0.0, y: 60.0 },
-                    anchor: Anchor::TopLeft,
-                },
-                Some(self.root.get_bounds()),
-                AppEvent::PrintMessage("Hello".to_string()),
-                Some(event_tx),
             );
 
-            self.root.add_child(Box::new(navbar));
-            self.root.add_child(Box::new(normal_btn));
             self.wgpu_ctx = Some(wgpu_ctx);
         }
     }
@@ -191,13 +163,18 @@ impl<'window> ApplicationHandler for App<'window> {
                     (self.wgpu_ctx.as_mut(), self.window.as_ref())
                 {
                     info!("Resized to: {:?}", new_size);
-                    wgpu_ctx.resize((new_size.width, new_size.height), &mut self.root);
+                    wgpu_ctx.resize((new_size.width, new_size.height));
+                    self.layout_context.resize_viewport(
+                        new_size.width as f32,
+                        new_size.height as f32,
+                        wgpu_ctx,
+                    );
                     window.request_redraw();
                 }
             }
             WindowEvent::RedrawRequested => {
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    wgpu_ctx.draw(&mut self.root);
+                    wgpu_ctx.draw(&mut self.layout_context);
                     wgpu_ctx.text_handler.trim_atlas();
                     // #[cfg(target_os = "windows")]
                     // if self.initial_cloaked {
@@ -222,8 +199,6 @@ impl<'window> ApplicationHandler for App<'window> {
                         let scale_factor = window.scale_factor();
                         let logical_x = x / scale_factor;
                         let logical_y = y / scale_factor;
-                        self.root
-                            .handle_mouse_click(logical_x as f32, logical_y as f32);
                         if !self.try_handle_window_event(event_loop) {
                             info!("Click at: ({}, {})", logical_x, logical_y);
                             error!("Task failed to handle click");

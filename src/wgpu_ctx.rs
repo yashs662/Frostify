@@ -1,21 +1,14 @@
-use crate::components::core::root::RootComponent;
-use crate::components::core::Component;
-use crate::text_renderer::TextHandler;
-use crate::vertex::Vertex;
-use std::borrow::Cow;
-use std::sync::Arc;
-use wgpu::MemoryHints::Performance;
-use wgpu::ShaderSource;
+use crate::{
+    constants::TEXTURE_BIND_GROUP_LAYOUT_ENTIRES, text_renderer::TextHandler,
+    ui::layout::LayoutContext, vertex::Vertex,
+};
+use std::{borrow::Cow, sync::Arc};
+use wgpu::{MemoryHints::Performance, ShaderSource};
 use winit::window::Window;
 
 pub struct AppPipelines {
     pub texture_pipeline: wgpu::RenderPipeline,
     pub color_pipeline: wgpu::RenderPipeline,
-}
-
-pub enum PipelinePreference {
-    Texture,
-    Color,
 }
 
 pub struct WgpuCtx<'window> {
@@ -94,9 +87,8 @@ impl<'window> WgpuCtx<'window> {
         pollster::block_on(WgpuCtx::new_async(window))
     }
 
-    pub fn resize(&mut self, new_size: (u32, u32), root: &mut RootComponent) {
+    pub fn resize(&mut self, new_size: (u32, u32)) {
         let (width, height) = new_size;
-        root.resize(self, width, height);
         self.surface_config.width = width.max(1);
         self.surface_config.height = height.max(1);
         self.surface.configure(&self.device, &self.surface_config);
@@ -104,7 +96,7 @@ impl<'window> WgpuCtx<'window> {
             .update_viewport_size(&self.surface_config, &self.queue);
     }
 
-    pub fn draw(&mut self, root: &mut RootComponent) {
+    pub fn draw(&mut self, layout_context: &mut LayoutContext) {
         let surface_texture = self
             .surface
             .get_current_texture()
@@ -131,7 +123,7 @@ impl<'window> WgpuCtx<'window> {
                 timestamp_writes: None,
             });
 
-            root.draw(&mut render_pass, &mut self.app_pipelines);
+            layout_context.draw(&mut render_pass, &mut self.app_pipelines);
             self.text_handler
                 .render(&self.device, &self.queue, &mut render_pass);
         }
@@ -151,24 +143,7 @@ fn create_texture_pipeline(
     });
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-        ],
+        entries: TEXTURE_BIND_GROUP_LAYOUT_ENTIRES,
         label: None,
     });
 

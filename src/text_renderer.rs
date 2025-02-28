@@ -1,9 +1,8 @@
 use crate::{
     color::Color,
-    components::core::{Bounds, ComponentSize},
+    ui::layout::{Bounds, ComponentSize},
 };
 use glyphon::Metrics;
-use image::buffer;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -232,11 +231,7 @@ impl TextHandler {
     }
 
     pub fn get_bounds(&self, id: Uuid) -> Option<Bounds> {
-        if let Some(data) = self.buffers.buffers.get(&id) {
-            Some(data.bounds)
-        } else {
-            None
-        }
+        self.buffers.buffers.get(&id).map(|data| data.bounds)
     }
 
     pub fn update(&mut self, update_data: (Uuid, OptionalTextUpdateData)) {
