@@ -344,10 +344,12 @@ impl Component {
     ) {
         if let Some(config) = &self.config {
             match config {
-                ComponentConfig::BackgroundColor(_) => {
-                    let bounds = self.convert_to_ndc(bounds, screen_size);
-                    let vertices = self.calculate_vertices(bounds);
+                ComponentConfig::BackgroundColor(_) | ComponentConfig::Image(_) => {
+                    // Convert to NDC space
+                    let clip_bounds = self.convert_to_ndc(bounds, screen_size);
+                    let vertices = self.calculate_vertices(clip_bounds);
 
+                    // Update vertex buffer
                     if let Some(ComponentMetaData::VertexBuffer(vertex_buffer)) = self
                         .metadata
                         .iter()
@@ -357,11 +359,6 @@ impl Component {
                             vertex_buffer,
                             0,
                             bytemuck::cast_slice(&vertices),
-                        );
-                    } else {
-                        error!(
-                            "Vertex buffer not found for component id: {}, unable to update position",
-                            self.id
                         );
                     }
                 }
@@ -396,27 +393,6 @@ impl Component {
                         OptionalTextUpdateData::new().with_bounds(calc_bounds),
                     ));
                 }
-                ComponentConfig::Image(_) => {
-                    let bounds = self.convert_to_ndc(bounds, screen_size);
-                    let vertices = self.calculate_vertices(bounds);
-
-                    if let Some(ComponentMetaData::VertexBuffer(vertex_buffer)) = self
-                        .metadata
-                        .iter()
-                        .find(|m| matches!(m, ComponentMetaData::VertexBuffer(_)))
-                    {
-                        wgpu_ctx.queue.write_buffer(
-                            vertex_buffer,
-                            0,
-                            bytemuck::cast_slice(&vertices),
-                        );
-                    } else {
-                        error!(
-                            "Vertex buffer not found for component id: {}, unable to update position",
-                            self.id
-                        );
-                    }
-                }
             }
         };
     }
@@ -433,67 +409,49 @@ impl Component {
         vec![0, 1, 2, 0, 2, 3]
     }
 
-    fn calculate_vertices(&self, bounds: Bounds) -> Vec<Vertex> {
+    fn calculate_vertices(&self, clip_bounds: Bounds) -> Vec<Vertex> {
         let color = match &self.config {
             Some(ComponentConfig::BackgroundColor(bg_config)) => bg_config.color.value(),
             Some(ComponentConfig::Image(_)) => Color::White.value(),
             _ => return Vec::new(),
         };
 
-        // Define the four corners of the quad
-        let vertices = vec![
-            // Top left
-            Vertex::new(
-                [bounds.position.x, bounds.position.y, 0.0],
-                color,
-                [0.0, 0.0],
-            ),
-            // Top right
-            Vertex::new(
-                [
-                    bounds.position.x + bounds.size.width,
-                    bounds.position.y,
-                    0.0,
-                ],
-                color,
-                [1.0, 0.0],
-            ),
-            // Bottom right
-            Vertex::new(
-                [
-                    bounds.position.x + bounds.size.width,
-                    bounds.position.y - bounds.size.height,
-                    0.0,
-                ],
-                color,
-                [1.0, 1.0],
-            ),
-            // Bottom left
-            Vertex::new(
-                [
-                    bounds.position.x,
-                    bounds.position.y - bounds.size.height,
-                    0.0,
-                ],
-                color,
-                [0.0, 1.0],
-            ),
-        ];
+        // Calculate vertices in clip space
+        let top = clip_bounds.position.y;
+        let bottom = top - clip_bounds.size.height;
+        let left = clip_bounds.position.x;
+        let right = left + clip_bounds.size.width;
 
-        vertices
+        vec![
+            // Top-left
+            Vertex::new([left, top, 0.0], color, [0.0, 0.0]),
+            // Top-right
+            Vertex::new([right, top, 0.0], color, [1.0, 0.0]),
+            // Bottom-right
+            Vertex::new([right, bottom, 0.0], color, [1.0, 1.0]),
+            // Bottom-left
+            Vertex::new([left, bottom, 0.0], color, [0.0, 1.0]),
+        ]
     }
 
     fn convert_to_ndc(&self, bounds: Bounds, screen_size: ComponentSize) -> Bounds {
-        let ndc_x = (bounds.position.x / screen_size.width) * 2.0 - 1.0;
-        let ndc_y = ((1.0 - bounds.position.y / screen_size.height) * 2.0) - 1.0;
-        let ndc_width = (bounds.size.width / screen_size.width) * 2.0;
-        let ndc_height = (bounds.size.height / screen_size.height) * 2.0;
+        // Convert screen coordinates to clip space (NDC)
+        // Important: Ensure consistent coordinate system transformation
+        let clip_x = (2.0 * bounds.position.x / screen_size.width) - 1.0;
+        let clip_y = 1.0 - (2.0 * bounds.position.y / screen_size.height);
+
+        // Convert sizes to NDC scale
+        let clip_width = 2.0 * bounds.size.width / screen_size.width;
+        let clip_height = 2.0 * bounds.size.height / screen_size.height;
 
         Bounds {
-            position: ComponentPosition { x: ndc_x, y: ndc_y },
+            position: ComponentPosition {
+                x: clip_x,
+                y: clip_y,
+            },
             size: ComponentSize {
-                width: ndc_width,
-                height: ndc_height,
+                width: clip_width,
+                height: clip_height,
             },
         }
     }

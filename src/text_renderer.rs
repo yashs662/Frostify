@@ -42,23 +42,8 @@ impl OptionalTextUpdateData {
         }
     }
 
-    pub fn with_text(mut self, text: String) -> Self {
-        self.text = Some(text);
-        self
-    }
-
-    pub fn with_metrics(mut self, metrics: Metrics) -> Self {
-        self.metrics = Some(metrics);
-        self
-    }
-
     pub fn with_bounds(mut self, bounds: Bounds) -> Self {
         self.bounds = Some(bounds);
-        self
-    }
-
-    pub fn with_color(mut self, color: Color) -> Self {
-        self.color = Some(color);
         self
     }
 }
@@ -115,9 +100,6 @@ pub struct TextHandler {
     text_renderer: glyphon::TextRenderer,
     atlas: glyphon::TextAtlas,
     buffers: TextRenderBuffers,
-    // TODO: This messes up lifetimes make it work
-    // text_areas: Vec<glyphon::TextArea>,
-    // text_attributes: glyphon::Attrs,
 }
 
 impl TextHandler {

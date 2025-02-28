@@ -7,7 +7,7 @@ use crate::{
     ui::layout::{Anchor, FlexValue, Position},
     wgpu_ctx::WgpuCtx,
 };
-use layout::{AlignItems, Edges, Layout};
+use layout::{AlignItems, Edges, JustifyContent, Layout};
 use log::trace;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -51,11 +51,32 @@ pub fn create_app_ui(
     let mut nav_bar_container = Component::new(nav_bar_container_id, ComponentType::Container);
     nav_bar_container.set_debug_name("Nav Bar Container");
     nav_bar_container.transform.size.width = FlexValue::Fill;
-    nav_bar_container.transform.size.height = FlexValue::Fixed(100.0);
+    nav_bar_container.transform.size.height = FlexValue::Fixed(44.0);
     nav_bar_container.layout = Layout::flex_row();
     nav_bar_container.layout.align_items = AlignItems::Center;
-    nav_bar_container.layout.padding = Edges::all(10.0);
+    nav_bar_container.layout.justify_content = JustifyContent::End;
+    nav_bar_container.layout.padding = Edges {
+        top: 0.0,
+        right: 10.0,
+        bottom: 0.0,
+        left: 10.0,
+    };
+    nav_bar_container.set_z_index(1);
     nav_bar_container.set_parent(main_container_id);
+
+    // nav bar container background
+    let nav_bar_background_id = uuid::Uuid::new_v4();
+    let mut nav_bar_background = Component::new(nav_bar_background_id, ComponentType::Background);
+    nav_bar_background.set_debug_name("Nav Bar Background");
+    nav_bar_background.configure(
+        ComponentConfig::BackgroundColor(BackgroundColorConfig {
+            color: Color::Black,
+        }),
+        wgpu_ctx,
+    );
+    nav_bar_background.set_z_index(1);
+    nav_bar_background.set_parent(nav_bar_container_id);
+    nav_bar_background.transform.position_type = Position::Absolute(Anchor::TopLeft);
 
     // Nav bar buttons with fixed size and spacing
     let button_size = 24.0; // Fixed size for all buttons
@@ -167,7 +188,4 @@ pub fn create_app_ui(
     layout_context.add_component(content_container);
     layout_context.add_component(label);
     layout_context.add_component(image);
-
-    // Compute initial layout
-    layout_context.compute_layout();
 }

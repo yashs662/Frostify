@@ -17,7 +17,6 @@ use winit::{
     platform::windows::WindowAttributesExtWindows,
     window::{CursorIcon, Theme, Window, WindowId},
 };
-// use wgpu::rwh::HasWindowHandle;
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -34,22 +33,12 @@ pub struct App<'window> {
     window: Option<Arc<Window>>,
     wgpu_ctx: Option<WgpuCtx<'window>>,
     cursor_position: Option<(f64, f64)>,
-    // #[cfg(target_os = "windows")]
-    // initial_cloaked: bool,
     event_sender: Option<UnboundedSender<AppEvent>>,
     event_receiver: Option<UnboundedReceiver<AppEvent>>,
     layout_context: layout::LayoutContext,
 }
 
 impl App<'_> {
-    // #[cfg(target_os = "windows")]
-    // pub fn new(initial_cloaked: bool) -> Self {
-    //     Self {
-    //         initial_cloaked,
-    //         ..Default::default()
-    //     }
-    // }
-
     fn try_handle_window_event(&mut self, event_loop: &ActiveEventLoop) -> bool {
         if let Some(receiver) = &mut self.event_receiver {
             if let Ok(event) = receiver.try_recv() {
@@ -126,9 +115,6 @@ impl<'window> ApplicationHandler for App<'window> {
                     .expect("create window err."),
             );
 
-            // For Windows, cloak the window if requested
-            // set_cloak(true, window.window_handle());
-
             self.window = Some(window.clone());
             let mut wgpu_ctx = WgpuCtx::new(window.clone());
 
@@ -177,10 +163,6 @@ impl<'window> ApplicationHandler for App<'window> {
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
                     wgpu_ctx.draw(&mut self.layout_context);
                     wgpu_ctx.text_handler.trim_atlas();
-                    // #[cfg(target_os = "windows")]
-                    // if self.initial_cloaked {
-                    //     set_cloak(false, self.window.as_ref().unwrap().window_handle());
-                    // }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -211,34 +193,3 @@ impl<'window> ApplicationHandler for App<'window> {
         }
     }
 }
-
-// Very hacky way to cloak the window on Windows, debatable if it's worth it
-// #[cfg(target_os = "windows")]
-// pub(crate) fn set_cloak(
-//     state: bool,
-//     window_handle: Result<wgpu::rwh::WindowHandle, wgpu::rwh::HandleError>,
-// ) -> bool {
-//     use wgpu::rwh::{self};
-//     use winapi::shared::minwindef::{BOOL, FALSE, TRUE};
-//     use winapi::um::dwmapi::{DwmSetWindowAttribute, DWMWA_CLOAK};
-
-//     let mut result = 1;
-
-//     if let Ok(window_handle) = window_handle {
-//         if let rwh::RawWindowHandle::Win32(handle) = window_handle.as_raw() {
-//             let value = if state { TRUE } else { FALSE };
-//             result = unsafe {
-//                 DwmSetWindowAttribute(
-//                     handle.hwnd.get() as _, // HWND
-//                     DWMWA_CLOAK,
-//                     &value as *const BOOL as *const _,
-//                     std::mem::size_of::<BOOL>() as u32,
-//                 )
-//             };
-//         }
-//     } else {
-//         unreachable!();
-//     };
-
-//     result == 0 // success
-// }

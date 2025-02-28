@@ -103,27 +103,4 @@ impl Color {
         let [r, g, b, a] = self.to_rgb_0_255();
         glyphon::Color::rgba(r, g, b, a)
     }
-
-    pub fn gradient(start_color: Color, end_color: Color, direction: [f32; 2]) -> Vec<[f32; 4]> {
-        let corners = [
-            [0.0, 0.0], // Top-left
-            [1.0, 0.0], // Top-right
-            [1.0, 1.0], // Bottom-right
-            [0.0, 1.0], // Bottom-left
-        ];
-
-        corners
-            .iter()
-            .map(|corner| {
-                let projection = corner[0] * direction[0] + corner[1] * direction[1];
-                let t = (projection + 1.0) / 2.0;
-                [
-                    start_color.value()[0] * (1.0 - t) + end_color.value()[0] * t,
-                    start_color.value()[1] * (1.0 - t) + end_color.value()[1] * t,
-                    start_color.value()[2] * (1.0 - t) + end_color.value()[2] * t,
-                    start_color.value()[3] * (1.0 - t) + end_color.value()[3] * t,
-                ]
-            })
-            .collect()
-    }
 }

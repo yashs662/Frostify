@@ -509,32 +509,15 @@ impl LayoutContext {
     }
 
     pub fn resize_viewport(&mut self, width: f32, height: f32, wgpu_ctx: &mut WgpuCtx) {
-        self.viewport_size.width = width;
-        self.viewport_size.height = height;
-        // Recompute all layouts
+        debug!("Resizing viewport to {}x{}", width, height);
+        self.viewport_size = ComponentSize { width, height };
+        let screen_size = self.viewport_size;
         self.compute_layout();
 
-        let screen_size = ComponentSize { width, height };
-
-        // for every component in computed_bounds, update the position
+        // Update all component positions with new screen size
         for (id, bounds) in self.computed_bounds.iter() {
-            let mut children = Vec::new();
             if let Some(component) = self.components.get_mut(id) {
                 component.set_position(wgpu_ctx, *bounds, screen_size);
-
-                // set_position for children
-                children.extend(component.get_all_children_ids());
-            }
-
-            while let Some(child_id) = children.pop() {
-                if let Some(child) = self.components.get_mut(&child_id) {
-                    if let Some(parent_bounds) =
-                        self.computed_bounds.get(&child.get_parent_id().unwrap())
-                    {
-                        child.set_position(wgpu_ctx, *parent_bounds, screen_size);
-                    }
-                    children.extend(child.get_all_children_ids());
-                }
             }
         }
     }
@@ -544,8 +527,6 @@ impl LayoutContext {
             error!("Attempting to compute layout before initialization");
             return;
         }
-
-        debug!("Computing layout for {} components", self.components.len());
 
         // Clear previous computed bounds
         self.computed_bounds.clear();
@@ -557,8 +538,6 @@ impl LayoutContext {
             .filter(|c| c.get_parent_id().is_none())
             .map(|c| c.id)
             .collect();
-
-        debug!("Found {} root components", root_components.len());
 
         // Compute layout for each root component
         for root_id in root_components {
@@ -586,8 +565,6 @@ impl LayoutContext {
                 return;
             }
         };
-
-        debug!("Computing layout for component {:?}", component_id);
 
         // For root components with Position::Absolute, use viewport as available space
         let available_space = match (parent_bounds, component.transform.position_type) {
