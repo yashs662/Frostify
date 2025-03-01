@@ -18,7 +18,7 @@ use wgpu::{util::DeviceExt, SamplerDescriptor};
 #[derive(Debug, Clone)]
 pub struct Component {
     pub id: Uuid,
-    pub debug_name: String,
+    pub debug_name: Option<String>,
     pub component_type: ComponentType,
     pub transform: ComponentTransform,
     pub layout: Layout,
@@ -74,7 +74,7 @@ impl Component {
     pub fn new(id: Uuid, component_type: ComponentType) -> Self {
         Self {
             id,
-            debug_name: format!("{:?}:{:?}", component_type, id),
+            debug_name: None,
             component_type,
             transform: ComponentTransform {
                 size: Size::fill(),
@@ -95,7 +95,7 @@ impl Component {
     }
 
     pub fn set_debug_name(&mut self, name: &str) {
-        self.debug_name = name.to_string();
+        self.debug_name = Some(name.to_string());
     }
 
     pub fn get_all_children_ids(&self) -> Vec<Uuid> {

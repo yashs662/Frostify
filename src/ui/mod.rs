@@ -8,7 +8,6 @@ use crate::{
     wgpu_ctx::WgpuCtx,
 };
 use layout::{AlignItems, Edges, JustifyContent, Layout};
-use log::trace;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub mod component;
@@ -21,7 +20,6 @@ pub fn create_app_ui(
 ) {
     // Main container
     let main_container_id = uuid::Uuid::new_v4();
-    trace!("Creating main container with id: {}", main_container_id);
     let mut main_container = Component::new(main_container_id, ComponentType::Container);
     main_container.set_debug_name("Main Container");
     main_container.transform.position_type = Position::Absolute(Anchor::TopLeft);
@@ -29,7 +27,6 @@ pub fn create_app_ui(
 
     // Background
     let background_id = uuid::Uuid::new_v4();
-    trace!("Creating background with id: {}", background_id);
     let mut background = Component::new(background_id, ComponentType::Background);
     background.set_debug_name("Background");
     background.configure(
@@ -44,10 +41,6 @@ pub fn create_app_ui(
 
     // Nav bar container
     let nav_bar_container_id = uuid::Uuid::new_v4();
-    trace!(
-        "Creating nav bar container with id: {}",
-        nav_bar_container_id
-    );
     let mut nav_bar_container = Component::new(nav_bar_container_id, ComponentType::Container);
     nav_bar_container.set_debug_name("Nav Bar Container");
     nav_bar_container.transform.size.width = FlexValue::Fill;
@@ -55,28 +48,19 @@ pub fn create_app_ui(
     nav_bar_container.layout = Layout::flex_row();
     nav_bar_container.layout.align_items = AlignItems::Center;
     nav_bar_container.layout.justify_content = JustifyContent::End;
-    nav_bar_container.layout.padding = Edges {
-        top: 0.0,
-        right: 10.0,
-        bottom: 0.0,
-        left: 10.0,
-    };
+    nav_bar_container.layout.padding = Edges::all(10.0);
     nav_bar_container.set_z_index(1);
     nav_bar_container.set_parent(main_container_id);
 
-    // nav bar container background
-    let nav_bar_background_id = uuid::Uuid::new_v4();
-    let mut nav_bar_background = Component::new(nav_bar_background_id, ComponentType::Background);
-    nav_bar_background.set_debug_name("Nav Bar Background");
-    nav_bar_background.configure(
-        ComponentConfig::BackgroundColor(BackgroundColorConfig {
-            color: Color::Black,
-        }),
-        wgpu_ctx,
-    );
-    nav_bar_background.set_z_index(1);
-    nav_bar_background.set_parent(nav_bar_container_id);
-    nav_bar_background.transform.position_type = Position::Absolute(Anchor::TopLeft);
+    let nav_buttons_container_id = uuid::Uuid::new_v4();
+    let mut nav_buttons_container =
+        Component::new(nav_buttons_container_id, ComponentType::Container);
+    nav_buttons_container.set_debug_name("Nav Buttons Container");
+    nav_buttons_container.layout = Layout::flex_row();
+    nav_buttons_container.layout.align_items = AlignItems::Center;
+    nav_buttons_container.layout.justify_content = JustifyContent::SpaceBetween;
+    nav_buttons_container.transform.size.width = FlexValue::Fixed(92.0);
+    nav_buttons_container.set_parent(nav_bar_container_id);
 
     // Nav bar buttons with fixed size and spacing
     let button_size = 24.0; // Fixed size for all buttons
@@ -94,7 +78,7 @@ pub fn create_app_ui(
         wgpu_ctx,
     );
     minimize_icon.set_z_index(2);
-    minimize_icon.set_parent(nav_bar_container_id);
+    minimize_icon.set_parent(nav_buttons_container_id);
 
     // Expand button
     let expand_icon_id = uuid::Uuid::new_v4();
@@ -109,7 +93,7 @@ pub fn create_app_ui(
         wgpu_ctx,
     );
     expand_icon.set_z_index(2);
-    expand_icon.set_parent(nav_bar_container_id);
+    expand_icon.set_parent(nav_buttons_container_id);
 
     // Close button
     let close_icon_id = uuid::Uuid::new_v4();
@@ -124,13 +108,14 @@ pub fn create_app_ui(
         wgpu_ctx,
     );
     close_icon.set_z_index(2);
-    close_icon.set_parent(nav_bar_container_id);
+    close_icon.set_parent(nav_buttons_container_id);
 
     // Content container
     let content_container_id = uuid::Uuid::new_v4();
     let mut content_container = Component::new(content_container_id, ComponentType::Container);
     content_container.set_debug_name("Content Container");
     content_container.layout = Layout::flex_row();
+    content_container.layout.align_items = AlignItems::Center;
     content_container.set_parent(main_container_id);
 
     // Label with fixed size
@@ -170,9 +155,12 @@ pub fn create_app_ui(
     main_container.add_child(content_container_id);
 
     // Add children to the nav bar container
-    nav_bar_container.add_child(minimize_icon_id);
-    nav_bar_container.add_child(expand_icon_id);
-    nav_bar_container.add_child(close_icon_id);
+    nav_bar_container.add_child(nav_buttons_container_id);
+
+    // Add children to the nav buttons container
+    nav_buttons_container.add_child(minimize_icon_id);
+    nav_buttons_container.add_child(expand_icon_id);
+    nav_buttons_container.add_child(close_icon_id);
 
     // Add children to the content container
     content_container.add_child(label_id);
@@ -182,6 +170,7 @@ pub fn create_app_ui(
     layout_context.add_component(main_container);
     layout_context.add_component(background);
     layout_context.add_component(nav_bar_container);
+    layout_context.add_component(nav_buttons_container);
     layout_context.add_component(minimize_icon);
     layout_context.add_component(expand_icon);
     layout_context.add_component(close_icon);

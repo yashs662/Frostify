@@ -437,8 +437,14 @@ impl LayoutContext {
             .computed_bounds
             .iter()
             .filter_map(|(id, bounds)| {
-                self.get_component(id)
-                    .map(|component| (component.debug_name.clone(), *bounds))
+                self.get_component(id).map(|component| {
+                    (
+                        component.debug_name.clone().unwrap_or_else(|| {
+                            format!("Debug name not set for id:{}", component.id)
+                        }),
+                        *bounds,
+                    )
+                })
             })
             .collect();
         debug_bounds.sort_by(|a, b| a.0.cmp(&b.0));
@@ -495,11 +501,19 @@ impl LayoutContext {
             error!("Flex component with id {} must have a parent", component.id);
             return;
         }
-
-        debug!(
-            "Adding component {:?} with position type {:?}",
-            component.id, component.transform.position_type
-        );
+        if component.debug_name.is_some() {
+            debug!(
+                "Adding {:?} component '{}' with id {:?}",
+                component.component_type,
+                component.debug_name.as_ref().unwrap(),
+                component.id
+            );
+        } else {
+            debug!(
+                "Adding component {:?} with position type {:?}",
+                component.id, component.transform.position_type
+            );
+        }
 
         self.components.insert(component.id, component);
     }
@@ -509,7 +523,6 @@ impl LayoutContext {
     }
 
     pub fn resize_viewport(&mut self, width: f32, height: f32, wgpu_ctx: &mut WgpuCtx) {
-        debug!("Resizing viewport to {}x{}", width, height);
         self.viewport_size = ComponentSize { width, height };
         let screen_size = self.viewport_size;
         self.compute_layout();
@@ -553,8 +566,6 @@ impl LayoutContext {
         // Sort by z-index lowest to highest
         render_order.sort_by(|a, b| a.0.cmp(&b.0));
         self.render_order = render_order.iter().map(|(_, id)| *id).collect();
-
-        self.debug_print_computed_bounds();
     }
 
     fn compute_component_layout(&mut self, component_id: &Uuid, parent_bounds: Option<Bounds>) {
@@ -849,12 +860,85 @@ impl LayoutContext {
             0.0
         };
 
-        // Initialize current position using content_space position
-        let mut current_main = if is_row {
-            content_space.position.x
-        } else {
-            content_space.position.y
+        // Calculate total used space in the main axis
+        let total_used_space = total_fixed_size + (space_per_flex_unit * total_flex_grow);
+        let free_space = (main_axis_size - total_used_space).max(0.0);
+
+        // Determine starting position and spacing based on justify_content
+        let (start_pos, spacing_between) = match layout.justify_content {
+            JustifyContent::Start => (
+                if is_row {
+                    content_space.position.x
+                } else {
+                    content_space.position.y
+                },
+                0.0,
+            ),
+            JustifyContent::Center => (
+                if is_row {
+                    content_space.position.x + free_space / 2.0
+                } else {
+                    content_space.position.y + free_space / 2.0
+                },
+                0.0,
+            ),
+            JustifyContent::End => (
+                if is_row {
+                    content_space.position.x + free_space
+                } else {
+                    content_space.position.y + free_space
+                },
+                0.0,
+            ),
+            JustifyContent::SpaceBetween => {
+                let between = if children.len() > 1 {
+                    free_space / (children.len() - 1) as f32
+                } else {
+                    0.0
+                };
+                (
+                    if is_row {
+                        content_space.position.x
+                    } else {
+                        content_space.position.y
+                    },
+                    between,
+                )
+            }
+            JustifyContent::SpaceAround => {
+                let around = if children.len() > 0 {
+                    free_space / children.len() as f32
+                } else {
+                    0.0
+                };
+                (
+                    if is_row {
+                        content_space.position.x + around / 2.0
+                    } else {
+                        content_space.position.y + around / 2.0
+                    },
+                    around,
+                )
+            }
+            JustifyContent::SpaceEvenly => {
+                let evenly = if children.len() + 1 > 0 {
+                    free_space / (children.len() + 1) as f32
+                } else {
+                    0.0
+                };
+                (
+                    if is_row {
+                        content_space.position.x + evenly
+                    } else {
+                        content_space.position.y + evenly
+                    },
+                    evenly,
+                )
+            }
         };
+
+        // Initialize current position using the calculated start position
+        let mut current_main = start_pos;
 
         // Layout each child
         for (child_id, child) in children {
@@ -970,13 +1054,14 @@ impl LayoutContext {
             self.computed_bounds.insert(child_id, child_bounds);
             self.compute_component_layout(&child_id, Some(child_bounds));
 
-            // Update current position including margin
+            // Update current position including margin and spacing
             current_main += main_size
                 + if is_row {
                     child.layout.margin.left + child.layout.margin.right
                 } else {
                     child.layout.margin.top + child.layout.margin.bottom
-                };
+                }
+                + spacing_between; // Add the calculated spacing between items
         }
     }
 
