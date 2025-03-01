@@ -12,6 +12,7 @@ use crate::{
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use log::{debug, error, warn};
+use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 use wgpu::{util::DeviceExt, SamplerDescriptor};
 
@@ -26,6 +27,7 @@ pub struct Component {
     parent: Option<Uuid>,
     pub metadata: Vec<ComponentMetaData>,
     pub config: Option<ComponentConfig>,
+    pub cached_vertices: Option<Vec<Vertex>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +45,8 @@ pub enum ComponentMetaData {
     VertexBuffer(wgpu::Buffer),
     IndexBuffer(wgpu::Buffer),
     BindGroup(wgpu::BindGroup),
+    EventSender(UnboundedSender<AppEvent>),
+    DragEvent(AppEvent),  // Add this variant
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +91,7 @@ impl Component {
             parent: None,
             metadata: Vec::new(),
             config: None,
+            cached_vertices: None,
         }
     }
 
@@ -181,7 +186,7 @@ impl Component {
         match config {
             ComponentConfig::BackgroundColor(_) => {
                 // Initial vertices with default bounds, will be recalculated on resize
-                let vertices = self.calculate_vertices(Bounds::default());
+                let vertices = self.calculate_vertices(Some(Bounds::default()), None);
                 let indices = self.get_indices();
 
                 // Create buffers
@@ -238,7 +243,7 @@ impl Component {
             }
             ComponentConfig::Image(image_config) => {
                 let img = RgbaImg::new(&image_config.image_path).unwrap();
-                let vertices = self.calculate_vertices(Bounds::default());
+                let vertices = self.calculate_vertices(Some(Bounds::default()), None);
                 let indices = self.get_indices();
 
                 // Create texture and bind group
@@ -347,7 +352,7 @@ impl Component {
                 ComponentConfig::BackgroundColor(_) | ComponentConfig::Image(_) => {
                     // Convert to NDC space
                     let clip_bounds = self.convert_to_ndc(bounds, screen_size);
-                    let vertices = self.calculate_vertices(clip_bounds);
+                    let vertices = self.calculate_vertices(Some(clip_bounds), None);
 
                     // Update vertex buffer
                     if let Some(ComponentMetaData::VertexBuffer(vertex_buffer)) = self
@@ -409,29 +414,53 @@ impl Component {
         vec![0, 1, 2, 0, 2, 3]
     }
 
-    fn calculate_vertices(&self, clip_bounds: Bounds) -> Vec<Vertex> {
-        let color = match &self.config {
-            Some(ComponentConfig::BackgroundColor(bg_config)) => bg_config.color.value(),
-            Some(ComponentConfig::Image(_)) => Color::White.value(),
-            _ => return Vec::new(),
+    fn calculate_vertices(
+        &mut self,
+        clip_bounds: Option<Bounds>,
+        custom_color: Option<Color>,
+    ) -> Vec<Vertex> {
+        let color = if custom_color.is_some() {
+            custom_color.unwrap().value()
+        } else {
+            match &self.config {
+                Some(ComponentConfig::BackgroundColor(bg_config)) => bg_config.color.value(),
+                Some(ComponentConfig::Image(_)) => Color::White.value(),
+                _ => return Vec::new(),
+            }
         };
 
-        // Calculate vertices in clip space
-        let top = clip_bounds.position.y;
-        let bottom = top - clip_bounds.size.height;
-        let left = clip_bounds.position.x;
-        let right = left + clip_bounds.size.width;
+        if let Some(clip_bounds) = clip_bounds {
+            // Calculate vertices in clip space
+            let top = clip_bounds.position.y;
+            let bottom = top - clip_bounds.size.height;
+            let left = clip_bounds.position.x;
+            let right = left + clip_bounds.size.width;
 
-        vec![
-            // Top-left
-            Vertex::new([left, top, 0.0], color, [0.0, 0.0]),
-            // Top-right
-            Vertex::new([right, top, 0.0], color, [1.0, 0.0]),
-            // Bottom-right
-            Vertex::new([right, bottom, 0.0], color, [1.0, 1.0]),
-            // Bottom-left
-            Vertex::new([left, bottom, 0.0], color, [0.0, 1.0]),
-        ]
+            vec![
+                // Top-left
+                Vertex::new([left, top, 0.0], color, [0.0, 0.0]),
+                // Top-right
+                Vertex::new([right, top, 0.0], color, [1.0, 0.0]),
+                // Bottom-right
+                Vertex::new([right, bottom, 0.0], color, [1.0, 1.0]),
+                // Bottom-left
+                Vertex::new([left, bottom, 0.0], color, [0.0, 1.0]),
+            ]
+        } else if let Some(cached_vertices) = &self.cached_vertices {
+            let cached = cached_vertices.clone();
+            // replace the color with the custom color
+            cached
+                .iter()
+                .map(|v| Vertex::new(v.position, color, v.tex_coords))
+                .collect()
+        } else {
+            warn!(
+                "No clip bounds or cached vertices found for component id: {}, debug name: {}",
+                self.id,
+                self.debug_name.as_deref().unwrap_or("None")
+            );
+            Vec::new()
+        }
     }
 
     fn convert_to_ndc(&self, bounds: Bounds, screen_size: ComponentSize) -> Bounds {
@@ -479,5 +508,77 @@ impl Component {
             ComponentMetaData::BindGroup(group) => Some(group),
             _ => None,
         })
+    }
+
+    pub fn get_event_sender(&self) -> Option<&UnboundedSender<AppEvent>> {
+        self.metadata.iter().find_map(|m| match m {
+            ComponentMetaData::EventSender(sender) => Some(sender),
+            _ => None,
+        })
+    }
+
+    pub fn get_click_event(&self) -> Option<&AppEvent> {
+        self.metadata.iter().find_map(|m| match m {
+            ComponentMetaData::ClickEvent(event) => Some(event),
+            _ => None,
+        })
+    }
+
+    pub fn set_click_handler(&mut self, event: AppEvent, event_tx: UnboundedSender<AppEvent>) {
+        self.metadata.push(ComponentMetaData::ClickEvent(event));
+        self.metadata.push(ComponentMetaData::EventSender(event_tx));
+    }
+
+    pub fn is_clickable(&self) -> bool {
+        self.metadata
+            .iter()
+            .any(|m| matches!(m, ComponentMetaData::ClickEvent(_)))
+            && self
+                .metadata
+                .iter()
+                .any(|m| matches!(m, ComponentMetaData::EventSender(_)))
+    }
+
+    pub fn set_hover_state(&mut self, is_hovered: bool, wgpu_ctx: &mut WgpuCtx) {
+        // First, check if we have a background color config and get the color
+        let color = match &self.config {
+            Some(ComponentConfig::BackgroundColor(bg_config)) => {
+                if is_hovered {
+                    Some(bg_config.color.darken(0.1))
+                } else {
+                    Some(bg_config.color)
+                }
+            }
+            _ => None,
+        };
+
+        // Only proceed if we got a valid color
+        if let Some(color) = color {
+            if self.get_vertex_buffer().is_some() {
+                let vertices = self.calculate_vertices(None, Some(color));
+                wgpu_ctx.queue.write_buffer(
+                    self.get_vertex_buffer().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&vertices),
+                );
+            }
+        }
+    }
+
+    pub fn set_drag_handler(&mut self, event: AppEvent, event_tx: UnboundedSender<AppEvent>) {
+        self.metadata.push(ComponentMetaData::DragEvent(event));
+        self.metadata.push(ComponentMetaData::EventSender(event_tx));
+    }
+
+    pub fn get_drag_event(&self) -> Option<&AppEvent> {
+        self.metadata.iter().find_map(|m| match m {
+            ComponentMetaData::DragEvent(event) => Some(event),
+            _ => None,
+        })
+    }
+
+    pub fn is_draggable(&self) -> bool {
+        self.metadata.iter().any(|m| matches!(m, ComponentMetaData::DragEvent(_)))
+            && self.metadata.iter().any(|m| matches!(m, ComponentMetaData::EventSender(_)))
     }
 }

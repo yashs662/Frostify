@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
-use log::{error, info};
+use log::{debug, error, info};
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
@@ -26,6 +26,7 @@ pub enum AppEvent {
     ChangeCursorTo(CursorIcon),
     PrintMessage(String),
     SetPositionText(Uuid, ComponentPosition),
+    DragWindow(f64, f64),  // Add this variant for window dragging
 }
 
 #[derive(Default)]
@@ -84,6 +85,14 @@ impl App<'_> {
                             }
                         }
                         return false;
+                    }
+                    AppEvent::DragWindow(x, y) => {
+                        if let Some(window) = &self.window {
+                            window.drag_window().unwrap_or_else(|e| {
+                                error!("Failed to drag window: {}", e);
+                            });
+                            return true;
+                        }
                     }
                 }
             } else {
@@ -172,19 +181,35 @@ impl<'window> ApplicationHandler for App<'window> {
                 }
             }
             WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Left,
+                state,
+                button,
                 ..
             } => {
                 if let Some((x, y)) = self.cursor_position {
-                    // Use physical coordinates for click handling
+                    // Convert physical coordinates to logical coordinates
                     if let Some(window) = &self.window {
                         let scale_factor = window.scale_factor();
                         let logical_x = x / scale_factor;
                         let logical_y = y / scale_factor;
-                        if !self.try_handle_window_event(event_loop) {
-                            info!("Click at: ({}, {})", logical_x, logical_y);
-                            error!("Task failed to handle click");
+
+                        // Create an input event
+                        let input_event = layout::InputEvent {
+                            event_type: layout::EventType::from(state),
+                            position: Some(layout::ComponentPosition {
+                                x: logical_x as f32,
+                                y: logical_y as f32,
+                            }),
+                            button,
+                            key: None,
+                            text: None,
+                        };
+
+                        // Process the event through layout context
+                        let affected_components = self.layout_context.handle_event(input_event);
+
+                        // Process any components that were affected
+                        if !affected_components.is_empty() {
+                            self.try_handle_window_event(event_loop);
                         }
                     }
                 }

@@ -89,6 +89,21 @@ impl Color {
         Color::Custom([r, g, b, alpha])
     }
 
+    pub fn darken(&self, factor: f32) -> Color {
+        let [r, g, b, a] = self.value();
+        Color::Custom([r * factor, g * factor, b * factor, a])
+    }
+
+    pub fn lighten(&self, factor: f32) -> Color {
+        let [r, g, b, a] = self.value();
+        Color::Custom([
+            r + (1.0 - r) * factor,
+            g + (1.0 - g) * factor,
+            b + (1.0 - b) * factor,
+            a,
+        ])
+    }
+
     pub fn to_rgb_0_255(self) -> [u8; 4] {
         let [r, g, b, a] = self.value();
         [

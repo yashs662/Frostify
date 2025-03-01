@@ -3,6 +3,7 @@ use crate::{
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use log::{debug, error};
+use winit::event::{ElementState, MouseButton};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -217,9 +218,18 @@ pub enum EventType {
 pub struct InputEvent {
     pub event_type: EventType,
     pub position: Option<ComponentPosition>,
-    pub button: Option<usize>,
+    pub button: MouseButton,
     pub key: Option<String>,
     pub text: Option<String>,
+}
+
+impl From<ElementState> for EventType {
+    fn from(state: ElementState) -> Self {
+        match state {
+            ElementState::Pressed => EventType::Press,
+            ElementState::Released => EventType::Release,
+        }
+    }
 }
 
 // Implementation for Size
@@ -1089,14 +1099,58 @@ impl LayoutContext {
                     // Sort by z-index (highest first)
                     hit_components.sort_by(|a, b| b.1.cmp(&a.1));
 
-                    // Add affected components to result
-                    for (id, _) in hit_components {
-                        components_affected.push((id, event.event_type.clone()));
+                    // Modify event processing to prioritize clickable components
+                    let mut event_handled = false;
+
+                    // First pass: handle clickable components
+                    for (id, _) in &hit_components {
+                        if let Some(component) = self.components.get(id) {
+                            // If it's a click or press event, first check for clickable components
+                            if (event.event_type == EventType::Press || event.event_type == EventType::Click) 
+                                && component.is_clickable() 
+                            {
+                                if let Some(event_sender) = component.get_event_sender() {
+                                    if let Some(click_event) = component.get_click_event() {
+                                        if let Err(e) = event_sender.send(click_event.clone()) {
+                                            error!("Failed to send click event: {}", e);
+                                        } else {
+                                            debug!("Click event handled by component: {}", 
+                                                component.debug_name.as_deref().unwrap_or("unnamed"));
+                                            event_handled = true;
+                                            components_affected.push((*id, event.event_type.clone()));
+                                            break; // Exit after handling click
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Second pass: handle draggable components only if no click was handled
+                    if !event_handled {
+                        for (id, _) in hit_components {
+                            if let Some(component) = self.components.get(&id) {
+                                if event.event_type == EventType::Press && component.is_draggable() {
+                                    if let Some(event_sender) = component.get_event_sender() {
+                                        if let Some(drag_event) = component.get_drag_event() {
+                                            if let Err(e) = event_sender.send(drag_event.clone()) {
+                                                error!("Failed to send drag event: {}", e);
+                                            } else {
+                                                debug!("Drag event handled by component: {}", 
+                                                    component.debug_name.as_deref().unwrap_or("unnamed"));
+                                                components_affected.push((id, event.event_type.clone()));
+                                                break; // Exit after handling drag
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
             _ => {
-                // Handle other event types
+                debug!("Unhandled event type: {:?}", event.event_type);
             }
         }
 

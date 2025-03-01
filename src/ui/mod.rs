@@ -15,7 +15,7 @@ pub mod layout;
 
 pub fn create_app_ui(
     wgpu_ctx: &mut WgpuCtx,
-    _event_tx: UnboundedSender<AppEvent>,
+    event_tx: UnboundedSender<AppEvent>,
     layout_context: &mut layout::LayoutContext,
 ) {
     // Main container
@@ -51,6 +51,8 @@ pub fn create_app_ui(
     nav_bar_container.layout.padding = Edges::all(10.0);
     nav_bar_container.set_z_index(1);
     nav_bar_container.set_parent(main_container_id);
+    // Add drag event handling to nav bar
+    nav_bar_container.set_drag_handler(AppEvent::DragWindow(0.0, 0.0), event_tx.clone());
 
     let nav_buttons_container_id = uuid::Uuid::new_v4();
     let mut nav_buttons_container =
@@ -77,6 +79,7 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
+    minimize_icon.set_click_handler(AppEvent::Minimize, event_tx.clone());
     minimize_icon.set_z_index(2);
     minimize_icon.set_parent(nav_buttons_container_id);
 
@@ -92,6 +95,7 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
+    expand_icon.set_click_handler(AppEvent::Maximize, event_tx.clone());
     expand_icon.set_z_index(2);
     expand_icon.set_parent(nav_buttons_container_id);
 
@@ -107,6 +111,7 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
+    close_icon.set_click_handler(AppEvent::Close, event_tx.clone());
     close_icon.set_z_index(2);
     close_icon.set_parent(nav_buttons_container_id);
 
