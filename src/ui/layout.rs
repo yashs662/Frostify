@@ -3,9 +3,9 @@ use crate::{
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use log::{debug, error};
-use winit::event::{ElementState, MouseButton};
 use std::collections::BTreeMap;
 use uuid::Uuid;
+use winit::event::{ElementState, MouseButton};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComponentOffset {
@@ -916,7 +916,7 @@ impl LayoutContext {
                 )
             }
             JustifyContent::SpaceAround => {
-                let around = if children.len() > 0 {
+                let around = if !children.is_empty() {
                     free_space / children.len() as f32
                 } else {
                     0.0
@@ -1106,18 +1106,25 @@ impl LayoutContext {
                     for (id, _) in &hit_components {
                         if let Some(component) = self.components.get(id) {
                             // If it's a click or press event, first check for clickable components
-                            if (event.event_type == EventType::Press || event.event_type == EventType::Click) 
-                                && component.is_clickable() 
+                            if (event.event_type == EventType::Press
+                                || event.event_type == EventType::Click)
+                                && component.is_clickable()
                             {
                                 if let Some(event_sender) = component.get_event_sender() {
                                     if let Some(click_event) = component.get_click_event() {
                                         if let Err(e) = event_sender.send(click_event.clone()) {
                                             error!("Failed to send click event: {}", e);
                                         } else {
-                                            debug!("Click event handled by component: {}", 
-                                                component.debug_name.as_deref().unwrap_or("unnamed"));
+                                            debug!(
+                                                "Click event handled by component: {}",
+                                                component
+                                                    .debug_name
+                                                    .as_deref()
+                                                    .unwrap_or("unnamed")
+                                            );
                                             event_handled = true;
-                                            components_affected.push((*id, event.event_type.clone()));
+                                            components_affected
+                                                .push((*id, event.event_type.clone()));
                                             break; // Exit after handling click
                                         }
                                     }
@@ -1130,15 +1137,22 @@ impl LayoutContext {
                     if !event_handled {
                         for (id, _) in hit_components {
                             if let Some(component) = self.components.get(&id) {
-                                if event.event_type == EventType::Press && component.is_draggable() {
+                                if event.event_type == EventType::Press && component.is_draggable()
+                                {
                                     if let Some(event_sender) = component.get_event_sender() {
                                         if let Some(drag_event) = component.get_drag_event() {
                                             if let Err(e) = event_sender.send(drag_event.clone()) {
                                                 error!("Failed to send drag event: {}", e);
                                             } else {
-                                                debug!("Drag event handled by component: {}", 
-                                                    component.debug_name.as_deref().unwrap_or("unnamed"));
-                                                components_affected.push((id, event.event_type.clone()));
+                                                debug!(
+                                                    "Drag event handled by component: {}",
+                                                    component
+                                                        .debug_name
+                                                        .as_deref()
+                                                        .unwrap_or("unnamed")
+                                                );
+                                                components_affected
+                                                    .push((id, event.event_type.clone()));
                                                 break; // Exit after handling drag
                                             }
                                         }

@@ -6,13 +6,13 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
-use log::{debug, error, info};
+use log::{error, info};
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, MouseButton, WindowEvent},
+    event::WindowEvent,
     event_loop::ActiveEventLoop,
     platform::windows::WindowAttributesExtWindows,
     window::{CursorIcon, Theme, Window, WindowId},
@@ -26,7 +26,7 @@ pub enum AppEvent {
     ChangeCursorTo(CursorIcon),
     PrintMessage(String),
     SetPositionText(Uuid, ComponentPosition),
-    DragWindow(f64, f64),  // Add this variant for window dragging
+    DragWindow(f64, f64), // Add this variant for window dragging
 }
 
 #[derive(Default)]
@@ -106,7 +106,7 @@ impl App<'_> {
     }
 }
 
-impl<'window> ApplicationHandler for App<'window> {
+impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let win_attr = Window::default_attributes()
@@ -115,6 +115,8 @@ impl<'window> ApplicationHandler for App<'window> {
                 .with_undecorated_shadow(true)
                 .with_transparent(true)
                 .with_resizable(true)
+                .with_blur(true)
+                .with_inner_size(winit::dpi::PhysicalSize::new(1100, 750))
                 .with_theme(Some(Theme::Dark))
                 .with_system_backdrop(winit::platform::windows::BackdropType::MainWindow)
                 .with_corner_preference(winit::platform::windows::CornerPreference::Round);
@@ -180,11 +182,7 @@ impl<'window> ApplicationHandler for App<'window> {
                     window.request_redraw();
                 }
             }
-            WindowEvent::MouseInput {
-                state,
-                button,
-                ..
-            } => {
+            WindowEvent::MouseInput { state, button, .. } => {
                 if let Some((x, y)) = self.cursor_position {
                     // Convert physical coordinates to logical coordinates
                     if let Some(window) = &self.window {

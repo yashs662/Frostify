@@ -46,7 +46,7 @@ pub enum ComponentMetaData {
     IndexBuffer(wgpu::Buffer),
     BindGroup(wgpu::BindGroup),
     EventSender(UnboundedSender<AppEvent>),
-    DragEvent(AppEvent),  // Add this variant
+    DragEvent(AppEvent), // Add this variant
 }
 
 #[derive(Debug, Clone)]
@@ -578,7 +578,12 @@ impl Component {
     }
 
     pub fn is_draggable(&self) -> bool {
-        self.metadata.iter().any(|m| matches!(m, ComponentMetaData::DragEvent(_)))
-            && self.metadata.iter().any(|m| matches!(m, ComponentMetaData::EventSender(_)))
+        self.metadata
+            .iter()
+            .any(|m| matches!(m, ComponentMetaData::DragEvent(_)))
+            && self
+                .metadata
+                .iter()
+                .any(|m| matches!(m, ComponentMetaData::EventSender(_)))
     }
 }
