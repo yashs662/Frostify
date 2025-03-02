@@ -14,7 +14,7 @@ use crate::{
 use log::{debug, error, warn};
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
-use wgpu::{util::DeviceExt, SamplerDescriptor};
+use wgpu::{SamplerDescriptor, util::DeviceExt};
 
 #[derive(Debug, Clone)]
 pub struct Component {

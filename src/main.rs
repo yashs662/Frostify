@@ -3,7 +3,7 @@ use colored::*;
 use env_logger::Builder;
 use log::LevelFilter;
 use std::io::Write;
-use time::{macros::format_description, UtcOffset};
+use time::{UtcOffset, macros::format_description};
 use winit::{
     error::EventLoopError,
     event_loop::{ControlFlow, EventLoop},

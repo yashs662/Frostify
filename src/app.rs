@@ -8,13 +8,12 @@ use crate::{
 };
 use log::{error, info};
 use std::sync::Arc;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use uuid::Uuid;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::ActiveEventLoop,
-    platform::windows::WindowAttributesExtWindows,
     window::{CursorIcon, Theme, Window, WindowId},
 };
 
@@ -109,17 +108,25 @@ impl App<'_> {
 impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            let win_attr = Window::default_attributes()
+            let mut win_attr = Window::default_attributes()
                 .with_title("Frostify")
                 .with_decorations(false)
-                .with_undecorated_shadow(true)
                 .with_transparent(true)
                 .with_resizable(true)
                 .with_blur(true)
                 .with_inner_size(winit::dpi::PhysicalSize::new(1100, 750))
-                .with_theme(Some(Theme::Dark))
-                .with_system_backdrop(winit::platform::windows::BackdropType::MainWindow)
-                .with_corner_preference(winit::platform::windows::CornerPreference::Round);
+                .with_theme(Some(Theme::Dark));
+
+            #[cfg(target_os = "windows")]
+            {
+                use winit::platform::windows::WindowAttributesExtWindows;
+
+                win_attr = win_attr
+                    .with_undecorated_shadow(true)
+                    .with_system_backdrop(winit::platform::windows::BackdropType::TransientWindow)
+                    .with_corner_preference(winit::platform::windows::CornerPreference::Round);
+            }
+
             let window = Arc::new(
                 event_loop
                     .create_window(win_attr)
