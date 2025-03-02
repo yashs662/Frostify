@@ -48,6 +48,7 @@ pub enum ComponentMetaData {
     BindGroup(wgpu::BindGroup),
     EventSender(UnboundedSender<AppEvent>),
     DragEvent(AppEvent), // Add this variant
+    ChildComponents(Vec<Component>),
 }
 
 #[derive(Debug, Clone)]
@@ -131,8 +132,8 @@ impl Component {
         self.parent
     }
 
-    pub fn set_debug_name(&mut self, name: &str) {
-        self.debug_name = Some(name.to_string());
+    pub fn set_debug_name(&mut self, name: impl Into<String>) {
+        self.debug_name = Some(name.into());
     }
 
     pub fn get_all_children_ids(&self) -> Vec<Uuid> {

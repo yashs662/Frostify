@@ -790,23 +790,28 @@ impl LayoutContext {
 
         children.sort_by_key(|(_, comp)| comp.layout.order);
 
+        // Split children into fixed/absolute and flex
+        let (positioned_children, flex_children): (Vec<_>, Vec<_>) =
+            children.into_iter().partition(|(_, child)| {
+                matches!(
+                    child.transform.position_type,
+                    Position::Fixed(_) | Position::Absolute(_)
+                )
+            });
+
         let is_row = matches!(
             layout.direction,
             FlexDirection::Row | FlexDirection::RowReverse
         );
 
-        // Calculate total sizes and flex grow
+        // First handle flex layout to establish container boundaries
         let mut total_fixed_size = 0.0;
         let mut total_flex_grow = 0.0;
         let mut num_auto_sized = 0;
         let mut num_flex_items = 0;
 
-        for (_, child) in &children {
-            // Skip absolute positioned items in flex calculations
-            if matches!(child.transform.position_type, Position::Absolute(_)) {
-                continue;
-            }
-
+        // Only consider flex children for space calculations
+        for (_, child) in &flex_children {
             if is_row {
                 match &child.transform.size.width {
                     FlexValue::Fixed(w) => total_fixed_size += w,
@@ -845,173 +850,36 @@ impl LayoutContext {
             0.0
         };
 
-        // Calculate total used space in the main axis
-        let total_used_space = total_fixed_size + (space_per_flex_unit * total_flex_grow);
-        let free_space = (main_axis_size - total_used_space).max(0.0);
+        // Calculate spacing based on justify_content for flex items only
+        let (start_pos, spacing_between) = self.calculate_spacing(
+            layout.justify_content,
+            is_row,
+            content_space,
+            &flex_children,
+            total_fixed_size,
+            space_per_flex_unit,
+            total_flex_grow,
+        );
 
-        // Determine starting position and spacing based on justify_content
-        let (start_pos, spacing_between) = match layout.justify_content {
-            JustifyContent::Start => (
-                if is_row {
-                    content_space.position.x
-                } else {
-                    content_space.position.y
-                },
-                0.0,
-            ),
-            JustifyContent::Center => (
-                if is_row {
-                    content_space.position.x + free_space / 2.0
-                } else {
-                    content_space.position.y + free_space / 2.0
-                },
-                0.0,
-            ),
-            JustifyContent::End => (
-                if is_row {
-                    content_space.position.x + free_space
-                } else {
-                    content_space.position.y + free_space
-                },
-                0.0,
-            ),
-            JustifyContent::SpaceBetween => {
-                let between = if children.len() > 1 {
-                    free_space / (children.len() - 1) as f32
-                } else {
-                    0.0
-                };
-                (
-                    if is_row {
-                        content_space.position.x
-                    } else {
-                        content_space.position.y
-                    },
-                    between,
-                )
-            }
-            JustifyContent::SpaceAround => {
-                let around = if !children.is_empty() {
-                    free_space / children.len() as f32
-                } else {
-                    0.0
-                };
-                (
-                    if is_row {
-                        content_space.position.x + around / 2.0
-                    } else {
-                        content_space.position.y + around / 2.0
-                    },
-                    around,
-                )
-            }
-            JustifyContent::SpaceEvenly => {
-                let evenly = if children.len() + 1 > 0 {
-                    free_space / (children.len() + 1) as f32
-                } else {
-                    0.0
-                };
-                (
-                    if is_row {
-                        content_space.position.x + evenly
-                    } else {
-                        content_space.position.y + evenly
-                    },
-                    evenly,
-                )
-            }
-        };
-
-        // Initialize current position using the calculated start position
+        // Layout flex children
         let mut current_main = start_pos;
+        for (child_id, child) in flex_children {
+            let (main_size, cross_size) = self.calculate_child_sizes(
+                child,
+                is_row,
+                content_space,
+                space_per_flex_unit,
+                num_flex_items,
+                num_auto_sized,
+            );
 
-        // Layout each child
-        for (child_id, child) in children {
-            // Handle absolute positioned items separately
-            if let Position::Absolute(anchor) = child.transform.position_type {
-                // Absolute positioned items get positioned directly at the position they specify
-                let absolute_bounds = self.calculate_absolute_bounds(child, anchor);
-                self.computed_bounds.insert(child_id, absolute_bounds);
-                self.compute_component_layout(&child_id, Some(absolute_bounds));
-                continue;
-            }
+            let cross = self.calculate_cross_position(
+                layout.align_items,
+                is_row,
+                content_space,
+                cross_size,
+            );
 
-            // For non-absolute positioned items, calculate size based on flex rules
-            let main_size = if is_row {
-                match &child.transform.size.width {
-                    FlexValue::Fixed(w) => *w,
-                    FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
-                    FlexValue::Auto => {
-                        if num_flex_items == 0 && num_auto_sized > 0 {
-                            space_per_flex_unit // Distribute remaining space among auto items when no fill items
-                        } else {
-                            content_space.size.width // Default to container width
-                        }
-                    }
-                    _ => content_space.size.width,
-                }
-            } else {
-                match &child.transform.size.height {
-                    FlexValue::Fixed(h) => *h,
-                    FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
-                    FlexValue::Auto => {
-                        if num_flex_items == 0 && num_auto_sized > 0 {
-                            space_per_flex_unit // Distribute remaining space among auto items when no fill items
-                        } else {
-                            content_space.size.height // Default to container height
-                        }
-                    }
-                    _ => content_space.size.height,
-                }
-            };
-
-            let cross_size = if is_row {
-                match &child.transform.size.height {
-                    FlexValue::Fixed(h) => *h,
-                    FlexValue::Fill | FlexValue::Auto => content_space.size.height,
-                    _ => content_space.size.height,
-                }
-            } else {
-                match &child.transform.size.width {
-                    FlexValue::Fixed(w) => *w,
-                    FlexValue::Fill | FlexValue::Auto => content_space.size.width,
-                    _ => content_space.size.width,
-                }
-            };
-
-            // Calculate cross axis position based on align items
-            let cross = match layout.align_items {
-                AlignItems::Start => {
-                    if is_row {
-                        content_space.position.y
-                    } else {
-                        content_space.position.x
-                    }
-                }
-                AlignItems::Center => {
-                    if is_row {
-                        content_space.position.y + (content_space.size.height - cross_size) / 2.0
-                    } else {
-                        content_space.position.x + (content_space.size.width - cross_size) / 2.0
-                    }
-                }
-                AlignItems::End => {
-                    if is_row {
-                        content_space.position.y + content_space.size.height - cross_size
-                    } else {
-                        content_space.position.x + content_space.size.width - cross_size
-                    }
-                }
-                _ => {
-                    if is_row {
-                        content_space.position.y
-                    } else {
-                        content_space.position.x
-                    }
-                }
-            };
-
-            // Create bounds with the correct position based on layout direction
             let child_bounds = if is_row {
                 Bounds {
                     position: ComponentPosition {
@@ -1039,14 +907,211 @@ impl LayoutContext {
             self.computed_bounds.insert(child_id, child_bounds);
             self.compute_component_layout(&child_id, Some(child_bounds));
 
-            // Update current position including margin and spacing
-            current_main += main_size
-                + if is_row {
-                    child.layout.margin.left + child.layout.margin.right
-                } else {
-                    child.layout.margin.top + child.layout.margin.bottom
+            current_main += main_size + spacing_between;
+        }
+
+        // Handle fixed and absolute positioned items last
+        for (child_id, child) in positioned_children {
+            match child.transform.position_type {
+                Position::Fixed(anchor) => {
+                    let fixed_bounds = self.calculate_fixed_bounds(child, content_space, anchor);
+                    self.computed_bounds.insert(child_id, fixed_bounds);
+                    self.compute_component_layout(&child_id, Some(fixed_bounds));
                 }
-                + spacing_between; // Add the calculated spacing between items
+                Position::Absolute(anchor) => {
+                    let absolute_bounds = self.calculate_absolute_bounds(child, anchor);
+                    self.computed_bounds.insert(child_id, absolute_bounds);
+                    self.compute_component_layout(&child_id, Some(absolute_bounds));
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    // Add these helper functions to LayoutContext impl
+    fn calculate_spacing(
+        &self,
+        justify_content: JustifyContent,
+        is_row: bool,
+        content_space: Bounds,
+        flex_children: &[(Uuid, &Component)],
+        total_fixed_size: f32,
+        space_per_flex_unit: f32,
+        total_flex_grow: f32,
+    ) -> (f32, f32) {
+        let main_axis_size = if is_row {
+            content_space.size.width
+        } else {
+            content_space.size.height
+        };
+
+        let total_flex_size = space_per_flex_unit * total_flex_grow;
+        let total_used_space = total_fixed_size + total_flex_size;
+        let free_space = (main_axis_size - total_used_space).max(0.0);
+
+        match justify_content {
+            JustifyContent::Start => (
+                if is_row {
+                    content_space.position.x
+                } else {
+                    content_space.position.y
+                },
+                0.0,
+            ),
+            JustifyContent::Center => (
+                if is_row {
+                    content_space.position.x + free_space / 2.0
+                } else {
+                    content_space.position.y + free_space / 2.0
+                },
+                0.0,
+            ),
+            JustifyContent::End => (
+                if is_row {
+                    content_space.position.x + free_space
+                } else {
+                    content_space.position.y + free_space
+                },
+                0.0,
+            ),
+            JustifyContent::SpaceBetween => {
+                let between = if flex_children.len() > 1 {
+                    free_space / (flex_children.len() - 1) as f32
+                } else {
+                    0.0
+                };
+                (
+                    if is_row {
+                        content_space.position.x
+                    } else {
+                        content_space.position.y
+                    },
+                    between,
+                )
+            }
+            JustifyContent::SpaceAround => {
+                let around = if !flex_children.is_empty() {
+                    free_space / flex_children.len() as f32
+                } else {
+                    0.0
+                };
+                (
+                    if is_row {
+                        content_space.position.x + around / 2.0
+                    } else {
+                        content_space.position.y + around / 2.0
+                    },
+                    around,
+                )
+            }
+            JustifyContent::SpaceEvenly => {
+                let evenly = if flex_children.len() + 1 > 0 {
+                    free_space / (flex_children.len() + 1) as f32
+                } else {
+                    0.0
+                };
+                (
+                    if is_row {
+                        content_space.position.x + evenly
+                    } else {
+                        content_space.position.y + evenly
+                    },
+                    evenly,
+                )
+            }
+        }
+    }
+
+    fn calculate_child_sizes(
+        &self,
+        child: &Component,
+        is_row: bool,
+        content_space: Bounds,
+        space_per_flex_unit: f32,
+        num_flex_items: usize,
+        num_auto_sized: usize,
+    ) -> (f32, f32) {
+        let main_size = if is_row {
+            match &child.transform.size.width {
+                FlexValue::Fixed(w) => *w,
+                FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
+                FlexValue::Auto => {
+                    if num_flex_items == 0 && num_auto_sized > 0 {
+                        space_per_flex_unit
+                    } else {
+                        content_space.size.width
+                    }
+                }
+                _ => content_space.size.width,
+            }
+        } else {
+            match &child.transform.size.height {
+                FlexValue::Fixed(h) => *h,
+                FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
+                FlexValue::Auto => {
+                    if num_flex_items == 0 && num_auto_sized > 0 {
+                        space_per_flex_unit
+                    } else {
+                        content_space.size.height
+                    }
+                }
+                _ => content_space.size.height,
+            }
+        };
+
+        let cross_size = if is_row {
+            match &child.transform.size.height {
+                FlexValue::Fixed(h) => *h,
+                FlexValue::Fill | FlexValue::Auto => content_space.size.height,
+                _ => content_space.size.height,
+            }
+        } else {
+            match &child.transform.size.width {
+                FlexValue::Fixed(w) => *w,
+                FlexValue::Fill | FlexValue::Auto => content_space.size.width,
+                _ => content_space.size.width,
+            }
+        };
+
+        (main_size, cross_size)
+    }
+
+    fn calculate_cross_position(
+        &self,
+        align_items: AlignItems,
+        is_row: bool,
+        content_space: Bounds,
+        cross_size: f32,
+    ) -> f32 {
+        match align_items {
+            AlignItems::Start => {
+                if is_row {
+                    content_space.position.y
+                } else {
+                    content_space.position.x
+                }
+            }
+            AlignItems::Center => {
+                if is_row {
+                    content_space.position.y + (content_space.size.height - cross_size) / 2.0
+                } else {
+                    content_space.position.x + (content_space.size.width - cross_size) / 2.0
+                }
+            }
+            AlignItems::End => {
+                if is_row {
+                    content_space.position.y + content_space.size.height - cross_size
+                } else {
+                    content_space.position.x + content_space.size.width - cross_size
+                }
+            }
+            _ => {
+                if is_row {
+                    content_space.position.y
+                } else {
+                    content_space.position.x
+                }
+            }
         }
     }
 
