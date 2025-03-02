@@ -1,16 +1,14 @@
 use crate::{
     constants::WINDOW_RESIZE_BORDER_WIDTH,
-    text_renderer::OptionalTextUpdateData,
     ui::{
         create_app_ui,
-        layout::{self, ComponentPosition},
+        layout::{self},
     },
     wgpu_ctx::WgpuCtx,
 };
 use log::{error, info};
 use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use uuid::Uuid;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -25,8 +23,7 @@ pub enum AppEvent {
     Minimize,
     ChangeCursorTo(CursorIcon),
     PrintMessage(String),
-    SetPositionText(Uuid, ComponentPosition),
-    DragWindow(f64, f64),
+    DragWindow,
 }
 
 #[derive(Default)]
@@ -75,23 +72,7 @@ impl App<'_> {
                         info!("{}", msg);
                         return true;
                     }
-                    AppEvent::SetPositionText(id, position) => {
-                        if let Some(wgpu_ctx) = &mut self.wgpu_ctx {
-                            if let Some(bounds) = wgpu_ctx.text_handler.get_bounds(id) {
-                                let mut updated_bounds = bounds;
-                                updated_bounds.position = position;
-                                wgpu_ctx.text_handler.update((
-                                    id,
-                                    OptionalTextUpdateData::new().with_bounds(updated_bounds),
-                                ));
-                                return true;
-                            } else {
-                                error!("Could not find text with id: {:?}", id);
-                            }
-                        }
-                        return false;
-                    }
-                    AppEvent::DragWindow(x, y) => {
+                    AppEvent::DragWindow => {
                         if let Some(window) = &self.window {
                             window.drag_window().unwrap_or_else(|e| {
                                 error!("Failed to drag window: {}", e);

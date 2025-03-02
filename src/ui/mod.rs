@@ -52,7 +52,7 @@ pub fn create_app_ui(
     nav_bar_container.set_z_index(1);
     nav_bar_container.set_parent(main_container_id);
     // Add drag event handling to nav bar
-    nav_bar_container.set_drag_handler(AppEvent::DragWindow(0.0, 0.0), event_tx.clone());
+    nav_bar_container.set_drag_handler(AppEvent::DragWindow, event_tx.clone());
 
     let nav_buttons_container_id = uuid::Uuid::new_v4();
     let mut nav_buttons_container =

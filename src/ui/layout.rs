@@ -188,10 +188,10 @@ pub struct LayoutContext {
 
 #[derive(Debug, Clone)]
 pub struct GridLayout {
-    pub columns: Vec<FlexValue>, // Width of each column
-    pub rows: Vec<FlexValue>,    // Height of each row
-    pub column_gap: f32,         // Gap between columns
-    pub row_gap: f32,            // Gap between rows
+    pub columns: Vec<FlexValue>,
+    pub rows: Vec<FlexValue>,
+    pub column_gap: f32,
+    pub row_gap: f32,
 }
 
 // Event types
@@ -233,6 +233,7 @@ impl From<ElementState> for EventType {
 }
 
 // Implementation for Size
+#[allow(dead_code)]
 impl Size {
     pub fn fixed(width: f32, height: f32) -> Self {
         Self {
@@ -269,6 +270,7 @@ impl Size {
 }
 
 // Implementation for Layout
+#[allow(dead_code)]
 impl Layout {
     pub fn new() -> Self {
         Self {
@@ -355,6 +357,7 @@ impl Layout {
 }
 
 // Implementation for Edges
+#[allow(dead_code)]
 impl Edges {
     pub fn zero() -> Self {
         Self {
@@ -427,44 +430,10 @@ impl FlexValue {
 
 // Layout Context implementation
 impl LayoutContext {
-    pub fn is_initialized(&self) -> bool {
-        self.initialized
-    }
-
-    pub fn get_computed_bounds(&self) -> &BTreeMap<Uuid, Bounds> {
-        &self.computed_bounds
-    }
-
     pub fn initialize(&mut self, width: f32, height: f32) {
         self.viewport_size = ComponentSize { width, height };
         self.initialized = true;
         self.compute_layout();
-    }
-
-    pub fn debug_print_computed_bounds(&self) {
-        // Get all entries and sort them by component name
-        let mut debug_bounds: Vec<(String, Bounds)> = self
-            .computed_bounds
-            .iter()
-            .filter_map(|(id, bounds)| {
-                self.get_component(id).map(|component| {
-                    (
-                        component.debug_name.clone().unwrap_or_else(|| {
-                            format!("Debug name not set for id:{}", component.id)
-                        }),
-                        *bounds,
-                    )
-                })
-            })
-            .collect();
-        debug_bounds.sort_by(|a, b| a.0.cmp(&b.0));
-
-        debug!(
-            "Computed bounds: {:#?}",
-            debug_bounds
-                .into_iter()
-                .collect::<std::collections::BTreeMap<_, _>>()
-        );
     }
 
     pub fn draw(&self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
@@ -475,12 +444,12 @@ impl LayoutContext {
                     continue;
                 }
 
-                if let Some(render_bounds) = self.computed_bounds.get(id) {
+                if self.computed_bounds.contains_key(id) {
                     component.draw(render_pass, app_pipelines);
                 } else {
                     // check if component has a parent if so get the parent's bounds
                     if let Some(parent_id) = &component.get_parent_id() {
-                        if let Some(parent_bounds) = self.computed_bounds.get(parent_id) {
+                        if self.computed_bounds.contains_key(parent_id) {
                             component.draw(render_pass, app_pipelines);
                         } else {
                             error!(

@@ -35,7 +35,6 @@ pub enum ComponentType {
     Container,
     Label,
     Image,
-    Button,
     Background,
 }
 
@@ -174,8 +173,8 @@ impl Component {
                 render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
             }
-            ComponentType::Button | ComponentType::Container => {
-                // Containers and buttons are not drawn directly
+            ComponentType::Container => {
+                // Containers are not drawn directly
             }
         }
     }
@@ -419,8 +418,8 @@ impl Component {
         clip_bounds: Option<Bounds>,
         custom_color: Option<Color>,
     ) -> Vec<Vertex> {
-        let color = if custom_color.is_some() {
-            custom_color.unwrap().value()
+        let color = if let Some(custom_color) = custom_color {
+            custom_color.value()
         } else {
             match &self.config {
                 Some(ComponentConfig::BackgroundColor(bg_config)) => bg_config.color.value(),
@@ -537,32 +536,6 @@ impl Component {
                 .metadata
                 .iter()
                 .any(|m| matches!(m, ComponentMetaData::EventSender(_)))
-    }
-
-    pub fn set_hover_state(&mut self, is_hovered: bool, wgpu_ctx: &mut WgpuCtx) {
-        // First, check if we have a background color config and get the color
-        let color = match &self.config {
-            Some(ComponentConfig::BackgroundColor(bg_config)) => {
-                if is_hovered {
-                    Some(bg_config.color.darken(0.1))
-                } else {
-                    Some(bg_config.color)
-                }
-            }
-            _ => None,
-        };
-
-        // Only proceed if we got a valid color
-        if let Some(color) = color {
-            if self.get_vertex_buffer().is_some() {
-                let vertices = self.calculate_vertices(None, Some(color));
-                wgpu_ctx.queue.write_buffer(
-                    self.get_vertex_buffer().unwrap(),
-                    0,
-                    bytemuck::cast_slice(&vertices),
-                );
-            }
-        }
     }
 
     pub fn set_drag_handler(&mut self, event: AppEvent, event_tx: UnboundedSender<AppEvent>) {
