@@ -1,5 +1,5 @@
 use crate::ui::{
-    component::{Component, ComponentType},
+    components::core::component::{Component, ComponentType},
     layout::*,
 };
 use uuid::Uuid;
@@ -567,7 +567,7 @@ fn test_navbar_app_layout() {
 
     // parent container background
     let background_id = uuid::Uuid::new_v4();
-    let mut background = Component::new(background_id, ComponentType::Background);
+    let mut background = Component::new(background_id, ComponentType::BackgroundColor);
     background.transform.position_type = Position::Absolute(Anchor::TopLeft);
     background.set_parent(parent_id);
 
@@ -610,12 +610,12 @@ fn test_navbar_app_layout() {
     content_container.layout = Layout::flex_row();
     content_container.set_parent(parent_id);
 
-    // Label with fixed size
-    let label_id = uuid::Uuid::new_v4();
-    let mut label = Component::new(label_id, ComponentType::Label);
-    label.transform.size.width = FlexValue::Fixed(200.0); // Fixed width
-    label.transform.size.height = FlexValue::Fixed(50.0); // Fixed height
-    label.set_parent(content_container_id);
+    // text with fixed size
+    let text_id = uuid::Uuid::new_v4();
+    let mut text = Component::new(text_id, ComponentType::Text);
+    text.transform.size.width = FlexValue::Fixed(200.0); // Fixed width
+    text.transform.size.height = FlexValue::Fixed(50.0); // Fixed height
+    text.set_parent(content_container_id);
 
     // Content image
     let image_id = uuid::Uuid::new_v4();
@@ -633,7 +633,7 @@ fn test_navbar_app_layout() {
     nav_bar.add_child(close_icon_id);
 
     // Add children to the content container
-    content_container.add_child(label_id);
+    content_container.add_child(text_id);
     content_container.add_child(image_id);
 
     // Add components in the correct order
@@ -644,7 +644,7 @@ fn test_navbar_app_layout() {
     ctx.add_component(expand_icon);
     ctx.add_component(close_icon);
     ctx.add_component(content_container);
-    ctx.add_component(label);
+    ctx.add_component(text);
     ctx.add_component(image);
 
     // Force layout computation
@@ -660,7 +660,7 @@ fn test_navbar_app_layout() {
     let expand_icon_bounds = computed_bounds.get(&expand_icon_id).unwrap();
     let close_icon_bounds = computed_bounds.get(&close_icon_id).unwrap();
     let content_container_bounds = computed_bounds.get(&content_container_id).unwrap();
-    let label_bounds = computed_bounds.get(&label_id).unwrap();
+    let text_bounds = computed_bounds.get(&text_id).unwrap();
     let image_bounds = computed_bounds.get(&image_id).unwrap();
 
     // Test parent bounds
@@ -705,11 +705,11 @@ fn test_navbar_app_layout() {
     assert_eq!(content_container_bounds.position.x, 0.0);
     assert_eq!(content_container_bounds.position.y, 100.0);
 
-    // Test label bounds
-    assert_eq!(label_bounds.size.width, 200.0);
-    assert_eq!(label_bounds.size.height, 50.0);
-    assert_eq!(label_bounds.position.x, 0.0);
-    assert_eq!(label_bounds.position.y, 100.0);
+    // Test text bounds
+    assert_eq!(text_bounds.size.width, 200.0);
+    assert_eq!(text_bounds.size.height, 50.0);
+    assert_eq!(text_bounds.position.x, 0.0);
+    assert_eq!(text_bounds.position.y, 100.0);
 
     // Test image bounds - should fill the remaining width
     assert_eq!(image_bounds.size.width, 800.0); // 1000 - 200 = 800

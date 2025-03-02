@@ -1,5 +1,5 @@
 use crate::{
-    ui::component::{Component, ComponentType},
+    ui::components::core::component::{Component, ComponentType},
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use log::{debug, error};
@@ -436,10 +436,16 @@ impl LayoutContext {
         self.compute_layout();
     }
 
+    /// Used for testing purposes only
+    #[allow(dead_code)]
+    pub fn get_computed_bounds(&self) -> &BTreeMap<Uuid, Bounds> {
+        &self.computed_bounds
+    }
+
     pub fn draw(&self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
         for id in &self.render_order {
             if let Some(component) = self.get_component(id) {
-                if component.component_type == ComponentType::Label {
+                if component.component_type == ComponentType::Text {
                     // Text rendering is done in a separate pass
                     continue;
                 }

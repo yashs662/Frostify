@@ -1,16 +1,17 @@
 use crate::{
     app::AppEvent,
     color::Color,
-    ui::component::{
-        BackgroundColorConfig, Component, ComponentConfig, ComponentType, ImageConfig, LabelConfig,
+    ui::components::core::component::{
+        Component, ComponentConfig, ComponentType, ImageConfig, TextConfig,
     },
     ui::layout::{Anchor, FlexValue, Position},
     wgpu_ctx::WgpuCtx,
 };
+use components::core::component::BackgroundGradientConfig;
 use layout::{AlignItems, Edges, JustifyContent, Layout};
 use tokio::sync::mpsc::UnboundedSender;
 
-pub mod component;
+pub mod components;
 pub mod layout;
 
 pub fn create_app_ui(
@@ -27,11 +28,13 @@ pub fn create_app_ui(
 
     // Background
     let background_id = uuid::Uuid::new_v4();
-    let mut background = Component::new(background_id, ComponentType::Background);
+    let mut background = Component::new(background_id, ComponentType::BackgroundColor);
     background.set_debug_name("Background");
     background.configure(
-        ComponentConfig::BackgroundColor(BackgroundColorConfig {
-            color: Color::White,
+        ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
+            start_color: Color::Blue,
+            end_color: Color::Red,
+            angle: 90.0,
         }),
         wgpu_ctx,
     );
@@ -123,14 +126,14 @@ pub fn create_app_ui(
     content_container.layout.align_items = AlignItems::Center;
     content_container.set_parent(main_container_id);
 
-    // Label with fixed size
-    let label_id = uuid::Uuid::new_v4();
-    let mut label = Component::new(label_id, ComponentType::Label);
-    label.set_debug_name("Label");
-    label.transform.size.width = FlexValue::Fixed(200.0); // Fixed width
-    label.transform.size.height = FlexValue::Fixed(50.0); // Fixed height
-    label.configure(
-        ComponentConfig::Label(LabelConfig {
+    // text with fixed size
+    let text_id = uuid::Uuid::new_v4();
+    let mut text = Component::new(text_id, ComponentType::Text);
+    text.set_debug_name("text");
+    text.transform.size.width = FlexValue::Fixed(200.0); // Fixed width
+    text.transform.size.height = FlexValue::Fixed(50.0); // Fixed height
+    text.configure(
+        ComponentConfig::Text(TextConfig {
             text: "Test Text render".to_string(),
             font_size: 16.0,
             color: Color::Black,
@@ -138,8 +141,8 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
-    label.set_z_index(1);
-    label.set_parent(content_container_id);
+    text.set_z_index(1);
+    text.set_parent(content_container_id);
 
     // Content image
     let image_id = uuid::Uuid::new_v4();
@@ -168,7 +171,7 @@ pub fn create_app_ui(
     nav_buttons_container.add_child(close_icon_id);
 
     // Add children to the content container
-    content_container.add_child(label_id);
+    content_container.add_child(text_id);
     content_container.add_child(image_id);
 
     // Add components in the correct order
@@ -180,6 +183,6 @@ pub fn create_app_ui(
     layout_context.add_component(expand_icon);
     layout_context.add_component(close_icon);
     layout_context.add_component(content_container);
-    layout_context.add_component(label);
+    layout_context.add_component(text);
     layout_context.add_component(image);
 }
