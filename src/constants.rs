@@ -16,3 +16,5 @@ pub const TEXTURE_BIND_GROUP_LAYOUT_ENTIRES: &[wgpu::BindGroupLayoutEntry] = &[
         count: None,
     },
 ];
+
+pub const WINDOW_RESIZE_BORDER_WIDTH: f64 = 5.0;

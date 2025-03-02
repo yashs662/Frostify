@@ -31,7 +31,7 @@ pub fn create_app_ui(
     background.set_debug_name("Background");
     background.configure(
         ComponentConfig::BackgroundColor(BackgroundColorConfig {
-            color: Color::OrangeRed.with_alpha(0.0),
+            color: Color::White,
         }),
         wgpu_ctx,
     );
