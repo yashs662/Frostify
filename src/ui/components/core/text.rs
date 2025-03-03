@@ -40,7 +40,7 @@ impl Configurable for TextComponent {
 
 impl Renderable for TextComponent {
     fn draw(
-        _component: &Component,
+        _component: &mut Component,
         _render_pass: &mut wgpu::RenderPass,
         _app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
     ) {
@@ -49,12 +49,7 @@ impl Renderable for TextComponent {
 }
 
 impl Positionable for TextComponent {
-    fn set_position(
-        component: &mut Component,
-        wgpu_ctx: &mut WgpuCtx,
-        bounds: Bounds,
-        _screen_size: crate::ui::layout::ComponentSize,
-    ) {
+    fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
         let text_computed_bounds = wgpu_ctx.text_handler.measure_text(component.id);
         let calc_bounds = if let Some(text_size) = text_computed_bounds {
             if text_size.width == 0.0 || text_size.height == 0.0 {

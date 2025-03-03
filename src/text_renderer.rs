@@ -86,7 +86,7 @@ impl TextRenderBuffers {
         buffer.set_text(
             font_system,
             text,
-            glyphon::Attrs::new().family(glyphon::Family::Monospace),
+            glyphon::Attrs::new().family(glyphon::Family::SansSerif),
             glyphon::Shaping::Advanced,
         );
         buffer
@@ -212,10 +212,6 @@ impl TextHandler {
         self.atlas.trim();
     }
 
-    pub fn get_bounds(&self, id: Uuid) -> Option<Bounds> {
-        self.buffers.buffers.get(&id).map(|data| data.bounds)
-    }
-
     pub fn update(&mut self, update_data: (Uuid, OptionalTextUpdateData)) {
         let (key, value) = update_data;
         if let Some(data) = self.buffers.buffers.get_mut(&key) {
@@ -223,7 +219,7 @@ impl TextHandler {
                 data.buffer.set_text(
                     &mut self.font_system,
                     &updated_text,
-                    glyphon::Attrs::new().family(glyphon::Family::Monospace),
+                    glyphon::Attrs::new().family(glyphon::Family::SansSerif),
                     glyphon::Shaping::Advanced,
                 );
             } else if let Some(updated_metrics) = value.metrics {

@@ -75,10 +75,11 @@ impl Configurable for BackgroundGradientComponent {
 
 impl Renderable for BackgroundGradientComponent {
     fn draw(
-        component: &Component,
+        component: &mut Component,
         render_pass: &mut wgpu::RenderPass,
         app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
     ) {
+        let indices = component.get_indices();
         let vertex_buffer = component.get_vertex_buffer();
         let index_buffer = component.get_index_buffer();
         let bind_group = component.get_bind_group();
@@ -95,8 +96,6 @@ impl Renderable for BackgroundGradientComponent {
         let index_buffer = index_buffer.unwrap();
         let bind_group = bind_group.unwrap();
 
-        let indices = component.get_indices();
-
         render_pass.set_pipeline(&app_pipelines.color_pipeline);
         render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -106,12 +105,8 @@ impl Renderable for BackgroundGradientComponent {
 }
 
 impl Positionable for BackgroundGradientComponent {
-    fn set_position(
-        component: &mut Component,
-        wgpu_ctx: &mut WgpuCtx,
-        bounds: Bounds,
-        screen_size: crate::ui::layout::ComponentSize,
-    ) {
+    fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
+        let screen_size = wgpu_ctx.get_screen_size();
         let clip_bounds = component.convert_to_ndc(bounds, screen_size);
 
         if let Some(config) = &component.config {

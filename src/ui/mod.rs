@@ -1,16 +1,19 @@
 use crate::{
     app::AppEvent,
     color::Color,
-    ui::components::core::component::{
-        Component, ComponentConfig, ComponentType, ImageConfig, TextConfig,
+    constants::WINDOW_CONTROL_BUTTON_SIZE,
+    ui::{
+        components::core::component::{
+            Component, ComponentConfig, ComponentType, ImageConfig, TextConfig,
+        },
+        layout::{Anchor, FlexValue, Position},
     },
-    ui::layout::{Anchor, FlexValue, Position},
     wgpu_ctx::WgpuCtx,
 };
 use components::button::{ButtonBackground, ButtonBuilder};
-use components::core::component::{BackgroundGradientConfig, ComponentMetaData};
+use components::core::component::BackgroundGradientConfig;
 use layout::{AlignItems, Edges, JustifyContent, Layout};
-use tokio::sync::mpsc::UnboundedSender; // Add this import
+use tokio::sync::mpsc::UnboundedSender;
 
 pub mod components;
 pub mod layout;
@@ -55,7 +58,6 @@ pub fn create_app_ui(
     nav_bar_container.layout.padding = Edges::all(10.0);
     nav_bar_container.set_z_index(1);
     nav_bar_container.set_parent(main_container_id);
-    // Add drag event handling to nav bar
     nav_bar_container.set_drag_handler(AppEvent::DragWindow, event_tx.clone());
 
     let nav_buttons_container_id = uuid::Uuid::new_v4();
@@ -68,56 +70,35 @@ pub fn create_app_ui(
     nav_buttons_container.transform.size.width = FlexValue::Fixed(92.0);
     nav_buttons_container.set_parent(nav_bar_container_id);
 
-    // Nav bar buttons with fixed size and spacing
-    let button_size = 24.0; // Fixed size for all buttons
-
     // Minimize button
-    let minimize_icon_id = uuid::Uuid::new_v4();
-    let mut minimize_icon = Component::new(minimize_icon_id, ComponentType::Image);
-    minimize_icon.set_debug_name("Minimize Icon");
-    minimize_icon.transform.size.width = FlexValue::Fixed(button_size);
-    minimize_icon.transform.size.height = FlexValue::Fixed(button_size);
-    minimize_icon.configure(
-        ComponentConfig::Image(ImageConfig {
-            file_name: "minimize.png".to_string(),
-        }),
-        wgpu_ctx,
-    );
-    minimize_icon.set_click_handler(AppEvent::Minimize, event_tx.clone());
-    minimize_icon.set_z_index(2);
-    minimize_icon.set_parent(nav_buttons_container_id);
+    let minimize_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Image("minimize.png".to_string()))
+        .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
+        .with_debug_name("Minimize Button")
+        .with_click_handler(AppEvent::Minimize, event_tx.clone())
+        .with_z_index(2)
+        .with_parent(nav_buttons_container_id)
+        .build(wgpu_ctx);
 
     // Maximize button
-    let maximize_icon_id = uuid::Uuid::new_v4();
-    let mut maximize_icon = Component::new(maximize_icon_id, ComponentType::Image);
-    maximize_icon.set_debug_name("Maximize Icon");
-    maximize_icon.transform.size.width = FlexValue::Fixed(button_size);
-    maximize_icon.transform.size.height = FlexValue::Fixed(button_size);
-    maximize_icon.configure(
-        ComponentConfig::Image(ImageConfig {
-            file_name: "maximize.png".to_string(),
-        }),
-        wgpu_ctx,
-    );
-    maximize_icon.set_click_handler(AppEvent::Maximize, event_tx.clone());
-    maximize_icon.set_z_index(2);
-    maximize_icon.set_parent(nav_buttons_container_id);
+    let maximize_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Image("maximize.png".to_string()))
+        .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
+        .with_debug_name("Maximize Button")
+        .with_click_handler(AppEvent::Maximize, event_tx.clone())
+        .with_z_index(2)
+        .with_parent(nav_buttons_container_id)
+        .build(wgpu_ctx);
 
     // Close button
-    let close_icon_id = uuid::Uuid::new_v4();
-    let mut close_icon = Component::new(close_icon_id, ComponentType::Image);
-    close_icon.set_debug_name("Close Icon");
-    close_icon.transform.size.width = FlexValue::Fixed(button_size);
-    close_icon.transform.size.height = FlexValue::Fixed(button_size);
-    close_icon.configure(
-        ComponentConfig::Image(ImageConfig {
-            file_name: "close.png".to_string(),
-        }),
-        wgpu_ctx,
-    );
-    close_icon.set_click_handler(AppEvent::Close, event_tx.clone());
-    close_icon.set_z_index(2);
-    close_icon.set_parent(nav_buttons_container_id);
+    let close_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Image("close.png".to_string()))
+        .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
+        .with_debug_name("Close Button")
+        .with_click_handler(AppEvent::Close, event_tx.clone())
+        .with_z_index(2)
+        .with_parent(nav_buttons_container_id)
+        .build(wgpu_ctx);
 
     // Content container
     let content_container_id = uuid::Uuid::new_v4();
@@ -126,6 +107,7 @@ pub fn create_app_ui(
     content_container.layout = Layout::flex_row();
     content_container.layout.align_items = AlignItems::Center;
     content_container.set_parent(main_container_id);
+    content_container.layout.padding = Edges::horizontal(10.0);
 
     // text with fixed size
     let text_id = uuid::Uuid::new_v4();
@@ -159,67 +141,40 @@ pub fn create_app_ui(
     image.set_parent(content_container_id);
 
     // Example button with gradient background
-    let mut test_button = ButtonBuilder::new()
+    let test_button = ButtonBuilder::new()
         .with_background(ButtonBackground::Color(Color::Blue))
         .with_text("Click Me")
         .with_text_color(Color::White)
         .with_size(150.0, 50.0) // Make button bigger
         .with_font_size(20.0) // Make text bigger
         .with_debug_name("Button test")
-        .with_border_radius(1000.1)
+        .with_border_radius(20.0)
+        .with_click_handler(
+            AppEvent::PrintMessage("Button clicked!".to_string()),
+            event_tx.clone(),
+        )
+        .with_z_index(2)
+        .with_parent(content_container_id)
         .build(wgpu_ctx);
-    let test_button_id = test_button.id;
-    test_button.set_z_index(2); // Ensure button is visible above other content
-    test_button.set_click_handler(
-        AppEvent::PrintMessage("Button clicked!".to_string()),
-        event_tx.clone(),
-    );
-    test_button.set_parent(content_container_id);
-
-    // Add children to the main container
-    main_container.add_child(background_id);
-    main_container.add_child(nav_bar_container_id);
-    main_container.add_child(content_container_id);
-
-    // Add children to the nav bar container
-    nav_bar_container.add_child(nav_buttons_container_id);
 
     // Add children to the nav buttons container
-    nav_buttons_container.add_child(minimize_icon_id);
-    nav_buttons_container.add_child(maximize_icon_id);
-    nav_buttons_container.add_child(close_icon_id);
+    nav_buttons_container.add_child(minimize_button);
+    nav_buttons_container.add_child(maximize_button);
+    nav_buttons_container.add_child(close_button);
+
+    // Add children to the nav bar container
+    nav_bar_container.add_child(nav_buttons_container);
 
     // Add children to the content container
-    content_container.add_child(text_id);
-    content_container.add_child(image_id);
-    content_container.add_child(test_button_id);
+    content_container.add_child(text);
+    content_container.add_child(image);
+    content_container.add_child(test_button);
+
+    // Add children to the main container
+    main_container.add_child(background);
+    main_container.add_child(nav_bar_container);
+    main_container.add_child(content_container);
 
     // Add components in the correct order
     layout_context.add_component(main_container);
-    layout_context.add_component(background);
-    layout_context.add_component(nav_bar_container);
-    layout_context.add_component(nav_buttons_container);
-    layout_context.add_component(minimize_icon);
-    layout_context.add_component(maximize_icon);
-    layout_context.add_component(close_icon);
-    layout_context.add_component(content_container);
-    layout_context.add_component(text);
-    layout_context.add_component(image);
-
-    // Extract and add child components before adding the button
-    let child_components = if let Some(ComponentMetaData::ChildComponents(children)) = test_button
-        .metadata
-        .iter()
-        .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
-    {
-        children.clone()
-    } else {
-        Vec::new()
-    };
-
-    // Add the button and its children to the layout context
-    layout_context.add_component(test_button);
-    for child in child_components {
-        layout_context.add_component(child);
-    }
 }

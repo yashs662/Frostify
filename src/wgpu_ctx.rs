@@ -1,6 +1,8 @@
 use crate::{
-    constants::TEXTURE_BIND_GROUP_LAYOUT_ENTIRES, text_renderer::TextHandler,
-    ui::layout::LayoutContext, vertex::Vertex,
+    constants::TEXTURE_BIND_GROUP_LAYOUT_ENTIRES,
+    text_renderer::TextHandler,
+    ui::layout::{ComponentSize, LayoutContext},
+    vertex::Vertex,
 };
 use std::{borrow::Cow, sync::Arc};
 use wgpu::{MemoryHints::Performance, ShaderSource};
@@ -94,6 +96,13 @@ impl<'window> WgpuCtx<'window> {
         self.surface.configure(&self.device, &self.surface_config);
         self.text_handler
             .update_viewport_size(&self.surface_config, &self.queue);
+    }
+
+    pub fn get_screen_size(&self) -> ComponentSize {
+        ComponentSize {
+            width: self.surface_config.width as f32,
+            height: self.surface_config.height as f32,
+        }
     }
 
     pub fn draw(&mut self, layout_context: &mut LayoutContext) {

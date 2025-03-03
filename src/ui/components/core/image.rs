@@ -31,7 +31,8 @@ impl Configurable for ImageComponent {
         } else {
             img_loader.unwrap()
         };
-        let vertices = component.calculate_vertices(Some(Bounds::default()), None);
+        let screen_size = wgpu_ctx.get_screen_size();
+        let vertices = component.calculate_vertices(Some(Bounds::default()), None, screen_size);
         let indices = component.get_indices();
 
         // Create texture and bind group
@@ -128,10 +129,11 @@ impl Configurable for ImageComponent {
 
 impl Renderable for ImageComponent {
     fn draw(
-        component: &super::component::Component,
+        component: &mut super::component::Component,
         render_pass: &mut wgpu::RenderPass,
         app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
     ) {
+        let indices = component.get_indices();
         let vertex_buffer = component.get_vertex_buffer();
         let index_buffer = component.get_index_buffer();
         let bind_group = component.get_bind_group();
@@ -148,8 +150,6 @@ impl Renderable for ImageComponent {
         let index_buffer = index_buffer.unwrap();
         let bind_group = bind_group.unwrap();
 
-        let indices = component.get_indices();
-
         render_pass.set_pipeline(&app_pipelines.texture_pipeline);
         render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -163,11 +163,11 @@ impl Positionable for ImageComponent {
         component: &mut super::component::Component,
         wgpu_ctx: &mut crate::wgpu_ctx::WgpuCtx,
         bounds: Bounds,
-        screen_size: crate::ui::layout::ComponentSize,
     ) {
         // Convert to NDC space
+        let screen_size = wgpu_ctx.get_screen_size();
         let clip_bounds = component.convert_to_ndc(bounds, screen_size);
-        let vertices = component.calculate_vertices(Some(clip_bounds), None);
+        let vertices = component.calculate_vertices(Some(clip_bounds), None, screen_size);
 
         // Update vertex buffer
         if let Some(vertex_buffer) = component.get_vertex_buffer() {

@@ -3,7 +3,7 @@ use component::Component;
 use crate::{
     ui::{
         components::core::component::{ComponentConfig, ComponentMetaData},
-        layout::{Bounds, ComponentSize},
+        layout::Bounds,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
@@ -24,17 +24,12 @@ pub trait Configurable {
 
 pub trait Renderable {
     fn draw(
-        component: &Component,
+        component: &mut Component,
         render_pass: &mut wgpu::RenderPass,
         app_pipelines: &mut AppPipelines,
     );
 }
 
 pub trait Positionable {
-    fn set_position(
-        component: &mut Component,
-        wgpu_ctx: &mut WgpuCtx,
-        bounds: Bounds,
-        screen_size: ComponentSize,
-    );
+    fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds);
 }

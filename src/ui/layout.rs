@@ -443,33 +443,20 @@ impl LayoutContext {
         &self.computed_bounds
     }
 
-    pub fn draw(&self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
+    pub fn draw(&mut self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
         for id in &self.render_order {
-            if let Some(component) = self.get_component(id) {
-                if component.component_type == ComponentType::Text {
-                    // Text rendering is done in a separate pass
+            if let Some(component) = self.components.get_mut(id) {
+                if !component.requires_to_be_drawn() {
                     continue;
                 }
 
                 if self.computed_bounds.contains_key(id) {
                     component.draw(render_pass, app_pipelines);
                 } else {
-                    // check if component has a parent if so get the parent's bounds
-                    if let Some(parent_id) = &component.get_parent_id() {
-                        if self.computed_bounds.contains_key(parent_id) {
-                            component.draw(render_pass, app_pipelines);
-                        } else {
-                            error!(
-                                "Parent component with id: {} not found for rendering, render order is corrupt",
-                                parent_id
-                            );
-                        }
-                    } else {
-                        error!(
-                            "Component with id: {} not found for rendering, render order is corrupt",
-                            id
-                        );
-                    }
+                    error!(
+                        "Computed bounds not found for component id: {}, unable to draw",
+                        id
+                    );
                 }
             } else {
                 error!(
@@ -480,13 +467,7 @@ impl LayoutContext {
         }
     }
 
-    pub fn add_component(&mut self, component: Component) {
-        if component.transform.position_type == Position::Flex
-            && component.get_parent_id().is_none()
-        {
-            error!("Flex component with id {} must have a parent", component.id);
-            return;
-        }
+    fn debug_print_component_insertion(&self, component: &Component) {
         if component.debug_name.is_some() {
             debug!(
                 "Adding {:?} component '{}' with id {:?}",
@@ -500,23 +481,64 @@ impl LayoutContext {
                 component.id, component.transform.position_type
             );
         }
+    }
 
-        self.components.insert(component.id, component);
+    pub fn add_component(&mut self, component: Component) {
+        if component.transform.position_type == Position::Flex
+            && component.get_parent_id().is_none()
+        {
+            error!("Flex component with id {} must have a parent", component.id);
+            return;
+        }
+
+        self.add_component_recursive(component);
+    }
+
+    fn add_component_recursive(&mut self, component: Component) {
+        let component_id = component.id;
+        let mut children = Vec::new();
+
+        // Extract children if needed
+        if component.requires_children_extraction() {
+            if let Some(extracted_children) = component.get_children_from_metadata() {
+                children = extracted_children.clone();
+            } else {
+                panic!(
+                    "Component {:?} requires children extraction but none found",
+                    component.debug_name
+                );
+            }
+        }
+
+        // Keep track of the children IDs in the parent's children vector
+        let child_ids: Vec<Uuid> = children.iter().map(|child| child.id).collect();
+
+        // Add the parent component first
+        self.debug_print_component_insertion(&component);
+        self.components.insert(component_id, component);
+
+        // Update the parent's children vector
+        if let Some(parent) = self.components.get_mut(&component_id) {
+            parent.children = child_ids;
+        }
+
+        // Then recursively add all children
+        for child in children {
+            self.add_component_recursive(child);
+        }
     }
 
     pub fn get_component(&self, id: &Uuid) -> Option<&Component> {
         self.components.get(id)
     }
 
-    pub fn resize_viewport(&mut self, width: f32, height: f32, wgpu_ctx: &mut WgpuCtx) {
-        self.viewport_size = ComponentSize { width, height };
-        let screen_size = self.viewport_size;
+    pub fn resize_viewport(&mut self, wgpu_ctx: &mut WgpuCtx) {
         self.compute_layout();
 
         // Update all component positions with new screen size
         for (id, bounds) in self.computed_bounds.iter() {
             if let Some(component) = self.components.get_mut(id) {
-                component.set_position(wgpu_ctx, *bounds, screen_size);
+                component.set_position(wgpu_ctx, *bounds);
             }
         }
     }
@@ -758,7 +780,7 @@ impl LayoutContext {
         let parent = self.get_component(parent_id).unwrap().clone();
         let layout = &parent.layout;
 
-        if parent.get_all_children_ids().is_empty() || !layout.visible {
+        if parent.get_all_children().is_empty() || !layout.visible {
             return;
         }
 
@@ -784,7 +806,7 @@ impl LayoutContext {
 
         let self_components = self.components.clone();
         let mut children: Vec<(Uuid, &Component)> = parent
-            .get_all_children_ids()
+            .get_all_children()
             .iter()
             .filter_map(|id| self_components.get(id).map(|component| (*id, component)))
             .collect();

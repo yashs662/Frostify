@@ -1,4 +1,5 @@
 use crate::{
+    app::AppEvent,
     color::Color,
     ui::{
         components::core::component::{
@@ -9,9 +10,9 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
+use log::error;
+use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
-
-use super::core::component::ComponentMetaData;
 
 #[derive(Debug, Clone)]
 pub enum ButtonBackground {
@@ -35,6 +36,9 @@ pub struct ButtonConfig {
     pub height: Option<f32>,
     pub debug_name: Option<String>,
     pub border_radius: Option<f32>,
+    pub click_handler: Option<(AppEvent, UnboundedSender<AppEvent>)>,
+    pub z_index: Option<i32>,
+    pub parent_id: Option<Uuid>,
 }
 
 impl Default for ButtonConfig {
@@ -48,6 +52,9 @@ impl Default for ButtonConfig {
             height: None,
             debug_name: None,
             border_radius: None,
+            click_handler: None,
+            z_index: None,
+            parent_id: None,
         }
     }
 }
@@ -99,6 +106,25 @@ impl ButtonBuilder {
         self
     }
 
+    pub fn with_click_handler(
+        mut self,
+        event: AppEvent,
+        event_tx: UnboundedSender<AppEvent>,
+    ) -> Self {
+        self.config.click_handler = Some((event, event_tx));
+        self
+    }
+
+    pub fn with_parent(mut self, parent_id: Uuid) -> Self {
+        self.config.parent_id = Some(parent_id);
+        self
+    }
+
+    pub fn with_z_index(mut self, z_index: i32) -> Self {
+        self.config.z_index = Some(z_index);
+        self
+    }
+
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         create_button(wgpu_ctx, self.config)
     }
@@ -107,7 +133,7 @@ impl ButtonBuilder {
 fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
     let container_id = Uuid::new_v4();
     let mut container = Component::new(container_id, ComponentType::Container);
-
+    container.flag_children_extraction();
     // Set fixed size if specified
     if let Some(width) = config.width {
         container.transform.size.width = FlexValue::Fixed(width);
@@ -118,8 +144,18 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
     if let Some(name) = config.debug_name {
         container.set_debug_name(&name);
     }
-
-    let mut child_components = Vec::new();
+    if let Some((event, event_tx)) = config.click_handler {
+        container.set_click_handler(event, event_tx);
+    }
+    if let Some(z_index) = config.z_index {
+        container.set_z_index(z_index);
+    }
+    if let Some(parent_id) = config.parent_id {
+        container.set_parent(parent_id);
+    } else {
+        error!("Button parent id not specified, unable to create button");
+        return container;
+    }
 
     // Create background if specified
     match config.background {
@@ -138,8 +174,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
                 ComponentConfig::BackgroundColor(BackgroundColorConfig { color }),
                 wgpu_ctx,
             );
-            container.add_child(bg_id);
-            child_components.push(bg);
+            container.add_child(bg);
         }
         ButtonBackground::Gradient { start, end, angle } => {
             let bg_id = Uuid::new_v4();
@@ -159,8 +194,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
                 }),
                 wgpu_ctx,
             );
-            container.add_child(bg_id);
-            child_components.push(bg);
+            container.add_child(bg);
         }
         ButtonBackground::Image(file_name) => {
             let bg_id = Uuid::new_v4();
@@ -173,8 +207,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
                 bg.set_border_radius(radius);
             }
             bg.configure(ComponentConfig::Image(ImageConfig { file_name }), wgpu_ctx);
-            container.add_child(bg_id);
-            child_components.push(bg);
+            container.add_child(bg);
         }
     }
 
@@ -195,12 +228,8 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             }),
             wgpu_ctx,
         );
-        container.add_child(text_id);
-        child_components.push(text_component);
+        container.add_child(text_component);
     }
 
-    container
-        .metadata
-        .push(ComponentMetaData::ChildComponents(child_components));
     container
 }

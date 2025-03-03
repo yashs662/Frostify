@@ -29,13 +29,11 @@ fn test_basic_fixed_flex_row_layout() {
     child2.set_parent(parent_id);
 
     // Set children on parent
-    parent.add_child(child1_id);
-    parent.add_child(child2_id);
+    parent.add_child(child1);
+    parent.add_child(child2);
 
     // Add all components to context
     ctx.add_component(parent);
-    ctx.add_component(child1);
-    ctx.add_component(child2);
 
     // Force layout computation
     ctx.compute_layout();
@@ -90,13 +88,11 @@ fn test_basic_fixed_flex_column_layout() {
     child2.set_parent(parent_id);
 
     // Set children on parent
-    parent.add_child(child1_id);
-    parent.add_child(child2_id);
+    parent.add_child(child1);
+    parent.add_child(child2);
 
     // Add all components to context
     ctx.add_component(parent);
-    ctx.add_component(child1);
-    ctx.add_component(child2);
 
     // Force layout computation
     ctx.compute_layout();
@@ -151,13 +147,11 @@ fn test_basic_fill_flex_row_layout() {
     child2.set_parent(parent_id);
 
     // Set children on parent
-    parent.add_child(child1_id);
-    parent.add_child(child2_id);
+    parent.add_child(child1);
+    parent.add_child(child2);
 
     // Add all components to context
     ctx.add_component(parent);
-    ctx.add_component(child1);
-    ctx.add_component(child2);
 
     // Force layout computation
     ctx.compute_layout();
@@ -212,13 +206,11 @@ fn test_basic_fill_flex_column_layout() {
     child2.set_parent(parent_id);
 
     // Set children on parent
-    parent.add_child(child1_id);
-    parent.add_child(child2_id);
+    parent.add_child(child1);
+    parent.add_child(child2);
 
     // Add all components to context
     ctx.add_component(parent);
-    ctx.add_component(child1);
-    ctx.add_component(child2);
 
     // Force layout computation
     ctx.compute_layout();
@@ -274,13 +266,11 @@ fn test_basic_fill_flex_row_layout_with_padding() {
     child2.set_parent(parent_id);
 
     // Set children on parent
-    parent.add_child(child1_id);
-    parent.add_child(child2_id);
+    parent.add_child(child1);
+    parent.add_child(child2);
 
     // Add all components to context
     ctx.add_component(parent);
-    ctx.add_component(child1);
-    ctx.add_component(child2);
 
     // Force layout computation
     ctx.compute_layout();
@@ -336,13 +326,11 @@ fn test_basic_fill_flex_column_layout_with_padding() {
     child2.set_parent(parent_id);
 
     // Set children on parent
-    parent.add_child(child1_id);
-    parent.add_child(child2_id);
+    parent.add_child(child1);
+    parent.add_child(child2);
 
     // Add all components to context
     ctx.add_component(parent);
-    ctx.add_component(child1);
-    ctx.add_component(child2);
 
     // Force layout computation
     ctx.compute_layout();
@@ -409,18 +397,14 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
     nested_child_2.transform.size = Size::fill();
     nested_child_2.set_parent(nested_parent_id);
 
-    // Set children on parent
-    parent.add_child(child1_id);
-    parent.add_child(nested_parent_id);
-    nested_parent.add_child(nested_child_1_id);
-    nested_parent.add_child(nested_child_2_id);
+    // Set children on parents
+    nested_parent.add_child(nested_child_1);
+    nested_parent.add_child(nested_child_2);
+    parent.add_child(child1);
+    parent.add_child(nested_parent);
 
     // Add all components to context
     ctx.add_component(parent);
-    ctx.add_component(child1);
-    ctx.add_component(nested_parent);
-    ctx.add_component(nested_child_1);
-    ctx.add_component(nested_child_2);
 
     // Force layout computation
     ctx.compute_layout();
@@ -501,17 +485,12 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
     nested_child_2.set_parent(nested_parent_id);
 
     // Set children on parent
-    parent.add_child(child1_id);
-    parent.add_child(nested_parent_id);
-    nested_parent.add_child(nested_child_1_id);
-    nested_parent.add_child(nested_child_2_id);
+    nested_parent.add_child(nested_child_1);
+    nested_parent.add_child(nested_child_2);
+    parent.add_child(child1);
+    parent.add_child(nested_parent);
 
-    // Add all components to context
     ctx.add_component(parent);
-    ctx.add_component(child1);
-    ctx.add_component(nested_parent);
-    ctx.add_component(nested_child_1);
-    ctx.add_component(nested_child_2);
 
     // Force layout computation
     ctx.compute_layout();
@@ -622,30 +601,22 @@ fn test_navbar_app_layout() {
     let mut image = Component::new(image_id, ComponentType::Image);
     image.set_parent(content_container_id);
 
-    // Add children to the main container
-    parent.add_child(background_id);
-    parent.add_child(nav_bar_id);
-    parent.add_child(content_container_id);
+    // Add children to the content container
+    content_container.add_child(text);
+    content_container.add_child(image);
 
     // Add children to the nav bar container
-    nav_bar.add_child(minimize_icon_id);
-    nav_bar.add_child(expand_icon_id);
-    nav_bar.add_child(close_icon_id);
+    nav_bar.add_child(minimize_icon);
+    nav_bar.add_child(expand_icon);
+    nav_bar.add_child(close_icon);
 
-    // Add children to the content container
-    content_container.add_child(text_id);
-    content_container.add_child(image_id);
+    // Add children to the main container
+    parent.add_child(background);
+    parent.add_child(nav_bar);
+    parent.add_child(content_container);
 
     // Add components in the correct order
     ctx.add_component(parent);
-    ctx.add_component(background);
-    ctx.add_component(nav_bar);
-    ctx.add_component(minimize_icon);
-    ctx.add_component(expand_icon);
-    ctx.add_component(close_icon);
-    ctx.add_component(content_container);
-    ctx.add_component(text);
-    ctx.add_component(image);
 
     // Force layout computation
     ctx.compute_layout();

@@ -204,11 +204,7 @@ impl ApplicationHandler for App<'_> {
                     (self.wgpu_ctx.as_mut(), self.window.as_ref())
                 {
                     wgpu_ctx.resize((new_size.width, new_size.height));
-                    self.layout_context.resize_viewport(
-                        new_size.width as f32,
-                        new_size.height as f32,
-                        wgpu_ctx,
-                    );
+                    self.layout_context.resize_viewport(wgpu_ctx);
                     window.request_redraw();
                 }
             }
