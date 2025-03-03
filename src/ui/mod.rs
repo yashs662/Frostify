@@ -142,7 +142,7 @@ pub fn create_app_ui(
         .with_size(150.0, 50.0) // Make button bigger
         .with_font_size(20.0) // Make text bigger
         .with_debug_name("Button test")
-        .with_border_radius(20.0)
+        .with_border_radius(50.0)
         .with_click_handler(
             AppEvent::PrintMessage("Button clicked!".to_string()),
             event_tx.clone(),

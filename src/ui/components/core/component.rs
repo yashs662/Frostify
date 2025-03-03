@@ -278,14 +278,25 @@ impl Component {
             let right = left + clip_bounds.size.width;
 
             if self.transform.border_radius > 0.0 {
-                let radius = self
-                    .transform
-                    .border_radius
-                    .min((clip_bounds.size.width * screen_size.width) / 2.0)
-                    .min((clip_bounds.size.height * screen_size.height) / 2.0);
+                // Calculate the physical pixel radius
+                let physical_radius = self.transform.border_radius;
 
-                // convert radius to ndc
-                let radius = radius / screen_size.width;
+                // Calculate the aspect ratio of the component
+                let width_ratio = clip_bounds.size.width / screen_size.width;
+                let height_ratio = clip_bounds.size.height / screen_size.height;
+
+                // Calculate max allowed radius (half of smallest dimension)
+                let max_radius_w = clip_bounds.size.width / 2.0;
+                let max_radius_h = clip_bounds.size.height / 2.0;
+                let max_radius = max_radius_w.min(max_radius_h);
+
+                // Determine appropriate radius in NDC space, preserving aspect ratio
+                let adjusted_radius = (physical_radius * width_ratio)
+                    .min(physical_radius * height_ratio)
+                    .min(max_radius);
+
+                // Use this adjusted radius for corners
+                let radius = adjusted_radius;
 
                 let top_left_arc_center = [left + radius, top - radius];
                 let top_right_arc_center = [right - radius, top - radius];
