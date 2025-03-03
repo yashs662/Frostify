@@ -44,7 +44,7 @@ impl Renderable for TextComponent {
         _render_pass: &mut wgpu::RenderPass,
         _app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
     ) {
-        warn!("Text rendering is done in a separate pass");
+        // Text rendering is done in a separate pass
     }
 }
 
