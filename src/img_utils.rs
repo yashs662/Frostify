@@ -1,37 +1,30 @@
+use crate::{asset, errors::AssetError};
 use image::GenericImageView;
-use log::error;
-use std::{
-    fs::File,
-    io::{self, Read},
-};
 
 pub struct RgbaImg {
+    pub bytes: Vec<u8>,
     pub width: u32,
     pub height: u32,
-    pub bytes: Vec<u8>,
 }
 
 impl RgbaImg {
-    pub fn new(file_path: &str) -> Option<Self> {
-        if let Ok(file_bytes) = read_file_to_memory(file_path) {
-            let dynamic_img = image::load_from_memory(&file_bytes[..]).unwrap();
-            let rgba_img = dynamic_img.to_rgba8();
-            let (width, height) = dynamic_img.dimensions();
-            Some(Self {
-                width,
-                height,
-                bytes: rgba_img.into_raw(),
-            })
+    pub fn new(file_name: &str) -> Result<Self, AssetError> {
+        // Try to get embedded asset first
+        if let Some(bytes) = asset::get_asset(file_name) {
+            if let Ok(img) = image::load_from_memory(bytes) {
+                let rgba = img.to_rgba8();
+                let dimensions = img.dimensions();
+
+                Ok(Self {
+                    bytes: rgba.into_raw(),
+                    width: dimensions.0,
+                    height: dimensions.1,
+                })
+            } else {
+                Err(AssetError::ImageLoadError)
+            }
         } else {
-            error!("Failed to load image: {}", file_path);
-            None
+            Err(AssetError::NotFound)
         }
     }
-}
-
-fn read_file_to_memory(filename: &str) -> io::Result<Vec<u8>> {
-    let mut file = File::open(filename)?;
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-    Ok(buffer)
 }

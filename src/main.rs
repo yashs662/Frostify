@@ -1,3 +1,8 @@
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions),),
+    windows_subsystem = "windows"
+)]
+
 use crate::app::App;
 use colored::*;
 use env_logger::Builder;
@@ -10,8 +15,10 @@ use winit::{
 };
 
 mod app;
+mod asset;
 mod color;
 mod constants;
+mod errors;
 mod img_utils;
 mod test;
 mod text_renderer;
@@ -20,6 +27,9 @@ mod vertex;
 mod wgpu_ctx;
 
 fn main() -> Result<(), EventLoopError> {
+    // Initialize assets before creating the event loop
+    asset::initialize_assets();
+
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 

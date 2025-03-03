@@ -149,7 +149,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             container.add_child(bg_id);
             child_components.push(bg);
         }
-        ButtonBackground::Image(path) => {
+        ButtonBackground::Image(file_name) => {
             let bg_id = Uuid::new_v4();
             let mut bg = Component::new(bg_id, ComponentType::Image);
             bg.transform.position_type = Position::Fixed(Anchor::Center);
@@ -157,7 +157,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.set_z_index(0);
             bg.set_parent(container_id);
             bg.configure(
-                ComponentConfig::Image(ImageConfig { image_path: path }),
+                ComponentConfig::Image(ImageConfig { file_name }),
                 wgpu_ctx,
             );
             container.add_child(bg_id);

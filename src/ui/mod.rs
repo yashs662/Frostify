@@ -79,7 +79,7 @@ pub fn create_app_ui(
     minimize_icon.transform.size.height = FlexValue::Fixed(button_size);
     minimize_icon.configure(
         ComponentConfig::Image(ImageConfig {
-            image_path: "assets/minimize.png".to_string(),
+            file_name: "minimize.png".to_string(),
         }),
         wgpu_ctx,
     );
@@ -87,21 +87,21 @@ pub fn create_app_ui(
     minimize_icon.set_z_index(2);
     minimize_icon.set_parent(nav_buttons_container_id);
 
-    // Expand button
-    let expand_icon_id = uuid::Uuid::new_v4();
-    let mut expand_icon = Component::new(expand_icon_id, ComponentType::Image);
-    expand_icon.set_debug_name("Expand Icon");
-    expand_icon.transform.size.width = FlexValue::Fixed(button_size);
-    expand_icon.transform.size.height = FlexValue::Fixed(button_size);
-    expand_icon.configure(
+    // Maximize button
+    let maximize_icon_id = uuid::Uuid::new_v4();
+    let mut maximize_icon = Component::new(maximize_icon_id, ComponentType::Image);
+    maximize_icon.set_debug_name("Maximize Icon");
+    maximize_icon.transform.size.width = FlexValue::Fixed(button_size);
+    maximize_icon.transform.size.height = FlexValue::Fixed(button_size);
+    maximize_icon.configure(
         ComponentConfig::Image(ImageConfig {
-            image_path: "assets/expand.png".to_string(),
+            file_name: "maximize.png".to_string(),
         }),
         wgpu_ctx,
     );
-    expand_icon.set_click_handler(AppEvent::Maximize, event_tx.clone());
-    expand_icon.set_z_index(2);
-    expand_icon.set_parent(nav_buttons_container_id);
+    maximize_icon.set_click_handler(AppEvent::Maximize, event_tx.clone());
+    maximize_icon.set_z_index(2);
+    maximize_icon.set_parent(nav_buttons_container_id);
 
     // Close button
     let close_icon_id = uuid::Uuid::new_v4();
@@ -111,7 +111,7 @@ pub fn create_app_ui(
     close_icon.transform.size.height = FlexValue::Fixed(button_size);
     close_icon.configure(
         ComponentConfig::Image(ImageConfig {
-            image_path: "assets/close.png".to_string(),
+            file_name: "close.png".to_string(),
         }),
         wgpu_ctx,
     );
@@ -151,7 +151,7 @@ pub fn create_app_ui(
     image.set_debug_name("Content Image");
     image.configure(
         ComponentConfig::Image(ImageConfig {
-            image_path: "assets/test.png".to_string(),
+            file_name: "test.png".to_string(),
         }),
         wgpu_ctx,
     );
@@ -185,7 +185,7 @@ pub fn create_app_ui(
 
     // Add children to the nav buttons container
     nav_buttons_container.add_child(minimize_icon_id);
-    nav_buttons_container.add_child(expand_icon_id);
+    nav_buttons_container.add_child(maximize_icon_id);
     nav_buttons_container.add_child(close_icon_id);
 
     // Add children to the content container
@@ -199,7 +199,7 @@ pub fn create_app_ui(
     layout_context.add_component(nav_bar_container);
     layout_context.add_component(nav_buttons_container);
     layout_context.add_component(minimize_icon);
-    layout_context.add_component(expand_icon);
+    layout_context.add_component(maximize_icon);
     layout_context.add_component(close_icon);
     layout_context.add_component(content_container);
     layout_context.add_component(text);

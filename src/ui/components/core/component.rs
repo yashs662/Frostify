@@ -68,7 +68,7 @@ pub struct BackgroundGradientConfig {
 
 #[derive(Debug, Clone)]
 pub struct ImageConfig {
-    pub image_path: String,
+    pub file_name: String,
 }
 
 #[derive(Debug, Clone)]

@@ -21,8 +21,16 @@ impl Configurable for ImageComponent {
     ) -> Vec<super::component::ComponentMetaData> {
         // we know config is of type ComponentConfig::Image
         let image_config = config.get_image_config().unwrap();
-
-        let img = RgbaImg::new(&image_config.image_path).unwrap();
+        let img_loader = RgbaImg::new(&image_config.file_name);
+        let img = if let Err(img_load_err) = img_loader {
+            error!(
+                "Failed to load image file: {}, error: {}",
+                image_config.file_name, img_load_err
+            );
+            return vec![];
+        } else {
+            img_loader.unwrap()
+        };
         let vertices = component.calculate_vertices(Some(Bounds::default()), None);
         let indices = component.get_indices();
 
