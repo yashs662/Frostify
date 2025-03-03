@@ -25,8 +25,8 @@ pub struct Component {
     pub component_type: ComponentType,
     pub transform: ComponentTransform,
     pub layout: Layout,
-    children: Vec<Uuid>,
-    parent: Option<Uuid>,
+    pub children_ids: Vec<Uuid>,
+    parent_id: Option<Uuid>,
     pub metadata: Vec<ComponentMetaData>,
     pub config: Option<ComponentConfig>,
     pub cached_vertices: Option<Vec<Vertex>>,
@@ -50,7 +50,7 @@ pub enum ComponentMetaData {
     IndexBuffer(wgpu::Buffer),
     BindGroup(wgpu::BindGroup),
     EventSender(UnboundedSender<AppEvent>),
-    DragEvent(AppEvent), // Add this variant
+    DragEvent(AppEvent),
     ChildComponents(Vec<Component>),
 }
 
@@ -124,8 +124,8 @@ impl Component {
                 border_radius: 0.0,
             },
             layout: Layout::new(),
-            children: Vec::new(),
-            parent: None,
+            children_ids: Vec::new(),
+            parent_id: None,
             metadata: Vec::new(),
             config: None,
             cached_vertices: None,
@@ -135,7 +135,7 @@ impl Component {
     }
 
     pub fn get_parent_id(&self) -> Option<Uuid> {
-        self.parent
+        self.parent_id
     }
 
     pub fn requires_to_be_drawn(&self) -> bool {
@@ -162,7 +162,7 @@ impl Component {
     }
 
     pub fn get_all_children(&self) -> Vec<Uuid> {
-        self.children.clone() // Simply return the children vector
+        self.children_ids.clone() // Simply return the children vector
     }
 
     pub fn set_z_index(&mut self, z_index: i32) {
@@ -171,7 +171,7 @@ impl Component {
 
     pub fn get_absolute_z_index(&self) -> i32 {
         let parent_z = self
-            .parent
+            .parent_id
             .and_then(|parent_id| {
                 self.metadata.iter().find_map(|m| match m {
                     ComponentMetaData::ChildComponents(children) => children
@@ -289,7 +289,7 @@ impl Component {
     }
 
     pub fn set_parent(&mut self, parent_id: Uuid) {
-        self.parent = Some(parent_id);
+        self.parent_id = Some(parent_id);
     }
 
     pub fn calculate_vertices(

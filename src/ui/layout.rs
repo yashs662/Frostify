@@ -519,7 +519,7 @@ impl LayoutContext {
 
         // Update the parent's children vector
         if let Some(parent) = self.components.get_mut(&component_id) {
-            parent.children = child_ids;
+            parent.children_ids = child_ids;
         }
 
         // Then recursively add all children
