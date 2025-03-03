@@ -1,4 +1,3 @@
-use log::debug;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -78,8 +77,6 @@ impl ZIndexManager {
         }
 
         self.dirty = false;
-
-        debug!("Computed z-indices: {:?}", self.computed_indices);
     }
 
     /// Recursively compute z-index for a component and its descendants

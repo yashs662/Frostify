@@ -29,7 +29,6 @@ pub struct Component {
     parent_id: Option<Uuid>,
     pub metadata: Vec<ComponentMetaData>,
     pub config: Option<ComponentConfig>,
-    pub cached_vertices: Option<Vec<Vertex>>,
     pub cached_indices: Option<Vec<u16>>,
     requires_children_extraction: bool,
 }
@@ -128,7 +127,6 @@ impl Component {
             parent_id: None,
             metadata: Vec::new(),
             config: None,
-            cached_vertices: None,
             cached_indices: None,
             requires_children_extraction: false,
         }
@@ -274,7 +272,6 @@ impl Component {
         };
 
         if let Some(clip_bounds) = clip_bounds {
-            // Calculate vertices in clip space
             let top = clip_bounds.position.y;
             let bottom = top - clip_bounds.size.height;
             let left = clip_bounds.position.x;
@@ -507,13 +504,6 @@ impl Component {
                     Vertex::new([left, bottom, 0.0], color, [0.0, 1.0]),
                 ]
             }
-        } else if let Some(cached_vertices) = &self.cached_vertices {
-            let cached = cached_vertices.clone();
-            // replace the color with the custom color
-            cached
-                .iter()
-                .map(|v| Vertex::new(v.position, color, v.tex_coords))
-                .collect()
         } else {
             warn!(
                 "No clip bounds or cached vertices found for component id: {}, debug name: {}",

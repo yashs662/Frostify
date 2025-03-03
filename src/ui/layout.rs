@@ -3,7 +3,7 @@ use crate::{
     ui::components::core::component::{Component, ComponentType},
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{debug, error};
+use log::{debug, error, trace};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::{ElementState, MouseButton};
@@ -476,14 +476,14 @@ impl LayoutContext {
 
     fn debug_print_component_insertion(&self, component: &Component) {
         if component.debug_name.is_some() {
-            debug!(
+            trace!(
                 "Adding {:?} component '{}' with id {:?}",
                 component.component_type,
                 component.debug_name.as_ref().unwrap(),
                 component.id
             );
         } else {
-            debug!(
+            trace!(
                 "Adding component {:?} with position type {:?}",
                 component.id, component.transform.position_type
             );
@@ -539,6 +539,7 @@ impl LayoutContext {
     }
 
     pub fn resize_viewport(&mut self, wgpu_ctx: &mut WgpuCtx) {
+        self.viewport_size = wgpu_ctx.get_screen_size();
         self.compute_layout();
 
         // Update all component positions with new screen size
@@ -573,8 +574,6 @@ impl LayoutContext {
 
         // Use the z-index manager to determine render order
         self.render_order = self.z_index_manager.sort_render_order();
-
-        debug!("Render order: {:#?}", self.render_order);
     }
 
     fn compute_component_layout(&mut self, component_id: &Uuid, parent_bounds: Option<Bounds>) {
