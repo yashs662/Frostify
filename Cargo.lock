@@ -18,6 +18,7 @@ dependencies = [
  "uuid",
  "wgpu",
  "winit",
+ "winresource",
 ]
 
 [[package]]
@@ -3500,6 +3501,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59690dea168f2198d1a3b0cac23b8063efcd11012f10ae4698f284808c8ef603"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winresource"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7276691b353ad4547af8c3268488d1311f4be791ffdc0c65b8cfa8f41eed693b"
+dependencies = [
+ "toml",
+ "version_check",
 ]
 
 [[package]]

@@ -159,21 +159,22 @@ pub fn create_app_ui(
     image.set_parent(content_container_id);
 
     // Example button with gradient background
-    let mut button = ButtonBuilder::new()
+    let mut test_button = ButtonBuilder::new()
         .with_background(ButtonBackground::Color(Color::Blue))
         .with_text("Click Me")
         .with_text_color(Color::White)
         .with_size(150.0, 50.0) // Make button bigger
         .with_font_size(20.0) // Make text bigger
         .with_debug_name("Button test")
+        .with_border_radius(1000.1)
         .build(wgpu_ctx);
-    let button_id = button.id;
-    button.set_z_index(2); // Ensure button is visible above other content
-    button.set_click_handler(
+    let test_button_id = test_button.id;
+    test_button.set_z_index(2); // Ensure button is visible above other content
+    test_button.set_click_handler(
         AppEvent::PrintMessage("Button clicked!".to_string()),
         event_tx.clone(),
     );
-    button.set_parent(content_container_id);
+    test_button.set_parent(content_container_id);
 
     // Add children to the main container
     main_container.add_child(background_id);
@@ -191,7 +192,7 @@ pub fn create_app_ui(
     // Add children to the content container
     content_container.add_child(text_id);
     content_container.add_child(image_id);
-    content_container.add_child(button_id);
+    content_container.add_child(test_button_id);
 
     // Add components in the correct order
     layout_context.add_component(main_container);
@@ -206,7 +207,7 @@ pub fn create_app_ui(
     layout_context.add_component(image);
 
     // Extract and add child components before adding the button
-    let child_components = if let Some(ComponentMetaData::ChildComponents(children)) = button
+    let child_components = if let Some(ComponentMetaData::ChildComponents(children)) = test_button
         .metadata
         .iter()
         .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
@@ -217,7 +218,7 @@ pub fn create_app_ui(
     };
 
     // Add the button and its children to the layout context
-    layout_context.add_component(button);
+    layout_context.add_component(test_button);
     for child in child_components {
         layout_context.add_component(child);
     }

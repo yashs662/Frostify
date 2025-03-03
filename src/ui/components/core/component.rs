@@ -118,6 +118,7 @@ impl Component {
                 offset: ComponentOffset { x: 0.0, y: 0.0 },
                 position_type: Position::Flex,
                 z_index: 0,
+                border_radius: 0.0,
             },
             layout: Layout::new(),
             children: Vec::new(),
@@ -136,6 +137,10 @@ impl Component {
         self.debug_name = Some(name.into());
     }
 
+    pub fn set_border_radius(&mut self, radius: f32) {
+        self.transform.border_radius = radius;
+    }
+
     pub fn get_all_children_ids(&self) -> Vec<Uuid> {
         let mut children = Vec::new();
         for child_id in &self.children {
@@ -149,12 +154,14 @@ impl Component {
     }
 
     pub fn get_absolute_z_index(&self) -> i32 {
-        let parent_z = self.parent
+        let parent_z = self
+            .parent
             .and_then(|parent_id| {
                 self.metadata.iter().find_map(|m| match m {
-                    ComponentMetaData::ChildComponents(children) => {
-                        children.iter().find(|c| c.id == parent_id).map(|p| p.get_absolute_z_index())
-                    }
+                    ComponentMetaData::ChildComponents(children) => children
+                        .iter()
+                        .find(|c| c.id == parent_id)
+                        .map(|p| p.get_absolute_z_index()),
                     _ => None,
                 })
             })
@@ -165,10 +172,15 @@ impl Component {
 
     pub fn draw(&self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
         // Get all child components
-        let mut children: Vec<Component> = self.metadata.iter().find_map(|m| match m {
-            ComponentMetaData::ChildComponents(children) => Some(children.as_slice()),
-            _ => None,
-        }).unwrap_or(&[]).to_vec();
+        let mut children: Vec<Component> = self
+            .metadata
+            .iter()
+            .find_map(|m| match m {
+                ComponentMetaData::ChildComponents(children) => Some(children.as_slice()),
+                _ => None,
+            })
+            .unwrap_or(&[])
+            .to_vec();
 
         // Sort children by their absolute z-index
         children.sort_by_key(|c| c.get_absolute_z_index());

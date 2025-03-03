@@ -34,6 +34,7 @@ pub struct ButtonConfig {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub debug_name: Option<String>,
+    pub border_radius: Option<f32>,
 }
 
 impl Default for ButtonConfig {
@@ -46,6 +47,7 @@ impl Default for ButtonConfig {
             width: None,
             height: None,
             debug_name: None,
+            border_radius: None,
         }
     }
 }
@@ -92,6 +94,11 @@ impl ButtonBuilder {
         self
     }
 
+    pub fn with_border_radius(mut self, radius: f32) -> Self {
+        self.config.border_radius = Some(radius);
+        self
+    }
+
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         create_button(wgpu_ctx, self.config)
     }
@@ -124,6 +131,9 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.set_debug_name("Button Background");
             bg.set_z_index(0);
             bg.set_parent(container_id);
+            if let Some(radius) = config.border_radius {
+                bg.set_border_radius(radius);
+            }
             bg.configure(
                 ComponentConfig::BackgroundColor(BackgroundColorConfig { color }),
                 wgpu_ctx,
@@ -138,6 +148,9 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.set_debug_name("Button Gradient Background");
             bg.set_z_index(0);
             bg.set_parent(container_id);
+            if let Some(radius) = config.border_radius {
+                bg.set_border_radius(radius);
+            }
             bg.configure(
                 ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
                     start_color: start,
@@ -156,10 +169,10 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.set_debug_name("Button Image Background");
             bg.set_z_index(0);
             bg.set_parent(container_id);
-            bg.configure(
-                ComponentConfig::Image(ImageConfig { file_name }),
-                wgpu_ctx,
-            );
+            if let Some(radius) = config.border_radius {
+                bg.set_border_radius(radius);
+            }
+            bg.configure(ComponentConfig::Image(ImageConfig { file_name }), wgpu_ctx);
             container.add_child(bg_id);
             child_components.push(bg);
         }

@@ -133,6 +133,7 @@ pub struct ComponentTransform {
     pub offset: ComponentOffset,
     pub position_type: Position,
     pub z_index: i32,
+    pub border_radius: f32,
 }
 
 // Size struct to replace ComponentSize

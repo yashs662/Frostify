@@ -13,7 +13,8 @@ use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::ActiveEventLoop,
-    window::{CursorIcon, ResizeDirection, Theme, Window, WindowId},
+    platform::windows::WindowAttributesExtWindows,
+    window::{CursorIcon, Icon, ResizeDirection, Theme, Window, WindowId},
 };
 
 #[derive(Debug, Clone)]
@@ -141,8 +142,11 @@ impl App<'_> {
 impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
+            let icon = load_icon(include_bytes!("../assets/frostify_icon.ico"));
             let mut win_attr = Window::default_attributes()
                 .with_title("Frostify")
+                .with_window_icon(Some(icon.clone()))
+                .with_taskbar_icon(Some(icon))
                 .with_decorations(false)
                 .with_transparent(true)
                 .with_resizable(true)
@@ -278,4 +282,14 @@ impl ApplicationHandler for App<'_> {
             _ => (),
         }
     }
+}
+
+fn load_icon(bytes: &[u8]) -> Icon {
+    let (icon_rgba, icon_width, icon_height) = {
+        let image = image::load_from_memory(bytes).unwrap().into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+    Icon::from_rgba(icon_rgba, icon_width, icon_height).expect("Failed to open icon")
 }
