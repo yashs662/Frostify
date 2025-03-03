@@ -10,10 +10,10 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
-use log::error;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum ButtonBackground {
     None,
@@ -38,7 +38,6 @@ pub struct ButtonConfig {
     pub border_radius: Option<f32>,
     pub click_handler: Option<(AppEvent, UnboundedSender<AppEvent>)>,
     pub z_index: Option<i32>,
-    pub parent_id: Option<Uuid>,
 }
 
 impl Default for ButtonConfig {
@@ -54,7 +53,6 @@ impl Default for ButtonConfig {
             border_radius: None,
             click_handler: None,
             z_index: None,
-            parent_id: None,
         }
     }
 }
@@ -115,11 +113,6 @@ impl ButtonBuilder {
         self
     }
 
-    pub fn with_parent(mut self, parent_id: Uuid) -> Self {
-        self.config.parent_id = Some(parent_id);
-        self
-    }
-
     pub fn with_z_index(mut self, z_index: i32) -> Self {
         self.config.z_index = Some(z_index);
         self
@@ -149,12 +142,6 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
     }
     if let Some(z_index) = config.z_index {
         container.set_z_index(z_index);
-    }
-    if let Some(parent_id) = config.parent_id {
-        container.set_parent(parent_id);
-    } else {
-        error!("Button parent id not specified, unable to create button");
-        return container;
     }
 
     // Create background if specified

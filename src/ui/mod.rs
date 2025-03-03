@@ -10,9 +10,12 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
-use components::button::{ButtonBackground, ButtonBuilder};
 use components::core::component::BackgroundGradientConfig;
-use layout::{AlignItems, Edges, JustifyContent, Layout};
+use components::{
+    button::{ButtonBackground, ButtonBuilder},
+    container::FlexContainerBuilder,
+};
+use layout::{AlignItems, Edges, FlexDirection, JustifyContent};
 use tokio::sync::mpsc::UnboundedSender;
 
 pub mod components;
@@ -25,10 +28,11 @@ pub fn create_app_ui(
 ) {
     // Main container
     let main_container_id = uuid::Uuid::new_v4();
-    let mut main_container = Component::new(main_container_id, ComponentType::Container);
-    main_container.set_debug_name("Main Container");
-    main_container.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    main_container.layout = Layout::flex_column();
+    let mut main_container = FlexContainerBuilder::new()
+        .with_debug_name("Main Container")
+        .with_direction(FlexDirection::Column)
+        .with_size(FlexValue::Fill, FlexValue::Fill)
+        .build();
 
     // Background
     let background_id = uuid::Uuid::new_v4();
@@ -47,28 +51,28 @@ pub fn create_app_ui(
     background.transform.position_type = Position::Absolute(Anchor::TopLeft);
 
     // Nav bar container
-    let nav_bar_container_id = uuid::Uuid::new_v4();
-    let mut nav_bar_container = Component::new(nav_bar_container_id, ComponentType::Container);
-    nav_bar_container.set_debug_name("Nav Bar Container");
-    nav_bar_container.transform.size.width = FlexValue::Fill;
-    nav_bar_container.transform.size.height = FlexValue::Fixed(44.0);
-    nav_bar_container.layout = Layout::flex_row();
-    nav_bar_container.layout.align_items = AlignItems::Center;
-    nav_bar_container.layout.justify_content = JustifyContent::End;
-    nav_bar_container.layout.padding = Edges::all(10.0);
-    nav_bar_container.set_z_index(1);
-    nav_bar_container.set_parent(main_container_id);
-    nav_bar_container.set_drag_handler(AppEvent::DragWindow, event_tx.clone());
+    let mut nav_bar_container = FlexContainerBuilder::new()
+        .with_debug_name("Nav Bar Container")
+        .with_size(FlexValue::Fill, FlexValue::Fixed(44.0))
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::End)
+        .with_padding(Edges::all(10.0))
+        .with_z_index(1)
+        .with_parent(main_container_id)
+        .with_drag_handler(AppEvent::DragWindow, event_tx.clone())
+        .build();
 
-    let nav_buttons_container_id = uuid::Uuid::new_v4();
-    let mut nav_buttons_container =
-        Component::new(nav_buttons_container_id, ComponentType::Container);
-    nav_buttons_container.set_debug_name("Nav Buttons Container");
-    nav_buttons_container.layout = Layout::flex_row();
-    nav_buttons_container.layout.align_items = AlignItems::Center;
-    nav_buttons_container.layout.justify_content = JustifyContent::SpaceBetween;
-    nav_buttons_container.transform.size.width = FlexValue::Fixed(92.0);
-    nav_buttons_container.set_parent(nav_bar_container_id);
+    // Nav buttons container
+    let mut nav_buttons_container = FlexContainerBuilder::new()
+        .with_debug_name("Nav Buttons Container")
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::SpaceBetween)
+        .with_width(FlexValue::Fixed(92.0))
+        .with_parent(nav_bar_container.id)
+        .with_z_index(1)
+        .build();
 
     // Minimize button
     let minimize_button = ButtonBuilder::new()
@@ -76,8 +80,7 @@ pub fn create_app_ui(
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Minimize Button")
         .with_click_handler(AppEvent::Minimize, event_tx.clone())
-        .with_z_index(2)
-        .with_parent(nav_buttons_container_id)
+        .with_z_index(1)
         .build(wgpu_ctx);
 
     // Maximize button
@@ -86,8 +89,7 @@ pub fn create_app_ui(
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Maximize Button")
         .with_click_handler(AppEvent::Maximize, event_tx.clone())
-        .with_z_index(2)
-        .with_parent(nav_buttons_container_id)
+        .with_z_index(1)
         .build(wgpu_ctx);
 
     // Close button
@@ -96,18 +98,17 @@ pub fn create_app_ui(
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Close Button")
         .with_click_handler(AppEvent::Close, event_tx.clone())
-        .with_z_index(2)
-        .with_parent(nav_buttons_container_id)
+        .with_z_index(1)
         .build(wgpu_ctx);
 
     // Content container
-    let content_container_id = uuid::Uuid::new_v4();
-    let mut content_container = Component::new(content_container_id, ComponentType::Container);
-    content_container.set_debug_name("Content Container");
-    content_container.layout = Layout::flex_row();
-    content_container.layout.align_items = AlignItems::Center;
-    content_container.set_parent(main_container_id);
-    content_container.layout.padding = Edges::horizontal(10.0);
+    let mut content_container = FlexContainerBuilder::new()
+        .with_debug_name("Content Container")
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_padding(Edges::horizontal(10.0))
+        .with_parent(main_container_id)
+        .build();
 
     // text with fixed size
     let text_id = uuid::Uuid::new_v4();
@@ -125,7 +126,7 @@ pub fn create_app_ui(
         wgpu_ctx,
     );
     text.set_z_index(1);
-    text.set_parent(content_container_id);
+    text.set_parent(content_container.id);
 
     // Content image
     let image_id = uuid::Uuid::new_v4();
@@ -138,7 +139,7 @@ pub fn create_app_ui(
         wgpu_ctx,
     );
     image.set_z_index(1);
-    image.set_parent(content_container_id);
+    image.set_parent(content_container.id);
 
     // Example button with gradient background
     let test_button = ButtonBuilder::new()
@@ -154,7 +155,6 @@ pub fn create_app_ui(
             event_tx.clone(),
         )
         .with_z_index(2)
-        .with_parent(content_container_id)
         .build(wgpu_ctx);
 
     // Add children to the nav buttons container

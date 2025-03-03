@@ -484,17 +484,6 @@ impl LayoutContext {
     }
 
     pub fn add_component(&mut self, component: Component) {
-        if component.transform.position_type == Position::Flex
-            && component.get_parent_id().is_none()
-        {
-            error!("Flex component with id {} must have a parent", component.id);
-            return;
-        }
-
-        self.add_component_recursive(component);
-    }
-
-    fn add_component_recursive(&mut self, component: Component) {
         let component_id = component.id;
         let mut children = Vec::new();
 
@@ -524,7 +513,7 @@ impl LayoutContext {
 
         // Then recursively add all children
         for child in children {
-            self.add_component_recursive(child);
+            self.add_component(child);
         }
     }
 
