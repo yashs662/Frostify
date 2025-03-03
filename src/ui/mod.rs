@@ -20,6 +20,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 pub mod components;
 pub mod layout;
+pub mod z_index_manager;
 
 pub fn create_app_ui(
     wgpu_ctx: &mut WgpuCtx,
@@ -46,7 +47,6 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
-    background.set_z_index(0);
     background.set_parent(main_container_id);
     background.transform.position_type = Position::Absolute(Anchor::TopLeft);
 
@@ -58,7 +58,6 @@ pub fn create_app_ui(
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::End)
         .with_padding(Edges::all(10.0))
-        .with_z_index(1)
         .with_parent(main_container_id)
         .with_drag_handler(AppEvent::DragWindow, event_tx.clone())
         .build();
@@ -71,7 +70,6 @@ pub fn create_app_ui(
         .with_justify_content(JustifyContent::SpaceBetween)
         .with_width(FlexValue::Fixed(92.0))
         .with_parent(nav_bar_container.id)
-        .with_z_index(1)
         .build();
 
     // Minimize button
@@ -80,7 +78,6 @@ pub fn create_app_ui(
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Minimize Button")
         .with_click_handler(AppEvent::Minimize, event_tx.clone())
-        .with_z_index(1)
         .build(wgpu_ctx);
 
     // Maximize button
@@ -89,7 +86,6 @@ pub fn create_app_ui(
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Maximize Button")
         .with_click_handler(AppEvent::Maximize, event_tx.clone())
-        .with_z_index(1)
         .build(wgpu_ctx);
 
     // Close button
@@ -98,7 +94,6 @@ pub fn create_app_ui(
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Close Button")
         .with_click_handler(AppEvent::Close, event_tx.clone())
-        .with_z_index(1)
         .build(wgpu_ctx);
 
     // Content container
@@ -125,7 +120,6 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
-    text.set_z_index(1);
     text.set_parent(content_container.id);
 
     // Content image
@@ -138,7 +132,6 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
-    image.set_z_index(1);
     image.set_parent(content_container.id);
 
     // Example button with gradient background
@@ -154,7 +147,6 @@ pub fn create_app_ui(
             AppEvent::PrintMessage("Button clicked!".to_string()),
             event_tx.clone(),
         )
-        .with_z_index(2)
         .build(wgpu_ctx);
 
     // Add children to the nav buttons container

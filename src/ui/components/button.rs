@@ -113,11 +113,6 @@ impl ButtonBuilder {
         self
     }
 
-    pub fn with_z_index(mut self, z_index: i32) -> Self {
-        self.config.z_index = Some(z_index);
-        self
-    }
-
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         create_button(wgpu_ctx, self.config)
     }

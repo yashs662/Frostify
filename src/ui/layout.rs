@@ -1,3 +1,4 @@
+use crate::ui::z_index_manager::ZIndexManager;
 use crate::{
     ui::components::core::component::{Component, ComponentType},
     wgpu_ctx::{AppPipelines, WgpuCtx},
@@ -185,6 +186,7 @@ pub struct LayoutContext {
     viewport_size: ComponentSize,
     render_order: Vec<Uuid>,
     initialized: bool,
+    z_index_manager: ZIndexManager,
 }
 
 #[derive(Debug, Clone)]
@@ -451,6 +453,11 @@ impl LayoutContext {
                 }
 
                 if self.computed_bounds.contains_key(id) {
+                    // Update the component's z-index with the computed value from manager
+                    // (this doesn't affect layout, just ensures consistent rendering)
+                    let computed_z = self.z_index_manager.get_z_index(id);
+                    component.transform.z_index = computed_z;
+
                     component.draw(render_pass, app_pipelines);
                 } else {
                     error!(
@@ -501,6 +508,16 @@ impl LayoutContext {
 
         // Keep track of the children IDs in the parent's children vector
         let child_ids: Vec<Uuid> = children.iter().map(|child| child.id).collect();
+
+        // Register the component with the z-index manager
+        self.z_index_manager
+            .register_component(component_id, component.get_parent_id());
+
+        // Register any manual z-index adjustment
+        if component.transform.z_index != 0 {
+            self.z_index_manager
+                .set_adjustment(component_id, component.transform.z_index);
+        }
 
         // Add the parent component first
         self.debug_print_component_insertion(&component);
@@ -554,15 +571,10 @@ impl LayoutContext {
             self.compute_component_layout(&root_id, None);
         }
 
-        // compute render_order
-        let mut render_order = Vec::new();
-        for component in self.components.values() {
-            render_order.push((component.transform.z_index, component.id));
-        }
+        // Use the z-index manager to determine render order
+        self.render_order = self.z_index_manager.sort_render_order();
 
-        // Sort by z-index lowest to highest
-        render_order.sort_by(|a, b| a.0.cmp(&b.0));
-        self.render_order = render_order.iter().map(|(_, id)| *id).collect();
+        debug!("Render order: {:#?}", self.render_order);
     }
 
     fn compute_component_layout(&mut self, component_id: &Uuid, parent_bounds: Option<Bounds>) {

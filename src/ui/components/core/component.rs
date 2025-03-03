@@ -162,46 +162,14 @@ impl Component {
     }
 
     pub fn get_all_children(&self) -> Vec<Uuid> {
-        self.children_ids.clone() // Simply return the children vector
+        self.children_ids.clone()
     }
 
     pub fn set_z_index(&mut self, z_index: i32) {
         self.transform.z_index = z_index;
     }
 
-    pub fn get_absolute_z_index(&self) -> i32 {
-        let parent_z = self
-            .parent_id
-            .and_then(|parent_id| {
-                self.metadata.iter().find_map(|m| match m {
-                    ComponentMetaData::ChildComponents(children) => children
-                        .iter()
-                        .find(|c| c.id == parent_id)
-                        .map(|p| p.get_absolute_z_index()),
-                    _ => None,
-                })
-            })
-            .unwrap_or(0);
-
-        parent_z + self.transform.z_index
-    }
-
     pub fn draw(&mut self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
-        // Get all child components
-        let mut children: Vec<Component> = self
-            .metadata
-            .iter()
-            .find_map(|m| match m {
-                ComponentMetaData::ChildComponents(children) => Some(children.as_slice()),
-                _ => None,
-            })
-            .unwrap_or(&[])
-            .to_vec();
-
-        // Sort children by their absolute z-index
-        children.sort_by_key(|c| c.get_absolute_z_index());
-
-        // Draw self first if it has a config
         if self.config.is_some() {
             match self.component_type {
                 ComponentType::BackgroundColor => {
@@ -220,11 +188,6 @@ impl Component {
                     // Containers are not drawn directly
                 }
             }
-        }
-
-        // Then draw all children in z-index order
-        for child in children.iter_mut() {
-            child.draw(render_pass, app_pipelines);
         }
     }
 

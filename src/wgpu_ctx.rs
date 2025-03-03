@@ -148,7 +148,7 @@ fn create_texture_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
-        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/shader.wgsl"))),
+        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("ui/shaders/shader.wgsl"))),
     });
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -216,7 +216,7 @@ fn create_color_pipeline(
     // Create color shader
     let color_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Color Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/color.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(include_str!("ui/shaders/color.wgsl").into()),
     });
 
     let color_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
