@@ -1,5 +1,5 @@
 use crate::ui::{
-    components::core::component::{Component, ComponentType},
+    component::{Component, ComponentType},
     layout::*,
 };
 use uuid::Uuid;

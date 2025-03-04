@@ -2,23 +2,23 @@ use crate::{
     constants::TEXTURE_BIND_GROUP_LAYOUT_ENTIRES,
     img_utils::RgbaImg,
     ui::{
-        components::core::{Configurable, component::ComponentMetaData},
+        Configurable, Positionable, Renderable,
+        component::{Component, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },
+    wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use log::error;
 use wgpu::{SamplerDescriptor, util::DeviceExt};
 
-use super::{Positionable, Renderable};
-
-pub struct ImageComponent {}
+pub struct ImageComponent;
 
 impl Configurable for ImageComponent {
     fn configure(
-        component: &mut super::component::Component,
-        config: super::component::ComponentConfig,
-        wgpu_ctx: &mut crate::wgpu_ctx::WgpuCtx,
-    ) -> Vec<super::component::ComponentMetaData> {
+        component: &mut Component,
+        config: ComponentConfig,
+        wgpu_ctx: &mut WgpuCtx,
+    ) -> Vec<ComponentMetaData> {
         // we know config is of type ComponentConfig::Image
         let image_config = config.get_image_config().unwrap();
         let img_loader = RgbaImg::new(&image_config.file_name);
@@ -129,9 +129,9 @@ impl Configurable for ImageComponent {
 
 impl Renderable for ImageComponent {
     fn draw(
-        component: &mut super::component::Component,
+        component: &mut Component,
         render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
+        app_pipelines: &mut AppPipelines,
     ) {
         let indices = component.get_indices();
         let vertex_buffer = component.get_vertex_buffer();
@@ -159,11 +159,7 @@ impl Renderable for ImageComponent {
 }
 
 impl Positionable for ImageComponent {
-    fn set_position(
-        component: &mut super::component::Component,
-        wgpu_ctx: &mut crate::wgpu_ctx::WgpuCtx,
-        bounds: Bounds,
-    ) {
+    fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
         // Convert to NDC space
         let screen_size = wgpu_ctx.get_screen_size();
         let clip_bounds = component.convert_to_ndc(bounds, screen_size);

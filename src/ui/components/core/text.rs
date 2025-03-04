@@ -1,20 +1,15 @@
-use log::debug;
-
 use crate::{
     text_renderer::OptionalTextUpdateData,
     ui::{
-        components::core::{
-            Configurable,
-            component::{Component, ComponentConfig, ComponentMetaData},
-        },
+        Configurable, Positionable, Renderable,
+        component::{Component, ComponentConfig, ComponentMetaData},
         layout::{Bounds, ComponentPosition, ComponentSize},
     },
-    wgpu_ctx::WgpuCtx,
+    wgpu_ctx::{AppPipelines, WgpuCtx},
 };
+use log::debug;
 
-use super::{Positionable, Renderable};
-
-pub struct TextComponent {}
+pub struct TextComponent;
 
 impl Configurable for TextComponent {
     fn configure(
@@ -42,7 +37,7 @@ impl Renderable for TextComponent {
     fn draw(
         _component: &mut Component,
         _render_pass: &mut wgpu::RenderPass,
-        _app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
+        _app_pipelines: &mut AppPipelines,
     ) {
         // Text rendering is done in a separate pass
     }

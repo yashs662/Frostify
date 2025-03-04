@@ -1,19 +1,15 @@
 use crate::{
     ui::{
-        components::core::{
-            Configurable,
-            component::{Component, ComponentConfig, ComponentMetaData},
-        },
+        Configurable, Positionable, Renderable,
+        component::{Component, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },
-    wgpu_ctx::WgpuCtx,
+    wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use log::error;
 use wgpu::util::DeviceExt;
 
-use super::{Positionable, Renderable};
-
-pub struct BackgroundColorComponent {}
+pub struct BackgroundColorComponent;
 
 impl Configurable for BackgroundColorComponent {
     fn configure(
@@ -72,7 +68,7 @@ impl Renderable for BackgroundColorComponent {
     fn draw(
         component: &mut Component,
         render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
+        app_pipelines: &mut AppPipelines,
     ) {
         let indices = component.get_indices();
         let vertex_buffer = component.get_vertex_buffer();

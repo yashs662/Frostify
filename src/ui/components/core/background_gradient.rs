@@ -1,20 +1,17 @@
 use crate::{
     color::Color,
     ui::{
-        components::core::{
-            Configurable,
-            component::{Component, ComponentConfig, ComponentMetaData},
-        },
+        Configurable, Positionable, Renderable,
+        component::{Component, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },
-    wgpu_ctx::WgpuCtx,
+    vertex::Vertex,
+    wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use log::error;
 use wgpu::util::DeviceExt;
 
-use super::{Positionable, Renderable};
-
-pub struct BackgroundGradientComponent {}
+pub struct BackgroundGradientComponent;
 
 impl Configurable for BackgroundGradientComponent {
     fn configure(
@@ -77,7 +74,7 @@ impl Renderable for BackgroundGradientComponent {
     fn draw(
         component: &mut Component,
         render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut crate::wgpu_ctx::AppPipelines,
+        app_pipelines: &mut AppPipelines,
     ) {
         let indices = component.get_indices();
         let vertex_buffer = component.get_vertex_buffer();
@@ -133,7 +130,7 @@ fn create_gradient_vertices(
     start_color: Color,
     end_color: Color,
     angle_degrees: f32,
-) -> Vec<crate::vertex::Vertex> {
+) -> Vec<Vertex> {
     let angle_rad = angle_degrees.to_radians();
 
     // Calculate gradient direction vector
@@ -189,7 +186,7 @@ fn create_gradient_vertex(
     factor: f32,
     start_color: Color,
     end_color: Color,
-) -> crate::vertex::Vertex {
+) -> Vertex {
     let factor = factor.clamp(0.0, 1.0);
     let start_color = start_color.value();
     let end_color = end_color.value();
@@ -200,7 +197,7 @@ fn create_gradient_vertex(
         (start_color[3] + (end_color[3] - start_color[3]) * factor),
     ]);
 
-    crate::vertex::Vertex::new(
+    Vertex::new(
         [position[0], position[1], 0.0],
         interpolated_color.value(),
         [0.0, 0.0], // UV coordinates not used for gradients

@@ -1,6 +1,8 @@
-use crate::ui::z_index_manager::ZIndexManager;
 use crate::{
-    ui::components::core::component::{Component, ComponentType},
+    ui::{
+        component::{Component, ComponentType},
+        z_index_manager::ZIndexManager,
+    },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use log::{debug, error, trace};
@@ -201,19 +203,8 @@ pub struct GridLayout {
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventType {
     Click,
-    Hover,
     Press,
     Release,
-    DragStart,
-    DragMove,
-    DragEnd,
-    Focus,
-    Blur,
-    TextInput,
-    KeyPress,
-    KeyRelease,
-    Scroll,
-    Resize,
 }
 
 // Event data
@@ -1142,7 +1133,7 @@ impl LayoutContext {
         let mut components_affected = Vec::new();
 
         match event.event_type {
-            EventType::Click | EventType::Press | EventType::Release | EventType::Hover => {
+            EventType::Click | EventType::Press | EventType::Release => {
                 if let Some(position) = event.position {
                     // Find components at this position (from top to bottom)
                     let mut hit_components: Vec<(Uuid, i32)> = Vec::new();

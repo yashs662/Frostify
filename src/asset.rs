@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::{collections::HashMap, sync::OnceLock};
 
 static ASSET_STORE: OnceLock<HashMap<&'static str, &'static [u8]>> = OnceLock::new();
 

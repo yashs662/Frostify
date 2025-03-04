@@ -2,7 +2,7 @@ use crate::{
     app::AppEvent,
     color::Color,
     ui::{
-        components::core::component::{
+        component::{
             BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
             ComponentType, ImageConfig, TextConfig,
         },
@@ -38,7 +38,6 @@ pub struct ButtonConfig {
     pub debug_name: Option<String>,
     pub border_radius: Option<f32>,
     pub click_event: Option<AppEvent>,
-    pub hover_event: Option<AppEvent>,
     pub event_sender: Option<UnboundedSender<AppEvent>>,
     pub z_index: Option<i32>,
 }
@@ -55,7 +54,6 @@ impl Default for ButtonConfig {
             debug_name: None,
             border_radius: None,
             click_event: None,
-            hover_event: None,
             event_sender: None,
             z_index: None,
         }
@@ -114,11 +112,6 @@ impl ButtonBuilder {
         self
     }
 
-    pub fn with_hover_event(mut self, event: AppEvent) -> Self {
-        self.config.hover_event = Some(event);
-        self
-    }
-
     pub fn with_event_sender(mut self, event_tx: UnboundedSender<AppEvent>) -> Self {
         self.config.event_sender = Some(event_tx);
         self
@@ -145,9 +138,6 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
     }
     if let Some(event) = config.click_event {
         container.set_click_event(event);
-    }
-    if let Some(event) = config.hover_event {
-        container.set_hover_event(event);
     }
     if let Some(event_sender) = config.event_sender {
         container.set_event_sender(event_sender);
@@ -230,9 +220,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
         container.add_child(text_component);
     }
 
-    if (container.get_click_event().is_some()
-        || container.get_drag_event().is_some()
-        || container.get_hover_event().is_some())
+    if (container.get_click_event().is_some() || container.get_drag_event().is_some())
         && container.get_event_sender().is_none()
     {
         let identifier = if let Some(debug_name) = container.debug_name.as_ref() {
@@ -241,7 +229,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             container.id.to_string()
         };
         error!(
-            "Button {} has click/drag/hover event but no event sender, this will cause the event to not be propagated",
+            "Button {} has click/drag event but no event sender, this will cause the event to not be propagated",
             identifier
         );
     }

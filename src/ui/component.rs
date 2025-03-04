@@ -2,9 +2,17 @@ use crate::{
     app::AppEvent,
     color::Color,
     constants::ROUNDED_CORNER_SEGMENT_COUNT,
-    ui::layout::{
-        Bounds, ComponentOffset, ComponentPosition, ComponentSize, ComponentTransform, Layout,
-        Position, Size,
+    ui::{
+        Configurable, Positionable, Renderable,
+        components::core::{
+            background_color::BackgroundColorComponent,
+            background_gradient::BackgroundGradientComponent, image::ImageComponent,
+            text::TextComponent,
+        },
+        layout::{
+            Bounds, ComponentOffset, ComponentPosition, ComponentSize, ComponentTransform, Layout,
+            Position, Size,
+        },
     },
     vertex::Vertex,
     wgpu_ctx::{AppPipelines, WgpuCtx},
@@ -12,11 +20,6 @@ use crate::{
 use log::warn;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
-
-use super::{
-    Configurable, Positionable, Renderable, background_color::BackgroundColorComponent,
-    background_gradient::BackgroundGradientComponent, image::ImageComponent, text::TextComponent,
-};
 
 #[derive(Debug, Clone)]
 pub struct Component {
@@ -31,7 +34,6 @@ pub struct Component {
     pub config: Option<ComponentConfig>,
     pub cached_indices: Option<Vec<u16>>,
     requires_children_extraction: bool,
-    is_hoverable: bool,
     is_clickable: bool,
     is_draggable: bool,
 }
@@ -48,7 +50,6 @@ pub enum ComponentType {
 #[derive(Debug, Clone)]
 pub enum ComponentMetaData {
     ClickEvent(AppEvent),
-    HoverEvent(AppEvent),
     VertexBuffer(wgpu::Buffer),
     IndexBuffer(wgpu::Buffer),
     BindGroup(wgpu::BindGroup),
@@ -133,7 +134,6 @@ impl Component {
             config: None,
             cached_indices: None,
             requires_children_extraction: false,
-            is_hoverable: false,
             is_clickable: false,
             is_draggable: false,
         }
@@ -674,17 +674,6 @@ impl Component {
         self.is_clickable
     }
 
-    pub fn is_hoverable(&self) -> bool {
-        self.is_hoverable
-    }
-
-    pub fn set_hover_event(&mut self, event: AppEvent) {
-        self.metadata.push(ComponentMetaData::HoverEvent(event));
-        if self.get_event_sender().is_some() {
-            self.is_hoverable = true;
-        }
-    }
-
     pub fn set_drag_event(&mut self, event: AppEvent) {
         self.metadata.push(ComponentMetaData::DragEvent(event));
         if self.get_event_sender().is_some() {
@@ -697,9 +686,6 @@ impl Component {
         if self.get_click_event().is_some() {
             self.is_clickable = true;
         }
-        if self.get_hover_event().is_some() {
-            self.is_hoverable = true;
-        }
         if self.get_drag_event().is_some() {
             self.is_draggable = true;
         }
@@ -708,13 +694,6 @@ impl Component {
     pub fn get_drag_event(&self) -> Option<&AppEvent> {
         self.metadata.iter().find_map(|m| match m {
             ComponentMetaData::DragEvent(event) => Some(event),
-            _ => None,
-        })
-    }
-
-    pub fn get_hover_event(&self) -> Option<&AppEvent> {
-        self.metadata.iter().find_map(|m| match m {
-            ComponentMetaData::HoverEvent(event) => Some(event),
             _ => None,
         })
     }

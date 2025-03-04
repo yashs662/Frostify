@@ -22,7 +22,6 @@ pub enum AppEvent {
     Close,
     Maximize,
     Minimize,
-    ChangeCursorTo(CursorIcon),
     PrintMessage(String),
     DragWindow,
 }
@@ -43,7 +42,7 @@ struct ResizeState {
 }
 
 impl App<'_> {
-    fn try_handle_window_event(&mut self, event_loop: &ActiveEventLoop) -> bool {
+    fn try_handle_app_event(&mut self, event_loop: &ActiveEventLoop) -> bool {
         if let Some(receiver) = &mut self.event_receiver {
             if let Ok(event) = receiver.try_recv() {
                 match event {
@@ -60,12 +59,6 @@ impl App<'_> {
                     AppEvent::Minimize => {
                         if let Some(window) = &self.window {
                             window.set_minimized(true);
-                            return true;
-                        }
-                    }
-                    AppEvent::ChangeCursorTo(cursor) => {
-                        if let Some(window) = &self.window {
-                            window.set_cursor(cursor);
                             return true;
                         }
                     }
@@ -269,7 +262,7 @@ impl ApplicationHandler for App<'_> {
 
                             let affected_components = self.layout_context.handle_event(input_event);
                             if !affected_components.is_empty() {
-                                self.try_handle_window_event(event_loop);
+                                self.try_handle_app_event(event_loop);
                             }
                         }
                     }

@@ -1,7 +1,7 @@
 use crate::{
     app::AppEvent,
     ui::{
-        components::core::component::{Component, ComponentType},
+        component::{Component, ComponentType},
         layout::{AlignItems, Edges, FlexDirection, FlexValue, FlexWrap, JustifyContent, Layout},
     },
 };

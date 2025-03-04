@@ -3,25 +3,45 @@ use crate::{
     color::Color,
     constants::WINDOW_CONTROL_BUTTON_SIZE,
     ui::{
-        components::core::component::{
-            Component, ComponentConfig, ComponentType, ImageConfig, TextConfig,
+        component::{
+            BackgroundGradientConfig, Component, ComponentConfig, ComponentMetaData, ComponentType,
+            ImageConfig, TextConfig,
+        },
+        components::{
+            button::{ButtonBackground, ButtonBuilder},
+            container::FlexContainerBuilder,
         },
         layout::{Anchor, FlexValue, Position},
     },
-    wgpu_ctx::WgpuCtx,
+    wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use components::core::component::BackgroundGradientConfig;
-use components::{
-    button::{ButtonBackground, ButtonBuilder},
-    container::FlexContainerBuilder,
-};
-use layout::{AlignItems, Edges, FlexDirection, JustifyContent};
+use layout::{AlignItems, Bounds, Edges, FlexDirection, JustifyContent};
 use tokio::sync::mpsc::UnboundedSender;
-use winit::window::CursorIcon;
 
+pub mod component;
 pub mod components;
 pub mod layout;
 pub mod z_index_manager;
+
+pub trait Configurable {
+    fn configure(
+        component: &mut Component,
+        config: ComponentConfig,
+        wgpu_ctx: &mut WgpuCtx,
+    ) -> Vec<ComponentMetaData>;
+}
+
+pub trait Renderable {
+    fn draw(
+        component: &mut Component,
+        render_pass: &mut wgpu::RenderPass,
+        app_pipelines: &mut AppPipelines,
+    );
+}
+
+pub trait Positionable {
+    fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds);
+}
 
 pub fn create_app_ui(
     wgpu_ctx: &mut WgpuCtx,
@@ -149,7 +169,6 @@ pub fn create_app_ui(
         .with_debug_name("Button test")
         .with_border_radius(50.0)
         .with_click_event(AppEvent::PrintMessage("Button clicked!".to_string()))
-        .with_hover_event(AppEvent::ChangeCursorTo(CursorIcon::Pointer))
         .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);
 
