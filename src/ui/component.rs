@@ -68,9 +68,14 @@ pub enum ComponentConfig {
 
 #[derive(Debug, Clone)]
 pub struct BackgroundGradientConfig {
-    pub start_color: Color,
-    pub end_color: Color,
+    pub color_stops: Vec<GradientColorStop>,
     pub angle: f32, // Angle in degrees
+}
+
+#[derive(Debug, Clone)]
+pub struct GradientColorStop {
+    pub color: Color,
+    pub position: f32, // 0.0 to 1.0 representing the position along the gradient line
 }
 
 #[derive(Debug, Clone)]

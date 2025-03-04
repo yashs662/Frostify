@@ -2,7 +2,7 @@ use crate::{
     color::Color,
     ui::{
         Configurable, Positionable, Renderable,
-        component::{Component, ComponentConfig, ComponentMetaData},
+        component::{Component, ComponentConfig, ComponentMetaData, GradientColorStop},
         layout::Bounds,
     },
     vertex::Vertex,
@@ -24,8 +24,7 @@ impl Configurable for BackgroundGradientComponent {
         // Create initial vertices with gradient colors
         let vertices = create_gradient_vertices(
             Bounds::default(),
-            gradient_config.start_color,
-            gradient_config.end_color,
+            &gradient_config.color_stops,
             gradient_config.angle,
         );
         let indices = component.get_indices();
@@ -110,8 +109,7 @@ impl Positionable for BackgroundGradientComponent {
             if let Some(gradient_config) = config.clone().get_gradient_config() {
                 let vertices = create_gradient_vertices(
                     clip_bounds,
-                    gradient_config.start_color,
-                    gradient_config.end_color,
+                    &gradient_config.color_stops,
                     gradient_config.angle,
                 );
 
@@ -127,10 +125,25 @@ impl Positionable for BackgroundGradientComponent {
 
 fn create_gradient_vertices(
     bounds: Bounds,
-    start_color: Color,
-    end_color: Color,
+    color_stops: &[GradientColorStop],
     angle_degrees: f32,
 ) -> Vec<Vertex> {
+    // Ensure we have at least 2 color stops
+    if color_stops.len() < 2 {
+        // Default to black-to-black gradient if insufficient stops are provided
+        let default_stops = vec![
+            GradientColorStop {
+                color: Color::Black,
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::Black,
+                position: 1.0,
+            },
+        ];
+        return create_gradient_vertices(bounds, &default_stops, angle_degrees);
+    }
+
     let angle_rad = angle_degrees.to_radians();
 
     // Calculate gradient direction vector
@@ -145,38 +158,28 @@ fn create_gradient_vertices(
     // Calculate gradient progress for each corner
     let get_gradient_factor = |x: f32, y: f32| -> f32 {
         let normalized_pos = dx * x + dy * y;
-        (normalized_pos - bounds.position.x) / bounds.size.width
+        // Calculate progress from 0 to 1 along the gradient line
+        let t = (normalized_pos - bounds.position.x) / bounds.size.width;
+        t.clamp(0.0, 1.0)
     };
 
     // Create vertices with interpolated colors
     vec![
         // Top-left
-        create_gradient_vertex(
-            [left, top],
-            get_gradient_factor(left, top),
-            start_color,
-            end_color,
-        ),
+        create_gradient_vertex([left, top], get_gradient_factor(left, top), color_stops),
         // Top-right
-        create_gradient_vertex(
-            [right, top],
-            get_gradient_factor(right, top),
-            start_color,
-            end_color,
-        ),
+        create_gradient_vertex([right, top], get_gradient_factor(right, top), color_stops),
         // Bottom-right
         create_gradient_vertex(
             [right, bottom],
             get_gradient_factor(right, bottom),
-            start_color,
-            end_color,
+            color_stops,
         ),
         // Bottom-left
         create_gradient_vertex(
             [left, bottom],
             get_gradient_factor(left, bottom),
-            start_color,
-            end_color,
+            color_stops,
         ),
     ]
 }
@@ -184,17 +187,36 @@ fn create_gradient_vertices(
 fn create_gradient_vertex(
     position: [f32; 2],
     factor: f32,
-    start_color: Color,
-    end_color: Color,
+    color_stops: &[GradientColorStop],
 ) -> Vertex {
-    let factor = factor.clamp(0.0, 1.0);
-    let start_color = start_color.value();
-    let end_color = end_color.value();
+    // Find the two color stops to interpolate between
+    let mut lower_stop = &color_stops[0];
+    let mut upper_stop = &color_stops[color_stops.len() - 1];
+
+    for i in 0..color_stops.len() - 1 {
+        if factor >= color_stops[i].position && factor <= color_stops[i + 1].position {
+            lower_stop = &color_stops[i];
+            upper_stop = &color_stops[i + 1];
+            break;
+        }
+    }
+
+    // Calculate the interpolation factor between the two stops
+    let segment_factor = if upper_stop.position == lower_stop.position {
+        0.0
+    } else {
+        (factor - lower_stop.position) / (upper_stop.position - lower_stop.position)
+    };
+
+    let lower_color = lower_stop.color.value();
+    let upper_color = upper_stop.color.value();
+
+    // Interpolate between the two colors
     let interpolated_color = Color::Custom([
-        (start_color[0] + (end_color[0] - start_color[0]) * factor),
-        (start_color[1] + (end_color[1] - start_color[1]) * factor),
-        (start_color[2] + (end_color[2] - start_color[2]) * factor),
-        (start_color[3] + (end_color[3] - start_color[3]) * factor),
+        lower_color[0] + (upper_color[0] - lower_color[0]) * segment_factor,
+        lower_color[1] + (upper_color[1] - lower_color[1]) * segment_factor,
+        lower_color[2] + (upper_color[2] - lower_color[2]) * segment_factor,
+        lower_color[3] + (upper_color[3] - lower_color[3]) * segment_factor,
     ]);
 
     Vertex::new(

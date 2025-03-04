@@ -15,6 +15,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
+use component::GradientColorStop;
 use layout::{AlignItems, Bounds, Edges, FlexDirection, JustifyContent};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -58,13 +59,21 @@ pub fn create_app_ui(
 
     // Background
     let background_id = uuid::Uuid::new_v4();
-    let mut background = Component::new(background_id, ComponentType::BackgroundColor);
+    let mut background = Component::new(background_id, ComponentType::BackgroundGradient);
     background.set_debug_name("Background");
     background.configure(
         ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
-            start_color: Color::Blue,
-            end_color: Color::Red,
-            angle: 90.0,
+            color_stops: vec![
+                GradientColorStop {
+                    color: Color::Blue,
+                    position: 0.5,
+                },
+                GradientColorStop {
+                    color: Color::YellowGreen,
+                    position: 0.5001,
+                },
+            ],
+            angle: 20.0,
         }),
         wgpu_ctx,
     );
