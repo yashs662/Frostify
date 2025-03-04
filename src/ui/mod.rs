@@ -17,6 +17,7 @@ use components::{
 };
 use layout::{AlignItems, Edges, FlexDirection, JustifyContent};
 use tokio::sync::mpsc::UnboundedSender;
+use winit::window::CursorIcon;
 
 pub mod components;
 pub mod layout;
@@ -59,7 +60,8 @@ pub fn create_app_ui(
         .with_justify_content(JustifyContent::End)
         .with_padding(Edges::all(10.0))
         .with_parent(main_container_id)
-        .with_drag_handler(AppEvent::DragWindow, event_tx.clone())
+        .with_drag_event(AppEvent::DragWindow)
+        .with_event_sender(event_tx.clone())
         .build();
 
     // Nav buttons container
@@ -77,7 +79,8 @@ pub fn create_app_ui(
         .with_background(ButtonBackground::Image("minimize.png".to_string()))
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Minimize Button")
-        .with_click_handler(AppEvent::Minimize, event_tx.clone())
+        .with_click_event(AppEvent::Minimize)
+        .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);
 
     // Maximize button
@@ -85,7 +88,8 @@ pub fn create_app_ui(
         .with_background(ButtonBackground::Image("maximize.png".to_string()))
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Maximize Button")
-        .with_click_handler(AppEvent::Maximize, event_tx.clone())
+        .with_click_event(AppEvent::Maximize)
+        .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);
 
     // Close button
@@ -93,7 +97,8 @@ pub fn create_app_ui(
         .with_background(ButtonBackground::Image("close.png".to_string()))
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Close Button")
-        .with_click_handler(AppEvent::Close, event_tx.clone())
+        .with_click_event(AppEvent::Close)
+        .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);
 
     // Content container
@@ -109,8 +114,8 @@ pub fn create_app_ui(
     let text_id = uuid::Uuid::new_v4();
     let mut text = Component::new(text_id, ComponentType::Text);
     text.set_debug_name("text");
-    text.transform.size.width = FlexValue::Fixed(200.0); // Fixed width
-    text.transform.size.height = FlexValue::Fixed(50.0); // Fixed height
+    text.transform.size.width = FlexValue::Fixed(200.0);
+    text.transform.size.height = FlexValue::Fixed(50.0);
     text.configure(
         ComponentConfig::Text(TextConfig {
             text: "Test Text render".to_string(),
@@ -139,14 +144,13 @@ pub fn create_app_ui(
         .with_background(ButtonBackground::Color(Color::Blue))
         .with_text("Click Me")
         .with_text_color(Color::White)
-        .with_size(150.0, 50.0) // Make button bigger
-        .with_font_size(20.0) // Make text bigger
+        .with_size(150.0, 50.0)
+        .with_font_size(20.0)
         .with_debug_name("Button test")
         .with_border_radius(50.0)
-        .with_click_handler(
-            AppEvent::PrintMessage("Button clicked!".to_string()),
-            event_tx.clone(),
-        )
+        .with_click_event(AppEvent::PrintMessage("Button clicked!".to_string()))
+        .with_hover_event(AppEvent::ChangeCursorTo(CursorIcon::Pointer))
+        .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);
 
     // Add children to the nav buttons container

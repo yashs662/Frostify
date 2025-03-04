@@ -31,6 +31,9 @@ pub struct Component {
     pub config: Option<ComponentConfig>,
     pub cached_indices: Option<Vec<u16>>,
     requires_children_extraction: bool,
+    is_hoverable: bool,
+    is_clickable: bool,
+    is_draggable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +48,7 @@ pub enum ComponentType {
 #[derive(Debug, Clone)]
 pub enum ComponentMetaData {
     ClickEvent(AppEvent),
+    HoverEvent(AppEvent),
     VertexBuffer(wgpu::Buffer),
     IndexBuffer(wgpu::Buffer),
     BindGroup(wgpu::BindGroup),
@@ -129,6 +133,9 @@ impl Component {
             config: None,
             cached_indices: None,
             requires_children_extraction: false,
+            is_hoverable: false,
+            is_clickable: false,
+            is_draggable: false,
         }
     }
 
@@ -656,24 +663,46 @@ impl Component {
         })
     }
 
-    pub fn set_click_handler(&mut self, event: AppEvent, event_tx: UnboundedSender<AppEvent>) {
+    pub fn set_click_event(&mut self, event: AppEvent) {
         self.metadata.push(ComponentMetaData::ClickEvent(event));
-        self.metadata.push(ComponentMetaData::EventSender(event_tx));
+        if self.get_event_sender().is_some() {
+            self.is_clickable = true;
+        }
     }
 
     pub fn is_clickable(&self) -> bool {
-        self.metadata
-            .iter()
-            .any(|m| matches!(m, ComponentMetaData::ClickEvent(_)))
-            && self
-                .metadata
-                .iter()
-                .any(|m| matches!(m, ComponentMetaData::EventSender(_)))
+        self.is_clickable
     }
 
-    pub fn set_drag_handler(&mut self, event: AppEvent, event_tx: UnboundedSender<AppEvent>) {
+    pub fn is_hoverable(&self) -> bool {
+        self.is_hoverable
+    }
+
+    pub fn set_hover_event(&mut self, event: AppEvent) {
+        self.metadata.push(ComponentMetaData::HoverEvent(event));
+        if self.get_event_sender().is_some() {
+            self.is_hoverable = true;
+        }
+    }
+
+    pub fn set_drag_event(&mut self, event: AppEvent) {
         self.metadata.push(ComponentMetaData::DragEvent(event));
-        self.metadata.push(ComponentMetaData::EventSender(event_tx));
+        if self.get_event_sender().is_some() {
+            self.is_draggable = true;
+        }
+    }
+
+    pub fn set_event_sender(&mut self, sender: UnboundedSender<AppEvent>) {
+        self.metadata.push(ComponentMetaData::EventSender(sender));
+        if self.get_click_event().is_some() {
+            self.is_clickable = true;
+        }
+        if self.get_hover_event().is_some() {
+            self.is_hoverable = true;
+        }
+        if self.get_drag_event().is_some() {
+            self.is_draggable = true;
+        }
     }
 
     pub fn get_drag_event(&self) -> Option<&AppEvent> {
@@ -683,13 +712,14 @@ impl Component {
         })
     }
 
+    pub fn get_hover_event(&self) -> Option<&AppEvent> {
+        self.metadata.iter().find_map(|m| match m {
+            ComponentMetaData::HoverEvent(event) => Some(event),
+            _ => None,
+        })
+    }
+
     pub fn is_draggable(&self) -> bool {
-        self.metadata
-            .iter()
-            .any(|m| matches!(m, ComponentMetaData::DragEvent(_)))
-            && self
-                .metadata
-                .iter()
-                .any(|m| matches!(m, ComponentMetaData::EventSender(_)))
+        self.is_draggable
     }
 }

@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Color {
     AliceBlue,
@@ -40,6 +41,7 @@ pub enum Color {
     Custom([f32; 4]),
 }
 
+#[allow(dead_code)]
 impl Color {
     pub fn value(&self) -> [f32; 4] {
         match *self {

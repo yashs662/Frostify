@@ -21,8 +21,9 @@ pub struct FlexContainerConfig {
     pub debug_name: Option<String>,
     pub parent_id: Option<Uuid>,
     pub z_index: Option<i32>,
-    pub click_handler: Option<(AppEvent, UnboundedSender<AppEvent>)>,
-    pub drag_handler: Option<(AppEvent, UnboundedSender<AppEvent>)>,
+    pub click_event: Option<AppEvent>,
+    pub drag_event: Option<AppEvent>,
+    pub event_sender: Option<UnboundedSender<AppEvent>>,
 }
 
 impl Default for FlexContainerConfig {
@@ -39,8 +40,9 @@ impl Default for FlexContainerConfig {
             debug_name: None,
             parent_id: None,
             z_index: None,
-            click_handler: None,
-            drag_handler: None,
+            click_event: None,
+            drag_event: None,
+            event_sender: None,
         }
     }
 }
@@ -118,21 +120,18 @@ impl FlexContainerBuilder {
         self
     }
 
-    pub fn with_click_handler(
-        mut self,
-        event: AppEvent,
-        event_tx: UnboundedSender<AppEvent>,
-    ) -> Self {
-        self.config.click_handler = Some((event, event_tx));
+    pub fn with_click_event(mut self, event: AppEvent) -> Self {
+        self.config.click_event = Some(event);
         self
     }
 
-    pub fn with_drag_handler(
-        mut self,
-        event: AppEvent,
-        event_tx: UnboundedSender<AppEvent>,
-    ) -> Self {
-        self.config.drag_handler = Some((event, event_tx));
+    pub fn with_drag_event(mut self, event: AppEvent) -> Self {
+        self.config.drag_event = Some(event);
+        self
+    }
+
+    pub fn with_event_sender(mut self, event_sender: UnboundedSender<AppEvent>) -> Self {
+        self.config.event_sender = Some(event_sender);
         self
     }
 
@@ -172,11 +171,14 @@ fn create_flex_container(config: FlexContainerConfig) -> Component {
     if let Some(z_index) = config.z_index {
         container.set_z_index(z_index);
     }
-    if let Some((event, event_tx)) = config.click_handler {
-        container.set_click_handler(event, event_tx);
+    if let Some(event) = config.click_event {
+        container.set_click_event(event);
     }
-    if let Some((event, event_tx)) = config.drag_handler {
-        container.set_drag_handler(event, event_tx);
+    if let Some(event) = config.drag_event {
+        container.set_drag_event(event);
+    }
+    if let Some(event_sender) = config.event_sender {
+        container.set_event_sender(event_sender);
     }
 
     container

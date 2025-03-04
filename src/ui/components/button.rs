@@ -10,6 +10,7 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
+use log::error;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -36,7 +37,9 @@ pub struct ButtonConfig {
     pub height: Option<f32>,
     pub debug_name: Option<String>,
     pub border_radius: Option<f32>,
-    pub click_handler: Option<(AppEvent, UnboundedSender<AppEvent>)>,
+    pub click_event: Option<AppEvent>,
+    pub hover_event: Option<AppEvent>,
+    pub event_sender: Option<UnboundedSender<AppEvent>>,
     pub z_index: Option<i32>,
 }
 
@@ -51,7 +54,9 @@ impl Default for ButtonConfig {
             height: None,
             debug_name: None,
             border_radius: None,
-            click_handler: None,
+            click_event: None,
+            hover_event: None,
+            event_sender: None,
             z_index: None,
         }
     }
@@ -104,12 +109,18 @@ impl ButtonBuilder {
         self
     }
 
-    pub fn with_click_handler(
-        mut self,
-        event: AppEvent,
-        event_tx: UnboundedSender<AppEvent>,
-    ) -> Self {
-        self.config.click_handler = Some((event, event_tx));
+    pub fn with_click_event(mut self, event: AppEvent) -> Self {
+        self.config.click_event = Some(event);
+        self
+    }
+
+    pub fn with_hover_event(mut self, event: AppEvent) -> Self {
+        self.config.hover_event = Some(event);
+        self
+    }
+
+    pub fn with_event_sender(mut self, event_tx: UnboundedSender<AppEvent>) -> Self {
+        self.config.event_sender = Some(event_tx);
         self
     }
 
@@ -132,8 +143,14 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
     if let Some(name) = config.debug_name {
         container.set_debug_name(&name);
     }
-    if let Some((event, event_tx)) = config.click_handler {
-        container.set_click_handler(event, event_tx);
+    if let Some(event) = config.click_event {
+        container.set_click_event(event);
+    }
+    if let Some(event) = config.hover_event {
+        container.set_hover_event(event);
+    }
+    if let Some(event_sender) = config.event_sender {
+        container.set_event_sender(event_sender);
     }
     if let Some(z_index) = config.z_index {
         container.set_z_index(z_index);
@@ -211,6 +228,22 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             wgpu_ctx,
         );
         container.add_child(text_component);
+    }
+
+    if (container.get_click_event().is_some()
+        || container.get_drag_event().is_some()
+        || container.get_hover_event().is_some())
+        && container.get_event_sender().is_none()
+    {
+        let identifier = if let Some(debug_name) = container.debug_name.as_ref() {
+            format!("{} ({})", debug_name, container.id)
+        } else {
+            container.id.to_string()
+        };
+        error!(
+            "Button {} has click/drag/hover event but no event sender, this will cause the event to not be propagated",
+            identifier
+        );
     }
 
     container
