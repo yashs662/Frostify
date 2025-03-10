@@ -92,13 +92,13 @@ impl Color {
     }
 
     pub fn darken(&self, factor: f32) -> Color {
-        let factor = factor.min(1.0).max(0.0);
+        let factor = factor.clamp(0.0, 1.0);
         let [r, g, b, a] = self.value();
         Color::Custom([r * factor, g * factor, b * factor, a])
     }
 
     pub fn lighten(&self, factor: f32) -> Color {
-        let factor = factor.min(1.0).max(0.0);
+        let factor = factor.clamp(0.0, 1.0);
         let [r, g, b, a] = self.value();
         Color::Custom([
             r + (1.0 - r) * factor,

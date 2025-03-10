@@ -389,6 +389,42 @@ impl Edges {
         }
     }
 
+    pub fn left(value: f32) -> Self {
+        Self {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: value,
+        }
+    }
+
+    pub fn right(value: f32) -> Self {
+        Self {
+            top: 0.0,
+            right: value,
+            bottom: 0.0,
+            left: 0.0,
+        }
+    }
+
+    pub fn top(value: f32) -> Self {
+        Self {
+            top: value,
+            right: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+        }
+    }
+
+    pub fn bottom(value: f32) -> Self {
+        Self {
+            top: 0.0,
+            right: 0.0,
+            bottom: value,
+            left: 0.0,
+        }
+    }
+
     pub fn custom(top: f32, right: f32, bottom: f32, left: f32) -> Self {
         Self {
             top,
@@ -823,10 +859,13 @@ impl LayoutContext {
         let mut total_flex_grow = 0.0;
         let mut num_auto_sized = 0;
         let mut num_flex_items = 0;
+        let mut total_margins = 0.0;
 
         // Only consider flex children for space calculations
         for (_, child) in &flex_children {
+            // Sum up margins in the main axis
             if is_row {
+                total_margins += child.layout.margin.left + child.layout.margin.right;
                 match &child.transform.size.width {
                     FlexValue::Fixed(w) => total_fixed_size += w,
                     FlexValue::Fill => {
@@ -837,6 +876,7 @@ impl LayoutContext {
                     _ => {}
                 }
             } else {
+                total_margins += child.layout.margin.top + child.layout.margin.bottom;
                 match &child.transform.size.height {
                     FlexValue::Fixed(h) => total_fixed_size += h,
                     FlexValue::Fill => {
@@ -855,7 +895,8 @@ impl LayoutContext {
             content_space.size.height
         };
 
-        let remaining_space = (main_axis_size - total_fixed_size).max(0.0);
+        // Subtract margins from available space before distributing
+        let remaining_space = (main_axis_size - total_fixed_size - total_margins).max(0.0);
         let space_per_flex_unit = if total_flex_grow > 0.0 {
             remaining_space / total_flex_grow
         } else if num_auto_sized > 0 {
@@ -873,11 +914,21 @@ impl LayoutContext {
             total_fixed_size,
             space_per_flex_unit,
             total_flex_grow,
+            total_margins,
         );
 
         // Layout flex children
         let mut current_main = start_pos;
         for (child_id, child) in flex_children {
+            // Apply margins at the start of each item's positioning
+            let margin_before = if is_row {
+                child.layout.margin.left
+            } else {
+                child.layout.margin.top
+            };
+
+            current_main += margin_before;
+
             let (main_size, cross_size) = self.calculate_child_sizes(
                 child,
                 is_row,
@@ -889,9 +940,15 @@ impl LayoutContext {
 
             let cross = self.calculate_cross_position(
                 layout.align_items,
+                child.layout.align_self,
                 is_row,
                 content_space,
                 cross_size,
+                if is_row {
+                    (child.layout.margin.top, child.layout.margin.bottom)
+                } else {
+                    (child.layout.margin.left, child.layout.margin.right)
+                },
             );
 
             let child_bounds = if is_row {
@@ -921,7 +978,14 @@ impl LayoutContext {
             self.computed_bounds.insert(child_id, child_bounds);
             self.compute_component_layout(&child_id, Some(child_bounds));
 
-            current_main += main_size + spacing_between;
+            // Apply margin after the item and move to next position
+            let margin_after = if is_row {
+                child.layout.margin.right
+            } else {
+                child.layout.margin.bottom
+            };
+
+            current_main += main_size + margin_after + spacing_between;
         }
 
         // Handle fixed and absolute positioned items last
@@ -952,6 +1016,7 @@ impl LayoutContext {
         total_fixed_size: f32,
         space_per_flex_unit: f32,
         total_flex_grow: f32,
+        total_margins: f32,
     ) -> (f32, f32) {
         let main_axis_size = if is_row {
             content_space.size.width
@@ -960,7 +1025,8 @@ impl LayoutContext {
         };
 
         let total_flex_size = space_per_flex_unit * total_flex_grow;
-        let total_used_space = total_fixed_size + total_flex_size;
+        // Include margins in total_used_space
+        let total_used_space = total_fixed_size + total_flex_size + total_margins;
         let free_space = (main_axis_size - total_used_space).max(0.0);
 
         match justify_content {
@@ -1045,6 +1111,19 @@ impl LayoutContext {
         num_flex_items: usize,
         num_auto_sized: usize,
     ) -> (f32, f32) {
+        // Calculate available space after accounting for margins
+        let main_axis_available = if is_row {
+            content_space.size.width - (child.layout.margin.left + child.layout.margin.right)
+        } else {
+            content_space.size.height - (child.layout.margin.top + child.layout.margin.bottom)
+        };
+
+        let cross_axis_available = if is_row {
+            content_space.size.height - (child.layout.margin.top + child.layout.margin.bottom)
+        } else {
+            content_space.size.width - (child.layout.margin.left + child.layout.margin.right)
+        };
+
         let main_size = if is_row {
             match &child.transform.size.width {
                 FlexValue::Fixed(w) => *w,
@@ -1053,10 +1132,10 @@ impl LayoutContext {
                     if num_flex_items == 0 && num_auto_sized > 0 {
                         space_per_flex_unit
                     } else {
-                        content_space.size.width
+                        main_axis_available
                     }
                 }
-                _ => content_space.size.width,
+                _ => main_axis_available,
             }
         } else {
             match &child.transform.size.height {
@@ -1066,24 +1145,24 @@ impl LayoutContext {
                     if num_flex_items == 0 && num_auto_sized > 0 {
                         space_per_flex_unit
                     } else {
-                        content_space.size.height
+                        main_axis_available
                     }
                 }
-                _ => content_space.size.height,
+                _ => main_axis_available,
             }
         };
 
         let cross_size = if is_row {
             match &child.transform.size.height {
                 FlexValue::Fixed(h) => *h,
-                FlexValue::Fill | FlexValue::Auto => content_space.size.height,
-                _ => content_space.size.height,
+                FlexValue::Fill | FlexValue::Auto => cross_axis_available,
+                _ => cross_axis_available,
             }
         } else {
             match &child.transform.size.width {
                 FlexValue::Fixed(w) => *w,
-                FlexValue::Fill | FlexValue::Auto => content_space.size.width,
-                _ => content_space.size.width,
+                FlexValue::Fill | FlexValue::Auto => cross_axis_available,
+                _ => cross_axis_available,
             }
         };
 
@@ -1093,38 +1172,39 @@ impl LayoutContext {
     fn calculate_cross_position(
         &self,
         align_items: AlignItems,
+        align_self: Option<AlignItems>,
         is_row: bool,
         content_space: Bounds,
         cross_size: f32,
+        margins: (f32, f32), // (top/left margin, bottom/right margin) depending on axis
     ) -> f32 {
-        match align_items {
-            AlignItems::Start => {
-                if is_row {
-                    content_space.position.y
-                } else {
-                    content_space.position.x
-                }
+        // Use align_self if provided, otherwise use parent's align_items
+        let alignment = align_self.unwrap_or(align_items);
+
+        let (margin_start, margin_end) = margins;
+        let available_cross = if is_row {
+            content_space.size.height - margin_start - margin_end
+        } else {
+            content_space.size.width - margin_start - margin_end
+        };
+
+        let content_start = if is_row {
+            content_space.position.y + margin_start
+        } else {
+            content_space.position.x + margin_start
+        };
+
+        match alignment {
+            AlignItems::Start => content_start,
+            AlignItems::Center => content_start + (available_cross - cross_size) / 2.0,
+            AlignItems::End => content_start + available_cross - cross_size,
+            AlignItems::Stretch => {
+                // For Stretch, we've already set the cross_size to fill available space
+                content_start
             }
-            AlignItems::Center => {
-                if is_row {
-                    content_space.position.y + (content_space.size.height - cross_size) / 2.0
-                } else {
-                    content_space.position.x + (content_space.size.width - cross_size) / 2.0
-                }
-            }
-            AlignItems::End => {
-                if is_row {
-                    content_space.position.y + content_space.size.height - cross_size
-                } else {
-                    content_space.position.x + content_space.size.width - cross_size
-                }
-            }
-            _ => {
-                if is_row {
-                    content_space.position.y
-                } else {
-                    content_space.position.x
-                }
+            AlignItems::Baseline => {
+                // Simplified baseline implementation - just align to start
+                content_start
             }
         }
     }
@@ -1132,93 +1212,77 @@ impl LayoutContext {
     pub fn handle_event(&mut self, event: InputEvent) -> Vec<(Uuid, EventType)> {
         let mut components_affected = Vec::new();
 
-        match event.event_type {
-            EventType::Click | EventType::Press | EventType::Release => {
-                if let Some(position) = event.position {
-                    // Find components at this position (from top to bottom)
-                    let mut hit_components: Vec<(Uuid, i32)> = Vec::new();
+        if let Some(position) = event.position {
+            // Find components at this position (from top to bottom)
+            let mut hit_components: Vec<(Uuid, i32)> = Vec::new();
 
-                    for (id, bounds) in &self.computed_bounds {
-                        if position.x >= bounds.position.x
-                            && position.x <= bounds.position.x + bounds.size.width
-                            && position.y >= bounds.position.y
-                            && position.y <= bounds.position.y + bounds.size.height
-                        {
-                            if let Some(component) = self.get_component(id) {
-                                hit_components.push((*id, component.transform.z_index));
-                            }
-                        }
+            for (id, bounds) in &self.computed_bounds {
+                if position.x >= bounds.position.x
+                    && position.x <= bounds.position.x + bounds.size.width
+                    && position.y >= bounds.position.y
+                    && position.y <= bounds.position.y + bounds.size.height
+                {
+                    if let Some(component) = self.get_component(id) {
+                        hit_components.push((*id, component.transform.z_index));
                     }
+                }
+            }
 
-                    // Sort by z-index (highest first)
-                    hit_components.sort_by(|a, b| b.1.cmp(&a.1));
+            // Sort by z-index (highest first)
+            hit_components.sort_by(|a, b| b.1.cmp(&a.1));
 
-                    // Modify event processing to prioritize clickable components
-                    let mut event_handled = false;
+            // Modify event processing to prioritize clickable components
+            let mut event_handled = false;
 
-                    // First pass: handle clickable components
-                    for (id, _) in &hit_components {
-                        if let Some(component) = self.components.get(id) {
-                            // If it's a click or press event, first check for clickable components
-                            if (event.event_type == EventType::Press
-                                || event.event_type == EventType::Click)
-                                && component.is_clickable()
-                            {
-                                if let Some(event_sender) = component.get_event_sender() {
-                                    if let Some(click_event) = component.get_click_event() {
-                                        if let Err(e) = event_sender.send(click_event.clone()) {
-                                            error!("Failed to send click event: {}", e);
-                                        } else {
-                                            debug!(
-                                                "Click event handled by component: {}",
-                                                component
-                                                    .debug_name
-                                                    .as_deref()
-                                                    .unwrap_or("unnamed")
-                                            );
-                                            event_handled = true;
-                                            components_affected
-                                                .push((*id, event.event_type.clone()));
-                                            break; // Exit after handling click
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Second pass: handle draggable components only if no click was handled
-                    if !event_handled {
-                        for (id, _) in hit_components {
-                            if let Some(component) = self.components.get(&id) {
-                                if event.event_type == EventType::Press && component.is_draggable()
-                                {
-                                    if let Some(event_sender) = component.get_event_sender() {
-                                        if let Some(drag_event) = component.get_drag_event() {
-                                            if let Err(e) = event_sender.send(drag_event.clone()) {
-                                                error!("Failed to send drag event: {}", e);
-                                            } else {
-                                                debug!(
-                                                    "Drag event handled by component: {}",
-                                                    component
-                                                        .debug_name
-                                                        .as_deref()
-                                                        .unwrap_or("unnamed")
-                                                );
-                                                components_affected
-                                                    .push((id, event.event_type.clone()));
-                                                break; // Exit after handling drag
-                                            }
-                                        }
-                                    }
+            // First pass: handle clickable components
+            for (id, _) in &hit_components {
+                if let Some(component) = self.components.get(id) {
+                    // If it's a click or press event, first check for clickable components
+                    if (event.event_type == EventType::Press
+                        || event.event_type == EventType::Click)
+                        && component.is_clickable()
+                    {
+                        if let Some(event_sender) = component.get_event_sender() {
+                            if let Some(click_event) = component.get_click_event() {
+                                if let Err(e) = event_sender.send(click_event.clone()) {
+                                    error!("Failed to send click event: {}", e);
+                                } else {
+                                    debug!(
+                                        "Click event handled by component: {}",
+                                        component.debug_name.as_deref().unwrap_or("unnamed")
+                                    );
+                                    event_handled = true;
+                                    components_affected.push((*id, event.event_type.clone()));
+                                    break; // Exit after handling click
                                 }
                             }
                         }
                     }
                 }
             }
-            _ => {
-                debug!("Unhandled event type: {:?}", event.event_type);
+
+            // Second pass: handle draggable components only if no click was handled
+            if !event_handled {
+                for (id, _) in hit_components {
+                    if let Some(component) = self.components.get(&id) {
+                        if event.event_type == EventType::Press && component.is_draggable() {
+                            if let Some(event_sender) = component.get_event_sender() {
+                                if let Some(drag_event) = component.get_drag_event() {
+                                    if let Err(e) = event_sender.send(drag_event.clone()) {
+                                        error!("Failed to send drag event: {}", e);
+                                    } else {
+                                        debug!(
+                                            "Drag event handled by component: {}",
+                                            component.debug_name.as_deref().unwrap_or("unnamed")
+                                        );
+                                        components_affected.push((id, event.event_type.clone()));
+                                        break; // Exit after handling drag
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

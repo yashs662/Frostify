@@ -1,8 +1,7 @@
 use crate::ui::{
-    component::{Component, ComponentType},
+    components::container::FlexContainerBuilder,
     layout::*,
 };
-use uuid::Uuid;
 
 #[test]
 fn test_basic_fixed_flex_row_layout() {
@@ -10,23 +9,27 @@ fn test_basic_fixed_flex_row_layout() {
     ctx.initialize(1000.0, 800.0);
 
     // Create parent container with fixed size
-    let parent_id = Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.transform.size = Size::fixed(500.0, 300.0);
-    parent.layout = Layout::flex_row();
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build();
+    let parent_id = parent.id;
 
     // Create first child with fixed size
-    let child1_id = Uuid::new_v4();
-    let mut child1 = Component::new(child1_id, ComponentType::Container);
-    child1.transform.size = Size::fixed(100.0, 100.0);
-    child1.set_parent(parent_id);
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child1_id = child1.id;
 
     // Create second child with fixed size
-    let child2_id = Uuid::new_v4();
-    let mut child2 = Component::new(child2_id, ComponentType::Container);
-    child2.transform.size = Size::fixed(100.0, 100.0);
-    child2.set_parent(parent_id);
+    let child2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child2_id = child2.id;
 
     // Set children on parent
     parent.add_child(child1);
@@ -69,23 +72,27 @@ fn test_basic_fixed_flex_column_layout() {
     ctx.initialize(1000.0, 800.0);
 
     // Create parent container with fixed size
-    let parent_id = Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.transform.size = Size::fixed(500.0, 300.0);
-    parent.layout = Layout::flex_column();
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Column)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build();
+    let parent_id = parent.id;
 
     // Create first child with fixed size
-    let child1_id = Uuid::new_v4();
-    let mut child1 = Component::new(child1_id, ComponentType::Container);
-    child1.transform.size = Size::fixed(100.0, 100.0);
-    child1.set_parent(parent_id);
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child1_id = child1.id;
 
     // Create second child with fixed size
-    let child2_id = Uuid::new_v4();
-    let mut child2 = Component::new(child2_id, ComponentType::Container);
-    child2.transform.size = Size::fixed(100.0, 100.0);
-    child2.set_parent(parent_id);
+    let child2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child2_id = child2.id;
 
     // Set children on parent
     parent.add_child(child1);
@@ -128,23 +135,27 @@ fn test_basic_fill_flex_row_layout() {
     ctx.initialize(1000.0, 800.0);
 
     // Create parent container with fixed size
-    let parent_id = Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.transform.size = Size::fixed(500.0, 300.0);
-    parent.layout = Layout::flex_row();
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build();
+    let parent_id = parent.id;
 
     // Create first child with fixed size
-    let child1_id = Uuid::new_v4();
-    let mut child1 = Component::new(child1_id, ComponentType::Container);
-    child1.transform.size = Size::fixed(100.0, 100.0);
-    child1.set_parent(parent_id);
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child1_id = child1.id;
 
     // Create second child with fill size
-    let child2_id = Uuid::new_v4();
-    let mut child2 = Component::new(child2_id, ComponentType::Container);
-    child2.transform.size = Size::fill();
-    child2.set_parent(parent_id);
+    let child2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .build();
+    let child2_id = child2.id;
 
     // Set children on parent
     parent.add_child(child1);
@@ -187,23 +198,27 @@ fn test_basic_fill_flex_column_layout() {
     ctx.initialize(1000.0, 800.0);
 
     // Create parent container with fixed size
-    let parent_id = Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.transform.size = Size::fixed(500.0, 300.0);
-    parent.layout = Layout::flex_column();
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Column)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build();
+    let parent_id = parent.id;
 
     // Create first child with fixed size
-    let child1_id = Uuid::new_v4();
-    let mut child1 = Component::new(child1_id, ComponentType::Container);
-    child1.transform.size = Size::fixed(100.0, 100.0);
-    child1.set_parent(parent_id);
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child1_id = child1.id;
 
     // Create second child with fill size
-    let child2_id = Uuid::new_v4();
-    let mut child2 = Component::new(child2_id, ComponentType::Container);
-    child2.transform.size = Size::fill();
-    child2.set_parent(parent_id);
+    let child2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .build();
+    let child2_id = child2.id;
 
     // Set children on parent
     parent.add_child(child1);
@@ -246,24 +261,28 @@ fn test_basic_fill_flex_row_layout_with_padding() {
     ctx.initialize(1000.0, 800.0);
 
     // Create parent container with fixed size
-    let parent_id = Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.transform.size = Size::fixed(500.0, 300.0);
-    parent.layout = Layout::flex_row();
-    parent.layout.with_padding(Edges::horizontal(10.0));
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .with_padding(Edges::horizontal(10.0))
+        .build();
+    let parent_id = parent.id;
 
     // Create first child with fixed size
-    let child1_id = Uuid::new_v4();
-    let mut child1 = Component::new(child1_id, ComponentType::Container);
-    child1.transform.size = Size::fixed(100.0, 100.0);
-    child1.set_parent(parent_id);
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child1_id = child1.id;
 
     // Create second child with fill size
-    let child2_id = Uuid::new_v4();
-    let mut child2 = Component::new(child2_id, ComponentType::Container);
-    child2.transform.size = Size::fill();
-    child2.set_parent(parent_id);
+    let child2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .build();
+    let child2_id = child2.id;
 
     // Set children on parent
     parent.add_child(child1);
@@ -306,24 +325,28 @@ fn test_basic_fill_flex_column_layout_with_padding() {
     ctx.initialize(1000.0, 800.0);
 
     // Create parent container with fixed size
-    let parent_id = Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.transform.size = Size::fixed(500.0, 300.0);
-    parent.layout = Layout::flex_column();
-    parent.layout.with_padding(Edges::vertical(10.0));
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Column)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .with_padding(Edges::vertical(10.0))
+        .build();
+    let parent_id = parent.id;
 
     // Create first child with fixed size
-    let child1_id = Uuid::new_v4();
-    let mut child1 = Component::new(child1_id, ComponentType::Container);
-    child1.transform.size = Size::fixed(100.0, 100.0);
-    child1.set_parent(parent_id);
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child1_id = child1.id;
 
     // Create second child with fill size
-    let child2_id = Uuid::new_v4();
-    let mut child2 = Component::new(child2_id, ComponentType::Container);
-    child2.transform.size = Size::fill();
-    child2.set_parent(parent_id);
+    let child2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .build();
+    let child2_id = child2.id;
 
     // Set children on parent
     parent.add_child(child1);
@@ -366,36 +389,42 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
     ctx.initialize(1000.0, 800.0);
 
     // Create parent container with fixed size
-    let parent_id = Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.transform.size = Size::fixed(500.0, 300.0);
-    parent.layout = Layout::flex_row();
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build();
+    let parent_id = parent.id;
 
     // Create first child with fixed size
-    let child1_id = Uuid::new_v4();
-    let mut child1 = Component::new(child1_id, ComponentType::Container);
-    child1.transform.size = Size::fixed(100.0, 100.0);
-    child1.set_parent(parent_id);
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child1_id = child1.id;
 
     // Create nested container with fixed size
-    let nested_parent_id = Uuid::new_v4();
-    let mut nested_parent = Component::new(nested_parent_id, ComponentType::Container);
-    nested_parent.transform.size = Size::fixed(200.0, 200.0);
-    nested_parent.layout = Layout::flex_row();
-    nested_parent.set_parent(parent_id);
+    let mut nested_parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(200.0))
+        .with_height(FlexValue::Fixed(200.0))
+        .with_direction(FlexDirection::Row)
+        .build();
+    let nested_parent_id = nested_parent.id;
 
     // Create nested child with fixed size
-    let nested_child_1_id = Uuid::new_v4();
-    let mut nested_child_1 = Component::new(nested_child_1_id, ComponentType::Container);
-    nested_child_1.transform.size = Size::fixed(25.0, 25.0);
-    nested_child_1.set_parent(nested_parent_id);
+    let nested_child_1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(25.0))
+        .with_height(FlexValue::Fixed(25.0))
+        .build();
+    let nested_child_1_id = nested_child_1.id;
 
     // Create nested child with fill size
-    let nested_child_2_id = Uuid::new_v4();
-    let mut nested_child_2 = Component::new(nested_child_2_id, ComponentType::Container);
-    nested_child_2.transform.size = Size::fill();
-    nested_child_2.set_parent(nested_parent_id);
+    let nested_child_2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .build();
+    let nested_child_2_id = nested_child_2.id;
 
     // Set children on parents
     nested_parent.add_child(nested_child_1);
@@ -452,37 +481,42 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
     ctx.initialize(1000.0, 800.0);
 
     // Create parent container with fixed size
-    let parent_id = Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.transform.size = Size::fixed(500.0, 300.0);
-    parent.layout = Layout::flex_column();
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Column)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build();
+    let parent_id = parent.id;
 
     // Create first child with fixed size
-    let child1_id = Uuid::new_v4();
-    let mut child1 = Component::new(child1_id, ComponentType::Container);
-    child1.transform.size.width = FlexValue::Fill;
-    child1.transform.size.height = FlexValue::Fixed(100.0);
-    child1.set_parent(parent_id);
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fixed(100.0))
+        .build();
+    let child1_id = child1.id;
 
     // Create nested container with fill size
-    let nested_parent_id = Uuid::new_v4();
-    let mut nested_parent = Component::new(nested_parent_id, ComponentType::Container);
-    nested_parent.transform.size = Size::fill();
-    nested_parent.layout = Layout::flex_row();
-    nested_parent.set_parent(parent_id);
+    let mut nested_parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .with_direction(FlexDirection::Row)
+        .build();
+    let nested_parent_id = nested_parent.id;
 
     // Create nested child with fixed size
-    let nested_child_1_id = Uuid::new_v4();
-    let mut nested_child_1 = Component::new(nested_child_1_id, ComponentType::Container);
-    nested_child_1.transform.size = Size::fixed(25.0, 25.0);
-    nested_child_1.set_parent(nested_parent_id);
+    let nested_child_1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(25.0))
+        .with_height(FlexValue::Fixed(25.0))
+        .build();
+    let nested_child_1_id = nested_child_1.id;
 
     // Create nested child with fill size
-    let nested_child_2_id = Uuid::new_v4();
-    let mut nested_child_2 = Component::new(nested_child_2_id, ComponentType::Container);
-    nested_child_2.transform.size = Size::fill();
-    nested_child_2.set_parent(nested_parent_id);
+    let nested_child_2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .build();
+    let nested_child_2_id = nested_child_2.id;
 
     // Set children on parent
     nested_parent.add_child(nested_child_1);
@@ -538,68 +572,76 @@ fn test_navbar_app_layout() {
     let mut ctx = LayoutContext::default();
     ctx.initialize(1000.0, 800.0);
 
-    // parent container
-    let parent_id = uuid::Uuid::new_v4();
-    let mut parent = Component::new(parent_id, ComponentType::Container);
-    parent.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    parent.layout = Layout::flex_column();
+    // Parent container
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .with_direction(FlexDirection::Column)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build();
+    let parent_id = parent.id;
 
-    // parent container background
-    let background_id = uuid::Uuid::new_v4();
-    let mut background = Component::new(background_id, ComponentType::BackgroundColor);
-    background.transform.position_type = Position::Absolute(Anchor::TopLeft);
-    background.set_parent(parent_id);
+    // Parent container background
+    let background = FlexContainerBuilder::new()
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build();
+    let background_id = background.id;
 
     // Nav bar container
-    let nav_bar_id = uuid::Uuid::new_v4();
-    let mut nav_bar = Component::new(nav_bar_id, ComponentType::Container);
-    nav_bar.transform.size.height = FlexValue::Fixed(100.0);
-    nav_bar.layout = Layout::flex_row();
-    nav_bar.layout.align_items = AlignItems::Center;
-    nav_bar.layout.padding = Edges::all(10.0);
-    nav_bar.set_parent(parent_id);
+    let mut nav_bar = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fixed(100.0))
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_padding(Edges::all(10.0))
+        .build();
+    let nav_bar_id = nav_bar.id;
 
     // Nav bar buttons with fixed size
     let button_size = 24.0;
 
     // Minimize button
-    let minimize_icon_id = uuid::Uuid::new_v4();
-    let mut minimize_icon = Component::new(minimize_icon_id, ComponentType::Image);
-    minimize_icon.transform.size.width = FlexValue::Fixed(button_size);
-    minimize_icon.transform.size.height = FlexValue::Fixed(button_size);
-    minimize_icon.set_parent(nav_bar_id);
+    let minimize_icon = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(button_size))
+        .with_height(FlexValue::Fixed(button_size))
+        .build();
+    let minimize_icon_id = minimize_icon.id;
 
     // Expand button
-    let expand_icon_id = uuid::Uuid::new_v4();
-    let mut expand_icon = Component::new(expand_icon_id, ComponentType::Image);
-    expand_icon.transform.size.width = FlexValue::Fixed(button_size);
-    expand_icon.transform.size.height = FlexValue::Fixed(button_size);
-    expand_icon.set_parent(nav_bar_id);
+    let expand_icon = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(button_size))
+        .with_height(FlexValue::Fixed(button_size))
+        .build();
+    let expand_icon_id = expand_icon.id;
 
     // Close button
-    let close_icon_id = uuid::Uuid::new_v4();
-    let mut close_icon = Component::new(close_icon_id, ComponentType::Image);
-    close_icon.transform.size.width = FlexValue::Fixed(button_size);
-    close_icon.transform.size.height = FlexValue::Fixed(button_size);
-    close_icon.set_parent(nav_bar_id);
+    let close_icon = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(button_size))
+        .with_height(FlexValue::Fixed(button_size))
+        .build();
+    let close_icon_id = close_icon.id;
 
     // Content container
-    let content_container_id = uuid::Uuid::new_v4();
-    let mut content_container = Component::new(content_container_id, ComponentType::Container);
-    content_container.layout = Layout::flex_row();
-    content_container.set_parent(parent_id);
+    let mut content_container = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .with_direction(FlexDirection::Row)
+        .build();
+    let content_container_id = content_container.id;
 
-    // text with fixed size
-    let text_id = uuid::Uuid::new_v4();
-    let mut text = Component::new(text_id, ComponentType::Text);
-    text.transform.size.width = FlexValue::Fixed(200.0); // Fixed width
-    text.transform.size.height = FlexValue::Fixed(50.0); // Fixed height
-    text.set_parent(content_container_id);
+    // Text with fixed size
+    let text = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(200.0))
+        .with_height(FlexValue::Fixed(50.0))
+        .build();
+    let text_id = text.id;
 
     // Content image
-    let image_id = uuid::Uuid::new_v4();
-    let mut image = Component::new(image_id, ComponentType::Image);
-    image.set_parent(content_container_id);
+    let image = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .build();
+    let image_id = image.id;
 
     // Add children to the content container
     content_container.add_child(text);
@@ -687,4 +729,69 @@ fn test_navbar_app_layout() {
     assert_eq!(image_bounds.size.height, 700.0); // Same as container
     assert_eq!(image_bounds.position.x, 200.0);
     assert_eq!(image_bounds.position.y, 100.0);
+}
+
+#[test]
+fn test_margin_and_padding_layout() {
+    let mut ctx = LayoutContext::default();
+    ctx.initialize(1000.0, 800.0);
+
+    // Create parent container with fixed size
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .with_padding(Edges::all(10.0))
+        .build();
+    let parent_id = parent.id;
+
+    // Create first child with fixed size
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(100.0))
+        .with_height(FlexValue::Fixed(100.0))
+        .with_margin(Edges::all(10.0))
+        .build();
+    let child1_id = child1.id;
+
+    // Create second child with fill size
+    let child2 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .with_margin(Edges::all(20.0))
+        .build();
+    let child2_id = child2.id;
+
+    // Set children on parent
+    parent.add_child(child1);
+    parent.add_child(child2);
+
+    // Add all components to context
+    ctx.add_component(parent);
+
+    // Force layout computation
+    ctx.compute_layout();
+
+    let computed_bounds = ctx.get_computed_bounds();
+
+    // Get computed bounds for all components
+    let parent_bounds = computed_bounds.get(&parent_id).unwrap();
+    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+
+    // Test parent bounds
+    assert_eq!(parent_bounds.size.width, 500.0);
+    assert_eq!(parent_bounds.size.height, 300.0);
+
+    // Test child sizes
+    assert_eq!(child1_bounds.size.width, 100.0);
+    assert_eq!(child1_bounds.size.height, 100.0);
+    assert_eq!(child2_bounds.size.width, 320.0);
+    assert_eq!(child2_bounds.size.height, 240.0);
+
+    // Test child positions - in row layout
+    assert_eq!(child1_bounds.position.x, 20.0);
+    assert_eq!(child1_bounds.position.y, 20.0);
+    assert_eq!(child2_bounds.position.x, 150.0);
+    assert_eq!(child2_bounds.position.y, 30.0);
 }

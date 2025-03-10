@@ -6,13 +6,15 @@ use crate::{
             BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
             ComponentType, GradientColorStop, ImageConfig, TextConfig,
         },
-        layout::{Anchor, FlexValue, Position},
+        layout::{Anchor, Edges, FlexValue, Position},
     },
     wgpu_ctx::WgpuCtx,
 };
 use log::error;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
+
+use super::container::FlexContainerBuilder;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -34,6 +36,7 @@ pub struct ButtonConfig {
     pub font_size: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub margin: Option<Edges>,
     pub debug_name: Option<String>,
     pub border_radius: Option<f32>,
     pub click_event: Option<AppEvent>,
@@ -50,6 +53,7 @@ impl Default for ButtonConfig {
             font_size: Some(16.0),
             width: None,
             height: None,
+            margin: None,
             debug_name: None,
             border_radius: None,
             click_event: None,
@@ -106,6 +110,11 @@ impl ButtonBuilder {
         self
     }
 
+    pub fn with_margin(mut self, margin: Edges) -> Self {
+        self.config.margin = Some(margin);
+        self
+    }
+
     pub fn with_click_event(mut self, event: AppEvent) -> Self {
         self.config.click_event = Some(event);
         self
@@ -122,28 +131,31 @@ impl ButtonBuilder {
 }
 
 fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
-    let container_id = Uuid::new_v4();
-    let mut container = Component::new(container_id, ComponentType::Container);
-    container.flag_children_extraction();
+    let mut container_builder = FlexContainerBuilder::new();
     // Set fixed size if specified
     if let Some(width) = config.width {
-        container.transform.size.width = FlexValue::Fixed(width);
+        container_builder = container_builder.with_width(FlexValue::Fixed(width));
     }
     if let Some(height) = config.height {
-        container.transform.size.height = FlexValue::Fixed(height);
+        container_builder = container_builder.with_height(FlexValue::Fixed(height));
     }
-    if let Some(name) = config.debug_name {
-        container.set_debug_name(&name);
+    if let Some(name) = config.debug_name.clone() {
+        container_builder = container_builder.with_debug_name(name);
     }
-    if let Some(event) = config.click_event {
-        container.set_click_event(event);
+    if let Some(event) = config.click_event.clone() {
+        container_builder = container_builder.with_click_event(event);
     }
-    if let Some(event_sender) = config.event_sender {
-        container.set_event_sender(event_sender);
+    if let Some(event_sender) = config.event_sender.clone() {
+        container_builder = container_builder.with_event_sender(event_sender);
     }
     if let Some(z_index) = config.z_index {
-        container.set_z_index(z_index);
+        container_builder = container_builder.with_z_index(z_index);
     }
+    if let Some(margin) = config.margin {
+        container_builder = container_builder.with_margin(margin);
+    }
+    let mut container = container_builder.build();
+    container.flag_children_extraction();
 
     // Create background if specified
     match config.background {
@@ -154,7 +166,6 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.transform.position_type = Position::Fixed(Anchor::Center);
             bg.set_debug_name("Button Background");
             bg.set_z_index(0);
-            bg.set_parent(container_id);
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);
             }
@@ -170,7 +181,6 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.transform.position_type = Position::Fixed(Anchor::Center);
             bg.set_debug_name("Button Gradient Background");
             bg.set_z_index(0);
-            bg.set_parent(container_id);
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);
             }
@@ -189,7 +199,6 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.transform.position_type = Position::Fixed(Anchor::Center);
             bg.set_debug_name("Button Image Background");
             bg.set_z_index(0);
-            bg.set_parent(container_id);
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);
             }
@@ -205,7 +214,6 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
         text_component.transform.position_type = Position::Fixed(Anchor::Center);
         text_component.set_debug_name("Button Text");
         text_component.set_z_index(1);
-        text_component.set_parent(container_id);
         text_component.configure(
             ComponentConfig::Text(TextConfig {
                 text,

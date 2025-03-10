@@ -65,19 +65,18 @@ pub fn create_app_ui(
         ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
             color_stops: vec![
                 GradientColorStop {
-                    color: Color::Blue,
-                    position: 0.5,
+                    color: Color::OrangeRed,
+                    position: 0.0,
                 },
                 GradientColorStop {
-                    color: Color::YellowGreen,
-                    position: 0.5001,
+                    color: Color::Black,
+                    position: 1.0,
                 },
             ],
-            angle: 20.0,
+            angle: -90.0,
         }),
         wgpu_ctx,
     );
-    background.set_parent(main_container_id);
     background.transform.position_type = Position::Absolute(Anchor::TopLeft);
 
     // Nav bar container
@@ -154,7 +153,6 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
-    text.set_parent(content_container.id);
 
     // Content image
     let image_id = uuid::Uuid::new_v4();
@@ -166,17 +164,17 @@ pub fn create_app_ui(
         }),
         wgpu_ctx,
     );
-    image.set_parent(content_container.id);
 
     // Example button with gradient background
     let test_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Color(Color::Blue))
+        .with_background(ButtonBackground::Color(Color::Blue.darken(0.2)))
         .with_text("Click Me")
         .with_text_color(Color::White)
         .with_size(150.0, 50.0)
         .with_font_size(20.0)
         .with_debug_name("Button test")
         .with_border_radius(50.0)
+        .with_margin(Edges::left(10.0))
         .with_click_event(AppEvent::PrintMessage("Button clicked!".to_string()))
         .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);

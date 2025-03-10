@@ -2,7 +2,9 @@ use crate::{
     app::AppEvent,
     ui::{
         component::{Component, ComponentType},
-        layout::{AlignItems, Edges, FlexDirection, FlexValue, FlexWrap, JustifyContent, Layout},
+        layout::{
+            AlignItems, Edges, FlexDirection, FlexValue, FlexWrap, JustifyContent, Layout, Position,
+        },
     },
 };
 use tokio::sync::mpsc::UnboundedSender;
@@ -18,6 +20,7 @@ pub struct FlexContainerConfig {
     pub align_items: AlignItems,
     pub padding: Option<Edges>,
     pub margin: Option<Edges>,
+    pub position: Option<Position>,
     pub debug_name: Option<String>,
     pub parent_id: Option<Uuid>,
     pub z_index: Option<i32>,
@@ -37,6 +40,7 @@ impl Default for FlexContainerConfig {
             align_items: AlignItems::Start,
             padding: None,
             margin: None,
+            position: None,
             debug_name: None,
             parent_id: None,
             z_index: None,
@@ -135,6 +139,11 @@ impl FlexContainerBuilder {
         self
     }
 
+    pub fn with_position(mut self, position: Position) -> Self {
+        self.config.position = Some(position);
+        self
+    }
+
     pub fn build(self) -> Component {
         create_flex_container(self.config)
     }
@@ -179,6 +188,9 @@ fn create_flex_container(config: FlexContainerConfig) -> Component {
     }
     if let Some(event_sender) = config.event_sender {
         container.set_event_sender(event_sender);
+    }
+    if let Some(position) = config.position {
+        container.transform.position_type = position;
     }
 
     container
