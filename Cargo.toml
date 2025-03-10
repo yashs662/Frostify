@@ -7,16 +7,16 @@ build = "build.rs"
 [dependencies]
 winit = "0.30.9"
 wgpu = "24.0.1"
-tokio = { version = "1.43.0", features = ["full"] }
-bytemuck = { version = "1.21.0", features = ["derive"] }
+tokio = { version = "1.44.0", features = ["full"] }
+bytemuck = { version = "1.22.0", features = ["derive"] }
 pollster = "0.4.0"
 image = "0.25.5"
 glyphon = "0.8.0"
 uuid = { version = "1.15.1", features = ["v4","fast-rng"] }
 log = "0.4.26"
 env_logger = "0.11.6"
-time = { version = "0.3.37", features = ["formatting", "macros", "local-offset"] }
+time = { version = "0.3.39", features = ["formatting", "macros", "local-offset"] }
 colored = "3.0.0"
 
 [build-dependencies]
-winresource = "0.1.19"
+winresource = "0.1.20"
