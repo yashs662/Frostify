@@ -21,6 +21,8 @@ use log::warn;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
+use super::layout::BorderRadius;
+
 #[derive(Debug, Clone)]
 pub struct Component {
     pub id: Uuid,
@@ -130,7 +132,7 @@ impl Component {
                 offset: ComponentOffset { x: 0.0, y: 0.0 },
                 position_type: Position::Flex,
                 z_index: 0,
-                border_radius: 0.0,
+                border_radius: BorderRadius::zero(),
             },
             layout: Layout::new(),
             children_ids: Vec::new(),
@@ -167,7 +169,7 @@ impl Component {
         self.debug_name = Some(name.into());
     }
 
-    pub fn set_border_radius(&mut self, radius: f32) {
+    pub fn set_border_radius(&mut self, radius: BorderRadius) {
         self.transform.border_radius = radius;
     }
 
@@ -289,7 +291,7 @@ impl Component {
             let left = clip_bounds.position.x;
             let right = left + clip_bounds.size.width;
 
-            if self.transform.border_radius > 0.0 {
+            if self.transform.border_radius.has_any_radius() {
                 // Calculate the physical pixel radius
                 let physical_radius = self.transform.border_radius;
 
@@ -303,27 +305,31 @@ impl Component {
                 let max_radius = max_radius_w.min(max_radius_h);
 
                 // Determine appropriate radius in NDC space, preserving aspect ratio
-                let adjusted_radius = (physical_radius * width_ratio)
-                    .min(physical_radius * height_ratio)
-                    .min(max_radius);
+                let adjusted_radius = |radius: f32| {
+                    (radius * width_ratio)
+                        .min(radius * height_ratio)
+                        .min(max_radius)
+                };
 
-                // Use this adjusted radius for corners
-                let radius = adjusted_radius;
+                let tl_radius = adjusted_radius(physical_radius.top_left);
+                let tr_radius = adjusted_radius(physical_radius.top_right);
+                let br_radius = adjusted_radius(physical_radius.bottom_right);
+                let bl_radius = adjusted_radius(physical_radius.bottom_left);
 
-                let top_left_arc_center = [left + radius, top - radius];
-                let top_right_arc_center = [right - radius, top - radius];
-                let bottom_right_arc_center = [right - radius, bottom + radius];
-                let bottom_left_arc_center = [left + radius, bottom + radius];
+                let top_left_arc_center = [left + tl_radius, top - tl_radius];
+                let top_right_arc_center = [right - tr_radius, top - tr_radius];
+                let bottom_right_arc_center = [right - br_radius, bottom + br_radius];
+                let bottom_left_arc_center = [left + bl_radius, bottom + bl_radius];
 
-                let top_left_arc_start = [left, top - radius];
-                let top_right_arc_start = [right - radius, top];
-                let bottom_right_arc_start = [right, bottom - radius];
-                let bottom_left_arc_start = [left + radius, bottom];
+                let top_left_arc_start = [left, top - tl_radius];
+                let top_right_arc_start = [right - tr_radius, top];
+                let bottom_right_arc_start = [right, bottom - br_radius];
+                let bottom_left_arc_start = [left + bl_radius, bottom];
 
-                let top_left_arc_end = [left + radius, top];
-                let top_right_arc_end = [right, top - radius];
-                let bottom_right_arc_end = [right - radius, bottom];
-                let bottom_left_arc_end = [left, bottom - radius];
+                let top_left_arc_end = [left + tl_radius, top];
+                let top_right_arc_end = [right, top - tr_radius];
+                let bottom_right_arc_end = [right - br_radius, bottom];
+                let bottom_left_arc_end = [left, bottom - bl_radius];
 
                 // all arcs are constructed going clockwise
                 let mut vertices = vec![];
@@ -339,8 +345,8 @@ impl Component {
                 for i in 0..=ROUNDED_CORNER_SEGMENT_COUNT {
                     let t = i as f32 / ROUNDED_CORNER_SEGMENT_COUNT as f32;
                     let angle = std::f32::consts::PI / 2.0 + (t * std::f32::consts::PI / 2.0);
-                    let x = top_left_arc_center[0] + radius * angle.cos();
-                    let y = top_left_arc_center[1] + radius * angle.sin();
+                    let x = top_left_arc_center[0] + tl_radius * angle.cos();
+                    let y = top_left_arc_center[1] + tl_radius * angle.sin();
                     vertices.push(Vertex::new([x, y, 0.0], color, [0.0, 0.0]));
                 }
 
@@ -378,8 +384,8 @@ impl Component {
                 for i in 0..=ROUNDED_CORNER_SEGMENT_COUNT {
                     let t = i as f32 / ROUNDED_CORNER_SEGMENT_COUNT as f32;
                     let angle = t * std::f32::consts::PI / 2.0;
-                    let x = top_right_arc_center[0] + radius * angle.cos();
-                    let y = top_right_arc_center[1] + radius * angle.sin();
+                    let x = top_right_arc_center[0] + tr_radius * angle.cos();
+                    let y = top_right_arc_center[1] + tr_radius * angle.sin();
                     vertices.push(Vertex::new([x, y, 0.0], color, [0.0, 0.0]));
                 }
 
@@ -403,7 +409,7 @@ impl Component {
                 vertices.push(Vertex::new(
                     [
                         bottom_right_arc_start[0],
-                        bottom_right_arc_start[1] + radius * 2.0,
+                        bottom_right_arc_start[1] + br_radius * 2.0,
                         0.0,
                     ],
                     color,
@@ -421,8 +427,8 @@ impl Component {
                 for i in 0..=ROUNDED_CORNER_SEGMENT_COUNT {
                     let t = i as f32 / ROUNDED_CORNER_SEGMENT_COUNT as f32;
                     let angle = -std::f32::consts::PI / 2.0 + (t * std::f32::consts::PI / 2.0);
-                    let x = bottom_right_arc_center[0] + radius * angle.cos();
-                    let y = bottom_right_arc_center[1] + radius * angle.sin();
+                    let x = bottom_right_arc_center[0] + br_radius * angle.cos();
+                    let y = bottom_right_arc_center[1] + br_radius * angle.sin();
                     vertices.push(Vertex::new([x, y, 0.0], color, [0.0, 0.0]));
                 }
 
@@ -460,8 +466,8 @@ impl Component {
                 for i in 0..=ROUNDED_CORNER_SEGMENT_COUNT {
                     let t = i as f32 / ROUNDED_CORNER_SEGMENT_COUNT as f32;
                     let angle = (t * std::f32::consts::PI / 2.0) + std::f32::consts::PI;
-                    let x = bottom_left_arc_center[0] + radius * angle.cos();
-                    let y = bottom_left_arc_center[1] + radius * angle.sin();
+                    let x = bottom_left_arc_center[0] + bl_radius * angle.cos();
+                    let y = bottom_left_arc_center[1] + bl_radius * angle.sin();
                     vertices.push(Vertex::new([x, y, 0.0], color, [0.0, 0.0]));
                 }
 
@@ -480,7 +486,7 @@ impl Component {
                 vertices.push(Vertex::new(
                     [
                         bottom_left_arc_end[0],
-                        bottom_left_arc_end[1] + radius * 2.0,
+                        bottom_left_arc_end[1] + bl_radius * 2.0,
                         0.0,
                     ],
                     color,
@@ -542,7 +548,7 @@ impl Component {
             return cached_indices.clone();
         }
 
-        let indices = if self.transform.border_radius > 0.0 {
+        let indices = if self.transform.border_radius.has_any_radius() {
             let mut indices = vec![];
             let segments = ROUNDED_CORNER_SEGMENT_COUNT as u16;
 

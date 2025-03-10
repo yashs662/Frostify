@@ -16,7 +16,7 @@ use crate::{
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use component::GradientColorStop;
-use layout::{AlignItems, Bounds, Edges, FlexDirection, JustifyContent};
+use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent};
 use tokio::sync::mpsc::UnboundedSender;
 
 pub mod component;
@@ -173,7 +173,7 @@ pub fn create_app_ui(
         .with_size(150.0, 50.0)
         .with_font_size(20.0)
         .with_debug_name("Button test")
-        .with_border_radius(50.0)
+        .with_border_radius(BorderRadius::all(100.0))
         .with_margin(Edges::left(10.0))
         .with_click_event(AppEvent::PrintMessage("Button clicked!".to_string()))
         .with_event_sender(event_tx.clone())

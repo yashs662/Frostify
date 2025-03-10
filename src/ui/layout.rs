@@ -86,15 +86,13 @@ pub enum FlexValue {
     Fill,                                // 100%
 }
 
-// FlexItem struct for layout calculation
-#[derive(Debug, Clone)]
-struct FlexItem {
-    id: Uuid,
-    bounds: Bounds,
-    margin: Edges,
-    flex_grow: f32,
-    flex_shrink: f32,
-    align_self: Option<AlignItems>,
+// BorderRadius struct
+#[derive(Debug, Clone, Copy)]
+pub struct BorderRadius {
+    pub top_left: f32,
+    pub top_right: f32,
+    pub bottom_left: f32,
+    pub bottom_right: f32,
 }
 
 // Edges struct for padding, margin, and border
@@ -136,7 +134,7 @@ pub struct ComponentTransform {
     pub offset: ComponentOffset,
     pub position_type: Position,
     pub z_index: i32,
-    pub border_radius: f32,
+    pub border_radius: BorderRadius,
 }
 
 // Size struct to replace ComponentSize
@@ -197,6 +195,37 @@ pub struct GridLayout {
     pub rows: Vec<FlexValue>,
     pub column_gap: f32,
     pub row_gap: f32,
+}
+
+impl BorderRadius {
+    pub fn all(radius: f32) -> Self {
+        Self {
+            top_left: radius,
+            top_right: radius,
+            bottom_left: radius,
+            bottom_right: radius,
+        }
+    }
+
+    pub fn custom(top_left: f32, top_right: f32, bottom_left: f32, bottom_right: f32) -> Self {
+        Self {
+            top_left,
+            top_right,
+            bottom_left,
+            bottom_right,
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self::all(0.0)
+    }
+
+    pub fn has_any_radius(&self) -> bool {
+        self.top_left > 0.0
+            || self.top_right > 0.0
+            || self.bottom_left > 0.0
+            || self.bottom_right > 0.0
+    }
 }
 
 // Event types

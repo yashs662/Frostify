@@ -6,7 +6,7 @@ use crate::{
             BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
             ComponentType, GradientColorStop, ImageConfig, TextConfig,
         },
-        layout::{Anchor, Edges, FlexValue, Position},
+        layout::{Anchor, BorderRadius, Edges, FlexValue, Position},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -38,7 +38,7 @@ pub struct ButtonConfig {
     pub height: Option<f32>,
     pub margin: Option<Edges>,
     pub debug_name: Option<String>,
-    pub border_radius: Option<f32>,
+    pub border_radius: Option<BorderRadius>,
     pub click_event: Option<AppEvent>,
     pub event_sender: Option<UnboundedSender<AppEvent>>,
     pub z_index: Option<i32>,
@@ -105,7 +105,7 @@ impl ButtonBuilder {
         self
     }
 
-    pub fn with_border_radius(mut self, radius: f32) -> Self {
+    pub fn with_border_radius(mut self, radius: BorderRadius) -> Self {
         self.config.border_radius = Some(radius);
         self
     }
