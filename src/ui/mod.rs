@@ -4,8 +4,7 @@ use crate::{
     constants::WINDOW_CONTROL_BUTTON_SIZE,
     ui::{
         component::{
-            BackgroundGradientConfig, Component, ComponentConfig, ComponentMetaData, ComponentType,
-            ImageConfig, TextConfig,
+            Component, ComponentConfig, ComponentMetaData, ComponentType, ImageConfig, TextConfig,
         },
         components::{
             button::{ButtonBackground, ButtonBuilder},
@@ -15,7 +14,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use component::GradientColorStop;
+use component::BackgroundColorConfig;
 use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -59,21 +58,11 @@ pub fn create_app_ui(
 
     // Background
     let background_id = uuid::Uuid::new_v4();
-    let mut background = Component::new(background_id, ComponentType::BackgroundGradient);
+    let mut background = Component::new(background_id, ComponentType::BackgroundColor);
     background.set_debug_name("Background");
     background.configure(
-        ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
-            color_stops: vec![
-                GradientColorStop {
-                    color: Color::OrangeRed,
-                    position: 0.0,
-                },
-                GradientColorStop {
-                    color: Color::Black,
-                    position: 1.0,
-                },
-            ],
-            angle: -90.0,
+        ComponentConfig::BackgroundColor(BackgroundColorConfig {
+            color: Color::OrangeRed,
         }),
         wgpu_ctx,
     );
@@ -133,7 +122,6 @@ pub fn create_app_ui(
     let mut content_container = FlexContainerBuilder::new()
         .with_debug_name("Content Container")
         .with_direction(FlexDirection::Row)
-        .with_align_items(AlignItems::Center)
         .with_padding(Edges::horizontal(10.0))
         .with_parent(main_container_id)
         .build();

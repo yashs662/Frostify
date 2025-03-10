@@ -148,7 +148,7 @@ fn create_texture_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
-        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("ui/shaders/shader.wgsl"))),
+        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("ui/shaders/texture.wgsl"))),
     });
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -219,9 +219,23 @@ fn create_color_pipeline(
         source: wgpu::ShaderSource::Wgsl(include_str!("ui/shaders/color.wgsl").into()),
     });
 
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some("Color Bind Group Layout"),
+    });
+
     let color_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Color Pipeline Layout"),
-        bind_group_layouts: &[],
+        bind_group_layouts: &[&bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -232,7 +246,7 @@ fn create_color_pipeline(
         vertex: wgpu::VertexState {
             module: &color_shader,
             entry_point: Some("vs_main"),
-            buffers: &[Vertex::create_vertex_buffer_layout()],
+            buffers: &[],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {

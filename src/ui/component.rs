@@ -17,7 +17,7 @@ use crate::{
     vertex::Vertex,
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::warn;
+use log::{debug, warn};
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -35,6 +35,7 @@ pub struct Component {
     pub metadata: Vec<ComponentMetaData>,
     pub config: Option<ComponentConfig>,
     pub cached_indices: Option<Vec<u16>>,
+    self_bounds: Bounds,
     requires_children_extraction: bool,
     is_clickable: bool,
     is_draggable: bool,
@@ -55,6 +56,7 @@ pub enum ComponentMetaData {
     VertexBuffer(wgpu::Buffer),
     IndexBuffer(wgpu::Buffer),
     BindGroup(wgpu::BindGroup),
+    RenderDataBuffer(wgpu::Buffer),
     EventSender(UnboundedSender<AppEvent>),
     DragEvent(AppEvent),
     ChildComponents(Vec<Component>),
@@ -96,6 +98,14 @@ pub struct TextConfig {
     pub font_size: f32,
     pub line_height: f32,
     pub color: Color,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ComponentBufferData {
+    pub color: [f32; 4],
+    pub location: [f32; 2],
+    pub size: [f32; 2],
 }
 
 impl ComponentConfig {
@@ -140,6 +150,7 @@ impl Component {
             metadata: Vec::new(),
             config: None,
             cached_indices: None,
+            self_bounds: Bounds::default(),
             requires_children_extraction: false,
             is_clickable: false,
             is_draggable: false,
@@ -231,6 +242,7 @@ impl Component {
     }
 
     pub fn set_position(&mut self, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
+        self.self_bounds = bounds;
         if let Some(config) = &self.config {
             match config {
                 ComponentConfig::BackgroundColor(_) => {
@@ -272,19 +284,8 @@ impl Component {
     pub fn calculate_vertices(
         &mut self,
         clip_bounds: Option<Bounds>,
-        custom_color: Option<Color>,
         screen_size: ComponentSize,
     ) -> Vec<Vertex> {
-        let color = if let Some(custom_color) = custom_color {
-            custom_color.value()
-        } else {
-            match &self.config {
-                Some(ComponentConfig::BackgroundColor(bg_config)) => bg_config.color.value(),
-                Some(ComponentConfig::Image(_)) => Color::White.value(),
-                _ => return Vec::new(),
-            }
-        };
-
         if let Some(clip_bounds) = clip_bounds {
             let top = clip_bounds.position.y;
             let bottom = top - clip_bounds.size.height;
@@ -338,7 +339,6 @@ impl Component {
                 // Center vertex first
                 vertices.push(Vertex::new(
                     [top_left_arc_center[0], top_left_arc_center[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
 
@@ -347,29 +347,25 @@ impl Component {
                     let angle = std::f32::consts::PI / 2.0 + (t * std::f32::consts::PI / 2.0);
                     let x = top_left_arc_center[0] + tl_radius * angle.cos();
                     let y = top_left_arc_center[1] + tl_radius * angle.sin();
-                    vertices.push(Vertex::new([x, y, 0.0], color, [0.0, 0.0]));
+                    vertices.push(Vertex::new([x, y, 0.0], [0.0, 0.0]));
                 }
 
                 // Top edge is a rectangle made up of the points top left arc end, top right arc start,
                 // top left arc center, top right arc center
                 vertices.push(Vertex::new(
                     [top_left_arc_end[0], top_left_arc_end[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [top_right_arc_start[0], top_right_arc_start[1], 0.0],
-                    color,
                     [1.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [top_left_arc_center[0], top_left_arc_center[1], 0.0],
-                    color,
                     [0.0, 1.0],
                 ));
                 vertices.push(Vertex::new(
                     [top_right_arc_center[0], top_right_arc_center[1], 0.0],
-                    color,
                     [1.0, 1.0],
                 ));
 
@@ -377,7 +373,6 @@ impl Component {
                 // Center vertex first
                 vertices.push(Vertex::new(
                     [top_right_arc_center[0], top_right_arc_center[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
 
@@ -386,24 +381,21 @@ impl Component {
                     let angle = t * std::f32::consts::PI / 2.0;
                     let x = top_right_arc_center[0] + tr_radius * angle.cos();
                     let y = top_right_arc_center[1] + tr_radius * angle.sin();
-                    vertices.push(Vertex::new([x, y, 0.0], color, [0.0, 0.0]));
+                    vertices.push(Vertex::new([x, y, 0.0], [0.0, 0.0]));
                 }
 
                 // Right edge is a rectangle made up of the points top right arc end, bottom right arc start,
                 // top right arc center, bottom right arc center
                 vertices.push(Vertex::new(
                     [top_right_arc_center[0], top_right_arc_center[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [top_right_arc_end[0], top_right_arc_end[1], 0.0],
-                    color,
                     [1.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [bottom_right_arc_center[0], bottom_right_arc_center[1], 0.0],
-                    color,
                     [0.0, 1.0],
                 ));
                 vertices.push(Vertex::new(
@@ -412,7 +404,6 @@ impl Component {
                         bottom_right_arc_start[1] + br_radius * 2.0,
                         0.0,
                     ],
-                    color,
                     [1.0, 1.0],
                 ));
 
@@ -420,7 +411,6 @@ impl Component {
                 // Center vertex first
                 vertices.push(Vertex::new(
                     [bottom_right_arc_center[0], bottom_right_arc_center[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
 
@@ -429,29 +419,25 @@ impl Component {
                     let angle = -std::f32::consts::PI / 2.0 + (t * std::f32::consts::PI / 2.0);
                     let x = bottom_right_arc_center[0] + br_radius * angle.cos();
                     let y = bottom_right_arc_center[1] + br_radius * angle.sin();
-                    vertices.push(Vertex::new([x, y, 0.0], color, [0.0, 0.0]));
+                    vertices.push(Vertex::new([x, y, 0.0], [0.0, 0.0]));
                 }
 
                 // Bottom edge is a rectangle made up of the points bottom right arc end, bottom left arc start,
                 // bottom right arc center, bottom left arc center
                 vertices.push(Vertex::new(
                     [bottom_right_arc_end[0], bottom_right_arc_end[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [bottom_left_arc_start[0], bottom_left_arc_start[1], 0.0],
-                    color,
                     [1.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [bottom_right_arc_center[0], bottom_right_arc_center[1], 0.0],
-                    color,
                     [0.0, 1.0],
                 ));
                 vertices.push(Vertex::new(
                     [bottom_left_arc_center[0], bottom_left_arc_center[1], 0.0],
-                    color,
                     [1.0, 1.0],
                 ));
 
@@ -459,7 +445,6 @@ impl Component {
                 // Center vertex first
                 vertices.push(Vertex::new(
                     [bottom_left_arc_center[0], bottom_left_arc_center[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
 
@@ -468,19 +453,17 @@ impl Component {
                     let angle = (t * std::f32::consts::PI / 2.0) + std::f32::consts::PI;
                     let x = bottom_left_arc_center[0] + bl_radius * angle.cos();
                     let y = bottom_left_arc_center[1] + bl_radius * angle.sin();
-                    vertices.push(Vertex::new([x, y, 0.0], color, [0.0, 0.0]));
+                    vertices.push(Vertex::new([x, y, 0.0], [0.0, 0.0]));
                 }
 
                 // Left edge is a rectangle made up of the points bottom left arc end, top left arc start,
                 // bottom left arc center, top left arc center
                 vertices.push(Vertex::new(
                     [top_left_arc_start[0], top_left_arc_start[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [top_left_arc_center[0], top_left_arc_center[1], 0.0],
-                    color,
                     [1.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
@@ -489,34 +472,28 @@ impl Component {
                         bottom_left_arc_end[1] + bl_radius * 2.0,
                         0.0,
                     ],
-                    color,
                     [0.0, 1.0],
                 ));
                 vertices.push(Vertex::new(
                     [bottom_left_arc_center[0], bottom_left_arc_center[1], 0.0],
-                    color,
                     [1.0, 1.0],
                 ));
 
                 // Center rectangle
                 vertices.push(Vertex::new(
                     [top_left_arc_center[0], top_left_arc_center[1], 0.0],
-                    color,
                     [0.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [top_right_arc_center[0], top_right_arc_center[1], 0.0],
-                    color,
                     [1.0, 0.0],
                 ));
                 vertices.push(Vertex::new(
                     [bottom_right_arc_center[0], bottom_right_arc_center[1], 0.0],
-                    color,
                     [1.0, 1.0],
                 ));
                 vertices.push(Vertex::new(
                     [bottom_left_arc_center[0], bottom_left_arc_center[1], 0.0],
-                    color,
                     [0.0, 1.0],
                 ));
 
@@ -524,13 +501,13 @@ impl Component {
             } else {
                 vec![
                     // Top-left
-                    Vertex::new([left, top, 0.0], color, [0.0, 0.0]),
+                    Vertex::new([left, top, 0.0], [0.0, 0.0]),
                     // Top-right
-                    Vertex::new([right, top, 0.0], color, [1.0, 0.0]),
+                    Vertex::new([right, top, 0.0], [1.0, 0.0]),
                     // Bottom-right
-                    Vertex::new([right, bottom, 0.0], color, [1.0, 1.0]),
+                    Vertex::new([right, bottom, 0.0], [1.0, 1.0]),
                     // Bottom-left
-                    Vertex::new([left, bottom, 0.0], color, [0.0, 1.0]),
+                    Vertex::new([left, bottom, 0.0], [0.0, 1.0]),
                 ]
             }
         } else {
@@ -610,7 +587,7 @@ impl Component {
         indices
     }
 
-    pub fn convert_to_ndc(&self, bounds: Bounds, screen_size: ComponentSize) -> Bounds {
+    pub fn convert_to_ndc(bounds: Bounds, screen_size: ComponentSize) -> Bounds {
         let clip_x = (2.0 * bounds.position.x / screen_size.width) - 1.0;
         let clip_y = 1.0 - (2.0 * bounds.position.y / screen_size.height);
         let clip_width = 2.0 * bounds.size.width / screen_size.width;
@@ -635,6 +612,13 @@ impl Component {
     pub fn get_vertex_buffer(&self) -> Option<&wgpu::Buffer> {
         self.get_metadata(|m| match m {
             ComponentMetaData::VertexBuffer(buf) => Some(buf),
+            _ => None,
+        })
+    }
+
+    pub fn get_render_data_buffer(&self) -> Option<&wgpu::Buffer> {
+        self.get_metadata(|m| match m {
+            ComponentMetaData::RenderDataBuffer(buf) => Some(buf),
             _ => None,
         })
     }
@@ -711,5 +695,23 @@ impl Component {
 
     pub fn is_draggable(&self) -> bool {
         self.is_draggable
+    }
+
+    pub fn get_render_data(&self) -> ComponentBufferData {
+        let default_color = [1.0, 0.0, 1.0, 1.0];
+        let location = [self.self_bounds.position.x, self.self_bounds.position.y];
+        let size = [self.self_bounds.size.width, self.self_bounds.size.height];
+        let color = match &self.config {
+            Some(ComponentConfig::BackgroundColor(BackgroundColorConfig { color })) => {
+                color.value()
+            }
+            _ => default_color,
+        };
+
+        ComponentBufferData {
+            color,
+            location,
+            size,
+        }
     }
 }

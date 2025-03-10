@@ -164,7 +164,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             let bg_id = Uuid::new_v4();
             let mut bg = Component::new(bg_id, ComponentType::BackgroundColor);
             bg.transform.position_type = Position::Fixed(Anchor::Center);
-            bg.set_debug_name("Button Background");
+            bg.set_debug_name("Button Color Background");
             bg.set_z_index(0);
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);

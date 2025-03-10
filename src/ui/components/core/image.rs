@@ -32,7 +32,7 @@ impl Configurable for ImageComponent {
             img_loader.unwrap()
         };
         let screen_size = wgpu_ctx.get_screen_size();
-        let vertices = component.calculate_vertices(Some(Bounds::default()), None, screen_size);
+        let vertices = component.calculate_vertices(Some(Bounds::default()), screen_size);
         let indices = component.get_indices();
 
         // Create texture and bind group
@@ -162,8 +162,8 @@ impl Positionable for ImageComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
         // Convert to NDC space
         let screen_size = wgpu_ctx.get_screen_size();
-        let clip_bounds = component.convert_to_ndc(bounds, screen_size);
-        let vertices = component.calculate_vertices(Some(clip_bounds), None, screen_size);
+        let clip_bounds = Component::convert_to_ndc(bounds, screen_size);
+        let vertices = component.calculate_vertices(Some(clip_bounds), screen_size);
 
         // Update vertex buffer
         if let Some(vertex_buffer) = component.get_vertex_buffer() {
