@@ -1,3 +1,7 @@
+use colorgrad::Gradient;
+
+use crate::ui::component::{GradientColorStop, GradientType};
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Color {
@@ -121,5 +125,166 @@ impl Color {
     pub fn to_glyphon_color(self) -> glyphon::Color {
         let [r, g, b, a] = self.to_rgb_0_255();
         glyphon::Color::rgba(r, g, b, a)
+    }
+
+    pub fn to_colorgrad_color(self) -> colorgrad::Color {
+        let [r, g, b, a] = self.value();
+        colorgrad::Color::from_linear_rgba(r, g, b, a)
+    }
+
+    // Method to create a 2D gradient texture for more complex gradients
+    pub fn generate_2d_gradient_texture(
+        color_stops: Vec<GradientColorStop>,
+        gradient_type: GradientType,
+        angle_degrees: f32,
+        center: Option<(f32, f32)>,
+        radius: Option<f32>,
+        width: u32,
+        height: u32,
+    ) -> image::RgbaImage {
+        let mut colors = vec![];
+        let mut positions = vec![];
+
+        for stop in color_stops {
+            colors.push(stop.color.to_colorgrad_color());
+            positions.push(stop.position);
+        }
+
+        let g = colorgrad::GradientBuilder::new()
+            .colors(&colors)
+            .domain(&positions)
+            .build::<colorgrad::LinearGradient>()
+            .unwrap();
+
+        match gradient_type {
+            GradientType::Linear => {
+                // Convert angle from degrees to radians
+                let angle_rad = angle_degrees * std::f32::consts::PI / 180.0;
+
+                // Calculate the gradient direction vector
+                let dir_x = angle_rad.cos();
+                let dir_y = angle_rad.sin();
+
+                // Calculate the maximum possible distance in this direction
+                let max_dist =
+                    ((width as f32 * dir_x).abs() + (height as f32 * dir_y).abs()).max(1.0);
+
+                // Create the image
+                image::ImageBuffer::from_fn(width, height, |x, y| {
+                    // Project the pixel coordinates onto the gradient direction vector
+                    let px = x as f32 - width as f32 / 2.0;
+                    let py = y as f32 - height as f32 / 2.0;
+
+                    // Calculate the normalized position along the gradient (0 to 1)
+                    let proj = (px * dir_x + py * dir_y) / max_dist + 0.5;
+                    let clamped_proj = proj.clamp(0.0, 1.0);
+
+                    // Sample the gradient at this position
+                    let color = g.at(clamped_proj);
+                    image::Rgba(color.to_rgba8())
+                })
+            }
+            GradientType::Radial => {
+                // Default center is middle of image
+                let (center_x, center_y) = center.unwrap_or((0.5, 0.5));
+
+                // Convert center from 0-1 range to pixel coordinates
+                let center_x_px = center_x * width as f32;
+                let center_y_px = center_y * height as f32;
+
+                // Calculate the max distance from center to any corner
+                let corner_distances = [
+                    ((0.0 - center_x_px).powi(2) + (0.0 - center_y_px).powi(2)).sqrt(),
+                    ((width as f32 - center_x_px).powi(2) + (0.0 - center_y_px).powi(2)).sqrt(),
+                    ((0.0 - center_x_px).powi(2) + (height as f32 - center_y_px).powi(2)).sqrt(),
+                    ((width as f32 - center_x_px).powi(2) + (height as f32 - center_y_px).powi(2))
+                        .sqrt(),
+                ];
+
+                // Maximum distance to corner
+                let max_dist = corner_distances.iter().cloned().fold(0.0, f32::max);
+
+                // Use provided radius or default to max distance
+                let gradient_radius = radius.unwrap_or(1.0) * max_dist;
+
+                image::ImageBuffer::from_fn(width, height, |x, y| {
+                    // Calculate distance from center
+                    let dx = x as f32 - center_x_px;
+                    let dy = y as f32 - center_y_px;
+                    let distance = (dx * dx + dy * dy).sqrt();
+
+                    // Normalize distance to 0-1 range
+                    let normalized_dist = (distance / gradient_radius).clamp(0.0, 1.0);
+
+                    // Sample the gradient at this normalized distance
+                    let color = g.at(normalized_dist);
+                    image::Rgba(color.to_rgba8())
+                })
+            }
+        }
+    }
+
+    // Helper to convert a gradient to a WGPU texture
+    pub fn create_gradient_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        color_stops: Vec<GradientColorStop>,
+        gradient_type: GradientType,
+        angle_degrees: f32,
+        center: Option<(f32, f32)>,
+        radius: Option<f32>,
+        width: u32,
+        height: u32,
+    ) -> (wgpu::Texture, wgpu::TextureView) {
+        // Generate the gradient image
+        let gradient_image = Self::generate_2d_gradient_texture(
+            color_stops,
+            gradient_type,
+            angle_degrees,
+            center,
+            radius,
+            width,
+            height,
+        );
+
+        // Create a texture with the gradient
+        let texture_size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Gradient Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        // Write the gradient data to the texture
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &gradient_image.into_raw(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            texture_size,
+        );
+
+        // Create a texture view
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        (texture, texture_view)
     }
 }

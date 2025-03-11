@@ -14,7 +14,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use component::BackgroundColorConfig;
+use component::{BackgroundGradientConfig, GradientColorStop, GradientType};
 use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -58,11 +58,28 @@ pub fn create_app_ui(
 
     // Background
     let background_id = uuid::Uuid::new_v4();
-    let mut background = Component::new(background_id, ComponentType::BackgroundColor);
+    let mut background = Component::new(background_id, ComponentType::BackgroundGradient);
     background.set_debug_name("Background");
     background.configure(
-        ComponentConfig::BackgroundColor(BackgroundColorConfig {
-            color: Color::OrangeRed,
+        ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
+            color_stops: vec![
+                GradientColorStop {
+                    color: Color::Cyan,
+                    position: 0.0,
+                },
+                GradientColorStop {
+                    color: Color::OrangeRed,
+                    position: 0.3,
+                },
+                GradientColorStop {
+                    color: Color::Black,
+                    position: 0.5,
+                },
+            ],
+            gradient_type: GradientType::Radial,
+            angle: 0.0,
+            center: Some((1.0, 0.0)),
+            radius: Some(1.8),
         }),
         wgpu_ctx,
     );
@@ -122,6 +139,8 @@ pub fn create_app_ui(
     let mut content_container = FlexContainerBuilder::new()
         .with_debug_name("Content Container")
         .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
         .with_padding(Edges::horizontal(10.0))
         .with_parent(main_container_id)
         .build();
@@ -177,7 +196,7 @@ pub fn create_app_ui(
 
     // Add children to the content container
     content_container.add_child(text);
-    content_container.add_child(image);
+    // content_container.add_child(image);
     content_container.add_child(test_button);
 
     // Add children to the main container

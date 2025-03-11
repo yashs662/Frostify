@@ -4,7 +4,7 @@ use crate::{
     ui::{
         component::{
             BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
-            ComponentType, GradientColorStop, ImageConfig, TextConfig,
+            ComponentType, GradientColorStop, GradientType, ImageConfig, TextConfig,
         },
         layout::{Anchor, BorderRadius, Edges, FlexValue, Position},
     },
@@ -23,7 +23,10 @@ pub enum ButtonBackground {
     Color(Color),
     Gradient {
         color_stops: Vec<GradientColorStop>,
+        gradient_type: GradientType,
         angle: f32,
+        center: Option<(f32, f32)>,
+        radius: Option<f32>,
     },
     Image(String),
 }
@@ -175,7 +178,13 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             );
             container.add_child(bg);
         }
-        ButtonBackground::Gradient { color_stops, angle } => {
+        ButtonBackground::Gradient {
+            color_stops,
+            gradient_type,
+            angle,
+            center,
+            radius,
+        } => {
             let bg_id = Uuid::new_v4();
             let mut bg = Component::new(bg_id, ComponentType::BackgroundGradient);
             bg.transform.position_type = Position::Fixed(Anchor::Center);
@@ -187,7 +196,10 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.configure(
                 ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
                     color_stops,
+                    gradient_type,
                     angle,
+                    center,
+                    radius,
                 }),
                 wgpu_ctx,
             );

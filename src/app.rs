@@ -143,6 +143,7 @@ impl ApplicationHandler for App<'_> {
                 .with_decorations(false)
                 .with_transparent(true)
                 .with_resizable(true)
+                .with_min_inner_size(winit::dpi::PhysicalSize::new(800, 600))
                 .with_blur(true)
                 .with_inner_size(winit::dpi::PhysicalSize::new(1100, 750))
                 .with_theme(Some(Theme::Dark));

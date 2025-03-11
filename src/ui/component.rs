@@ -66,7 +66,17 @@ pub enum ComponentConfig {
 #[derive(Debug, Clone)]
 pub struct BackgroundGradientConfig {
     pub color_stops: Vec<GradientColorStop>,
-    pub angle: f32, // Angle in degrees
+    pub gradient_type: GradientType,
+    pub angle: f32,                 // Angle in degrees (for linear gradients)
+    pub center: Option<(f32, f32)>, // Center position for radial gradients (0.0-1.0 range)
+    pub radius: Option<f32>,        // Radius for radial gradients (0.0-1.0 range)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GradientType {
+    Linear,
+    Radial,
+    // Can be extended with Conic later
 }
 
 #[derive(Debug, Clone)]
