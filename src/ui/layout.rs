@@ -228,7 +228,12 @@ impl BorderRadius {
     }
 
     pub fn values(&self) -> [f32; 4] {
-        [self.top_left, self.top_right, self.bottom_left, self.bottom_right]
+        [
+            self.top_left,
+            self.top_right,
+            self.bottom_left,
+            self.bottom_right,
+        ]
     }
 }
 
@@ -605,7 +610,7 @@ impl LayoutContext {
         // Update all component positions with new screen size
         for (id, bounds) in self.computed_bounds.iter() {
             if let Some(component) = self.components.get_mut(id) {
-                component.set_position(wgpu_ctx, *bounds);
+                component.set_position(wgpu_ctx, *bounds, self.viewport_size);
             }
         }
     }
@@ -630,23 +635,6 @@ impl LayoutContext {
         // Compute layout for each root component
         for root_id in root_components {
             self.compute_component_layout(&root_id, None);
-        }
-
-        debug!("Screen size: {:?}", self.viewport_size);
-        for (id, bounds) in self.computed_bounds.iter() {
-            let component = self
-                .components
-                .get(id)
-                .unwrap();
-
-            let ndc = Component::convert_to_ndc(*bounds, self.viewport_size);
-            let default_dbg_name = format!("{:?}", component.component_type);
-            let debug_name = component.debug_name.as_ref().unwrap_or(&default_dbg_name);
-
-            debug!(
-                "Computed bounds for {}: {:#?}, NDC: {:#?}",
-                debug_name, bounds, ndc
-            );
         }
 
         // Use the z-index manager to determine render order

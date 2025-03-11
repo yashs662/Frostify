@@ -17,7 +17,7 @@ use crate::{
     vertex::Vertex,
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{debug, warn};
+use log::warn;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -35,7 +35,7 @@ pub struct Component {
     pub metadata: Vec<ComponentMetaData>,
     pub config: Option<ComponentConfig>,
     pub cached_indices: Option<Vec<u16>>,
-    self_bounds: Bounds,
+    screen_size: ComponentSize,
     requires_children_extraction: bool,
     is_clickable: bool,
     is_draggable: bool,
@@ -106,6 +106,9 @@ pub struct ComponentBufferData {
     pub color: [f32; 4],
     pub location: [f32; 2],
     pub size: [f32; 2],
+    pub border_radius: [f32; 4],
+    pub screen_size: [f32; 2],
+    pub _padding: [f32; 2],
 }
 
 impl ComponentConfig {
@@ -150,7 +153,7 @@ impl Component {
             metadata: Vec::new(),
             config: None,
             cached_indices: None,
-            self_bounds: Bounds::default(),
+            screen_size: ComponentSize::default(),
             requires_children_extraction: false,
             is_clickable: false,
             is_draggable: false,
@@ -241,8 +244,13 @@ impl Component {
         }
     }
 
-    pub fn set_position(&mut self, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
-        self.self_bounds = bounds;
+    pub fn set_position(
+        &mut self,
+        wgpu_ctx: &mut WgpuCtx,
+        bounds: Bounds,
+        screen_size: ComponentSize,
+    ) {
+        self.screen_size = screen_size;
         if let Some(config) = &self.config {
             match config {
                 ComponentConfig::BackgroundColor(_) => {
@@ -697,21 +705,25 @@ impl Component {
         self.is_draggable
     }
 
-    pub fn get_render_data(&self) -> ComponentBufferData {
+    pub fn get_render_data(&self, bounds: Bounds) -> ComponentBufferData {
         let default_color = [1.0, 0.0, 1.0, 1.0];
-        let location = [self.self_bounds.position.x, self.self_bounds.position.y];
-        let size = [self.self_bounds.size.width, self.self_bounds.size.height];
+        let location = [bounds.position.x, bounds.position.y];
+        let size = [bounds.size.width, bounds.size.height];
         let color = match &self.config {
             Some(ComponentConfig::BackgroundColor(BackgroundColorConfig { color })) => {
                 color.value()
             }
             _ => default_color,
         };
+        let border_radius = self.transform.border_radius.values();
 
         ComponentBufferData {
             color,
             location,
             size,
+            border_radius,
+            screen_size: [self.screen_size.width, self.screen_size.height],
+            _padding: [0.0, 0.0],
         }
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     ui::{
         Configurable, Positionable, Renderable,
-        component::{Component, ComponentBufferData, ComponentConfig, ComponentMetaData},
+        component::{Component, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
@@ -23,7 +23,7 @@ impl Configurable for BackgroundColorComponent {
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(format!("{} Render Data Buffer", component.id).as_str()),
-                    contents: bytemuck::cast_slice(&[component.get_render_data()]),
+                    contents: bytemuck::cast_slice(&[component.get_render_data(Bounds::default())]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
@@ -92,14 +92,7 @@ impl Positionable for BackgroundColorComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
         // Convert to UV space for the shader
         let screen_size = wgpu_ctx.get_screen_size();
-        let clip_bounds = Component::convert_to_ndc(bounds, screen_size);
-
-        // For SDF rendering, just update the render data buffer with position and size
-        let component_data = ComponentBufferData {
-            color: component.get_render_data().color,
-            location: [clip_bounds.position.x, clip_bounds.position.y],
-            size: [clip_bounds.size.width, clip_bounds.size.height],
-        };
+        let component_data = component.get_render_data(bounds);
 
         // Update render data buffer
         if let Some(render_data_buffer) = component.get_render_data_buffer() {
