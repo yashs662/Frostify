@@ -1,5 +1,5 @@
 pub const UNIFIED_BIND_GROUP_LAYOUT_ENTRIES: &[wgpu::BindGroupLayoutEntry] = &[
-    // Component uniform
+    // Component uniform (now includes frosted glass parameters)
     wgpu::BindGroupLayoutEntry {
         binding: 0,
         visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,

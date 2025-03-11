@@ -152,9 +152,7 @@ fn create_unified_pipeline(
         label: Some("Unified Bind Group Layout"),
     });
 
-    // Store this bind group layout in a constant or global to reuse
-    // You can export it from this module for other components to use
-
+    // Pipeline layout that works for both standard components and frosted glass
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Unified Pipeline Layout"),
         bind_group_layouts: &[&bind_group_layout],

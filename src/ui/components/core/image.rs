@@ -87,7 +87,10 @@ impl Configurable for ImageComponent {
                 wgpu_ctx.surface_config.height as f32,
             ],
             use_texture: 1, // Enable texture sampling
-            _padding: [0.0],
+            blur_radius: 0.0,
+            noise_amount: 0.0,
+            opacity: 1.0,
+            _padding: [0.0; 2],
         };
 
         let render_data_buffer =

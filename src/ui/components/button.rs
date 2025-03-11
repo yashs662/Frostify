@@ -3,8 +3,7 @@ use crate::{
     color::Color,
     ui::{
         component::{
-            BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
-            ComponentType, GradientColorStop, GradientType, ImageConfig, TextConfig,
+            BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig, ComponentType, FrostedGlassConfig, GradientColorStop, GradientType, ImageConfig, TextConfig
         },
         layout::{Anchor, BorderRadius, Edges, FlexValue, Position},
     },
@@ -29,6 +28,12 @@ pub enum ButtonBackground {
         radius: Option<f32>,
     },
     Image(String),
+    FrostedGlass {
+        tint_color: Color,
+        blur_radius: f32,
+        noise_amount: f32,
+        opacity: f32,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -215,6 +220,31 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
                 bg.set_border_radius(radius);
             }
             bg.configure(ComponentConfig::Image(ImageConfig { file_name }), wgpu_ctx);
+            container.add_child(bg);
+        }
+        ButtonBackground::FrostedGlass {
+            tint_color,
+            blur_radius,
+            noise_amount,
+            opacity,
+        } => {
+            let bg_id = Uuid::new_v4();
+            let mut bg = Component::new(bg_id, ComponentType::FrostedGlass);
+            bg.transform.position_type = Position::Fixed(Anchor::Center);
+            bg.set_debug_name("Button Frosted Glass Background");
+            bg.set_z_index(0);
+            if let Some(radius) = config.border_radius {
+                bg.set_border_radius(radius);
+            }
+            bg.configure(
+                ComponentConfig::FrostedGlass(FrostedGlassConfig {
+                    tint_color,
+                    blur_radius,
+                    noise_amount,
+                    opacity,
+                }),
+                wgpu_ctx,
+            );
             container.add_child(bg);
         }
     }

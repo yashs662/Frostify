@@ -4,7 +4,7 @@ use crate::{
     constants::WINDOW_CONTROL_BUTTON_SIZE,
     ui::{
         component::{
-            Component, ComponentConfig, ComponentMetaData, ComponentType, ImageConfig, TextConfig,
+            Component, ComponentConfig, ComponentMetaData, ComponentType, FrostedGlassConfig, ImageConfig, TextConfig,
         },
         components::{
             button::{ButtonBackground, ButtonBuilder},
@@ -138,10 +138,10 @@ pub fn create_app_ui(
     // Content container
     let mut content_container = FlexContainerBuilder::new()
         .with_debug_name("Content Container")
-        .with_direction(FlexDirection::Row)
+        .with_direction(FlexDirection::Column)
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::Center)
-        .with_padding(Edges::horizontal(10.0))
+        .with_padding(Edges::all(20.0))
         .with_parent(main_container_id)
         .build();
 
@@ -181,7 +181,7 @@ pub fn create_app_ui(
         .with_font_size(20.0)
         .with_debug_name("Button test")
         .with_border_radius(BorderRadius::all(5.0))
-        .with_margin(Edges::left(10.0))
+        .with_margin(Edges::top(20.0))
         .with_click_event(AppEvent::PrintMessage("Button clicked!".to_string()))
         .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);
@@ -194,10 +194,10 @@ pub fn create_app_ui(
     // Add children to the nav bar container
     nav_bar_container.add_child(nav_buttons_container);
 
-    // Add children to the content container
-    content_container.add_child(text);
-    // content_container.add_child(image);
+    // Add elements to the content container
     content_container.add_child(test_button);
+    content_container.add_child(text);
+    content_container.add_child(image);
 
     // Add children to the main container
     main_container.add_child(background);
