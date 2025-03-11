@@ -220,13 +220,6 @@ impl BorderRadius {
         Self::all(0.0)
     }
 
-    pub fn has_any_radius(&self) -> bool {
-        self.top_left > 0.0
-            || self.top_right > 0.0
-            || self.bottom_left > 0.0
-            || self.bottom_right > 0.0
-    }
-
     pub fn values(&self) -> [f32; 4] {
         [
             self.top_left,

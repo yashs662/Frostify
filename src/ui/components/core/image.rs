@@ -1,9 +1,9 @@
 use crate::{
-    constants::TEXTURE_BIND_GROUP_LAYOUT_ENTIRES,
+    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     img_utils::RgbaImg,
     ui::{
         Configurable, Positionable, Renderable,
-        component::{Component, ComponentConfig, ComponentMetaData},
+        component::{Component, ComponentBufferData, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
@@ -31,9 +31,6 @@ impl Configurable for ImageComponent {
         } else {
             img_loader.unwrap()
         };
-        let screen_size = wgpu_ctx.get_screen_size();
-        let vertices = component.calculate_vertices(Some(Bounds::default()), screen_size);
-        let indices = component.get_indices();
 
         // Create texture and bind group
         let texture_size = wgpu::Extent3d {
@@ -78,13 +75,39 @@ impl Configurable for ImageComponent {
             mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+
+        // Create the render data buffer with component uniform data
+        let component_data = ComponentBufferData {
+            color: [1.0, 1.0, 1.0, 1.0], // White color to preserve original texture colors
+            location: [0.0, 0.0],        // Will be updated in set_position
+            size: [0.0, 0.0],            // Will be updated in set_position
+            border_radius: component.transform.border_radius.values(),
+            screen_size: [
+                wgpu_ctx.surface_config.width as f32,
+                wgpu_ctx.surface_config.height as f32,
+            ],
+            use_texture: 1, // Enable texture sampling
+            _padding: [0.0],
+        };
+
+        let render_data_buffer =
+            wgpu_ctx
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(format!("{} Render Data Buffer", component.id).as_str()),
+                    contents: bytemuck::cast_slice(&[component_data]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        // Create unified bind group with render data buffer, texture, and sampler
         let bind_group_layout =
             wgpu_ctx
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: TEXTURE_BIND_GROUP_LAYOUT_ENTIRES,
+                    entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
                     label: None,
                 });
+
         let bind_group = wgpu_ctx
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -92,36 +115,24 @@ impl Configurable for ImageComponent {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
+                        resource: render_data_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
                         resource: wgpu::BindingResource::TextureView(
                             &texture.create_view(&wgpu::TextureViewDescriptor::default()),
                         ),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 1,
+                        binding: 2,
                         resource: wgpu::BindingResource::Sampler(&sampler),
                     },
                 ],
                 label: None,
             });
-        let vertex_buffer = wgpu_ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
-
-        let index_buffer = wgpu_ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
 
         vec![
-            ComponentMetaData::VertexBuffer(vertex_buffer),
-            ComponentMetaData::IndexBuffer(index_buffer),
+            ComponentMetaData::RenderDataBuffer(render_data_buffer),
             ComponentMetaData::BindGroup(bind_group),
         ]
     }
@@ -133,43 +144,38 @@ impl Renderable for ImageComponent {
         render_pass: &mut wgpu::RenderPass,
         app_pipelines: &mut AppPipelines,
     ) {
-        let indices = component.get_indices();
-        let vertex_buffer = component.get_vertex_buffer();
-        let index_buffer = component.get_index_buffer();
         let bind_group = component.get_bind_group();
 
-        if vertex_buffer.is_none() || index_buffer.is_none() || bind_group.is_none() {
+        if bind_group.is_none() {
             error!(
-                "Vertex buffer, index buffer, or bind group not found for component id: {}, unable to draw",
+                "Bind group not found for image component id: {}, unable to draw",
                 component.id
             );
             return;
         }
 
-        let vertex_buffer = vertex_buffer.unwrap();
-        let index_buffer = index_buffer.unwrap();
-        let bind_group = bind_group.unwrap();
+        // Use the color pipeline with our bind group
+        render_pass.set_pipeline(&app_pipelines.unified_pipeline);
+        render_pass.set_bind_group(0, bind_group.unwrap(), &[]);
 
-        render_pass.set_pipeline(&app_pipelines.texture_pipeline);
-        render_pass.set_bind_group(0, bind_group, &[]);
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        // Draw full-screen triangle with the shader handling clipping
+        render_pass.draw(0..3, 0..1);
     }
 }
 
 impl Positionable for ImageComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
-        // Convert to NDC space
-        let screen_size = wgpu_ctx.get_screen_size();
-        let clip_bounds = Component::convert_to_ndc(bounds, screen_size);
-        let vertices = component.calculate_vertices(Some(clip_bounds), screen_size);
+        if let Some(render_data_buffer) = component.get_render_data_buffer() {
+            let mut component_data = component.get_render_data(bounds);
 
-        // Update vertex buffer
-        if let Some(vertex_buffer) = component.get_vertex_buffer() {
-            wgpu_ctx
-                .queue
-                .write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+            // Make sure texture flag is set
+            component_data.use_texture = 1;
+
+            wgpu_ctx.queue.write_buffer(
+                render_data_buffer,
+                0,
+                bytemuck::cast_slice(&[component_data]),
+            );
         }
     }
 }

@@ -1,16 +1,14 @@
 use crate::{
-    constants::TEXTURE_BIND_GROUP_LAYOUT_ENTIRES,
+    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     text_renderer::TextHandler,
     ui::layout::{ComponentSize, LayoutContext},
-    vertex::Vertex,
 };
-use std::{borrow::Cow, sync::Arc};
-use wgpu::{MemoryHints::Performance, ShaderSource};
+use std::sync::Arc;
+use wgpu::MemoryHints::Performance;
 use winit::window::Window;
 
 pub struct AppPipelines {
-    pub texture_pipeline: wgpu::RenderPipeline,
-    pub color_pipeline: wgpu::RenderPipeline,
+    pub unified_pipeline: wgpu::RenderPipeline,
 }
 
 pub struct WgpuCtx<'window> {
@@ -68,8 +66,7 @@ impl<'window> WgpuCtx<'window> {
         };
         surface.configure(&device, &surface_config);
 
-        let texture_pipeline = create_texture_pipeline(&device, surface_config.format);
-        let color_pipeline = create_color_pipeline(&device, surface_config.format);
+        let unified_pipeline = create_unified_pipeline(&device, surface_config.format);
         let text_handler = TextHandler::new(&device, &surface_config, &queue);
 
         WgpuCtx {
@@ -78,10 +75,7 @@ impl<'window> WgpuCtx<'window> {
             device,
             queue,
             text_handler,
-            app_pipelines: AppPipelines {
-                texture_pipeline,
-                color_pipeline,
-            },
+            app_pipelines: AppPipelines { unified_pipeline },
         }
     }
 
@@ -142,115 +136,42 @@ impl<'window> WgpuCtx<'window> {
     }
 }
 
-fn create_texture_pipeline(
+fn create_unified_pipeline(
     device: &wgpu::Device,
     swap_chain_format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
+    // Create unified shader for both color and texture
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("ui/shaders/texture.wgsl"))),
+        label: Some("Unified Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../assets/shaders/color.wgsl").into()),
     });
 
+    // Create unified bind group layout that supports both color-only and texture rendering
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: TEXTURE_BIND_GROUP_LAYOUT_ENTIRES,
-        label: None,
+        entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+        label: Some("Unified Bind Group Layout"),
     });
 
-    // Create separate pipeline layouts for texture and color
-    let texture_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Texture Pipeline Layout"),
+    // Store this bind group layout in a constant or global to reuse
+    // You can export it from this module for other components to use
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Unified Pipeline Layout"),
         bind_group_layouts: &[&bind_group_layout],
         push_constant_ranges: &[],
     });
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: None,
-        layout: Some(&texture_pipeline_layout),
+        label: Some("Unified Pipeline"),
+        layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[Vertex::create_vertex_buffer_layout()],
+            buffers: &[], // No vertex buffers needed for full-screen triangle approach
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some("fs_main"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: swap_chain_format,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::SrcAlpha,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode: None,
-            unclipped_depth: false,
-            polygon_mode: wgpu::PolygonMode::Fill,
-            conservative: false,
-        },
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        multiview: None,
-        cache: None,
-    })
-}
-
-fn create_color_pipeline(
-    device: &wgpu::Device,
-    swap_chain_format: wgpu::TextureFormat,
-) -> wgpu::RenderPipeline {
-    // Create color shader
-    let color_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("Color Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("ui/shaders/color.wgsl").into()),
-    });
-
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-        label: Some("Color Bind Group Layout"),
-    });
-
-    let color_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Color Pipeline Layout"),
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
-    });
-
-    // Create color pipeline with its own layout
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("Color Pipeline"),
-        layout: Some(&color_pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &color_shader,
-            entry_point: Some("vs_main"),
-            buffers: &[],
-            compilation_options: Default::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &color_shader,
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: swap_chain_format,

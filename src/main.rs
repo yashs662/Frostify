@@ -23,7 +23,6 @@ mod img_utils;
 mod test;
 mod text_renderer;
 mod ui;
-mod vertex;
 mod wgpu_ctx;
 
 fn main() -> Result<(), EventLoopError> {

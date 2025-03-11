@@ -9,10 +9,17 @@ struct ComponentUniform {
     size : vec2<f32>,        // Size in pixels (width, height)
     border_radius : vec4<f32>, // Corner radii in pixels (top-left, top-right, bottom-left, bottom-right)
     viewport_size : vec2<f32>, // Viewport dimensions in pixels
+    use_texture : u32,         // Flag: 1 if using texture, 0 if using color
 };
 
 @group(0) @binding(0)
 var<uniform> component : ComponentUniform;
+
+// Texture bindings (optional)
+@group(0) @binding(1)
+var t_diffuse : texture_2d<f32>;
+@group(0) @binding(2)
+var s_diffuse : sampler;
 
 struct VertexOutput {
     @builtin(position) clip_position : vec4<f32>,
@@ -120,8 +127,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Anti-aliasing width for both corners and edges
     var aa_width = 1.5;
     
-    // Start with full alpha
-    var alpha = component.color.a;
+    // Calculate texture coordinates if needed
+    var tex_color = in.color;
+    if (component.use_texture == 1u) {
+        // Map pixel to texture coordinates
+        var tex_coords = vec2<f32>(
+            (pixel_coords.x - rect_min.x) / component.size.x,
+            (pixel_coords.y - rect_min.y) / component.size.y
+        );
+        tex_color = textureSample(t_diffuse, s_diffuse, tex_coords);
+    }
+    
+    // Start with texture/color alpha
+    var alpha = tex_color.a;
     
     // Apply anti-aliasing at corner edges
     if (in_corner) {
@@ -139,5 +157,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
     
-    return vec4<f32>(component.color.rgb, alpha);
+    return vec4<f32>(tex_color.rgb, alpha);
 }
