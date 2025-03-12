@@ -43,7 +43,7 @@ impl Configurable for BackgroundGradientComponent {
                 });
 
         // Generate the gradient texture
-        let (gradient_texture, gradient_texture_view) = Color::create_gradient_texture(
+        let (_, gradient_texture_view) = Color::create_gradient_texture(
             &wgpu_ctx.device,
             &wgpu_ctx.queue,
             gradient_config.color_stops,

@@ -142,8 +142,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var dist_to_bottom = rect_max.y - pixel_coords.y;
     
     // Check if we're outside the main rectangle bounds
-    if (dist_to_left < 0.0 || dist_to_right < 0.0 || 
-        dist_to_top < 0.0 || dist_to_bottom < 0.0) {
+    // This is the critical part that handles clipping for all rendering modes
+    if (pixel_coords.x < rect_min.x || pixel_coords.x > rect_max.x || 
+        pixel_coords.y < rect_min.y || pixel_coords.y > rect_max.y) {
         discard;
     }
     
@@ -203,6 +204,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var aa_width = 1.5;
     
     // Map pixel to texture coordinates for texture or frosted glass
+    // This calculation ensures proper mapping regardless of the image size
     var tex_coords = vec2<f32>(
         (pixel_coords.x - rect_min.x) / component.size.x,
         (pixel_coords.y - rect_min.y) / component.size.y

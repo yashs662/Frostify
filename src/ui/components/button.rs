@@ -3,7 +3,9 @@ use crate::{
     color::Color,
     ui::{
         component::{
-            BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig, ComponentType, FrostedGlassConfig, GradientColorStop, GradientType, ImageConfig, TextConfig
+            BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
+            ComponentType, FrostedGlassConfig, GradientColorStop, GradientType, ImageConfig,
+            TextConfig,
         },
         layout::{Anchor, BorderRadius, Edges, FlexValue, Position},
     },
@@ -27,7 +29,7 @@ pub enum ButtonBackground {
         center: Option<(f32, f32)>,
         radius: Option<f32>,
     },
-    Image(String),
+    Image(ImageConfig),
     FrostedGlass {
         tint_color: Color,
         blur_radius: f32,
@@ -210,7 +212,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             );
             container.add_child(bg);
         }
-        ButtonBackground::Image(file_name) => {
+        ButtonBackground::Image(img_config) => {
             let bg_id = Uuid::new_v4();
             let mut bg = Component::new(bg_id, ComponentType::Image);
             bg.transform.position_type = Position::Fixed(Anchor::Center);
@@ -219,7 +221,7 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);
             }
-            bg.configure(ComponentConfig::Image(ImageConfig { file_name }), wgpu_ctx);
+            bg.configure(ComponentConfig::Image(img_config), wgpu_ctx);
             container.add_child(bg);
         }
         ButtonBackground::FrostedGlass {

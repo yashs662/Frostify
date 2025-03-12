@@ -17,7 +17,13 @@ use crate::{
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
-use super::{components::core::frosted_glass::FrostedGlassComponent, layout::BorderRadius};
+use super::{
+    components::{
+        core::{frosted_glass::FrostedGlassComponent, image::ImageMetadata},
+        image::ScaleMode,
+    },
+    layout::BorderRadius,
+};
 
 #[derive(Debug, Clone)]
 pub struct Component {
@@ -54,6 +60,7 @@ pub enum ComponentMetaData {
     EventSender(UnboundedSender<AppEvent>),
     DragEvent(AppEvent),
     ChildComponents(Vec<Component>),
+    ImageMetadata(ImageMetadata),
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +97,7 @@ pub struct GradientColorStop {
 #[derive(Debug, Clone)]
 pub struct ImageConfig {
     pub file_name: String,
+    pub scale_mode: ScaleMode,
 }
 
 #[derive(Debug, Clone)]
@@ -108,9 +116,9 @@ pub struct TextConfig {
 #[derive(Debug, Clone)]
 pub struct FrostedGlassConfig {
     pub tint_color: Color,
-    pub blur_radius: f32,    // Blur intensity (0-10)
-    pub noise_amount: f32,   // Noise intensity (0.0-1.0)
-    pub opacity: f32,        // Overall opacity (0.0-1.0)
+    pub blur_radius: f32,  // Blur intensity (0-10)
+    pub noise_amount: f32, // Noise intensity (0.0-1.0)
+    pub opacity: f32,      // Overall opacity (0.0-1.0)
 }
 
 #[repr(C)]
@@ -121,11 +129,11 @@ pub struct ComponentBufferData {
     pub size: [f32; 2],
     pub border_radius: [f32; 4],
     pub screen_size: [f32; 2],
-    pub use_texture: u32,       // Flag: 1 if using texture, 0 if using color, 2 for frosted glass
-    pub blur_radius: f32,       // Blur amount for frosted glass (0-10)
-    pub noise_amount: f32,      // Noise intensity for frosted glass (0.0-1.0)
-    pub opacity: f32,           // Opacity for frosted glass (0.0-1.0)
-    pub _padding: [f32; 2],     // Padding to align to 16 bytes
+    pub use_texture: u32, // Flag: 1 if using texture, 0 if using color, 2 for frosted glass
+    pub blur_radius: f32, // Blur amount for frosted glass (0-10)
+    pub noise_amount: f32, // Noise intensity for frosted glass (0.0-1.0)
+    pub opacity: f32,     // Opacity for frosted glass (0.0-1.0)
+    pub _padding: [f32; 2], // Padding to align to 16 bytes
 }
 
 impl ComponentConfig {
@@ -149,7 +157,7 @@ impl ComponentConfig {
             _ => None,
         }
     }
-    
+
     pub fn get_frosted_glass_config(self) -> Option<FrostedGlassConfig> {
         match self {
             Self::FrostedGlass(config) => Some(config),
@@ -405,23 +413,21 @@ impl Component {
         let default_color = [1.0, 0.0, 1.0, 1.0];
         let location = [bounds.position.x, bounds.position.y];
         let size = [bounds.size.width, bounds.size.height];
-        
+
         // Get color and frosted glass parameters if available
         let (color, blur_radius, noise_amount, opacity) = match &self.config {
             Some(ComponentConfig::BackgroundColor(BackgroundColorConfig { color })) => {
                 (color.value(), 0.0, 0.0, 1.0)
             }
-            Some(ComponentConfig::FrostedGlass(FrostedGlassConfig { 
-                tint_color, 
-                blur_radius, 
-                noise_amount, 
-                opacity 
-            })) => {
-                (tint_color.value(), *blur_radius, *noise_amount, *opacity)
-            }
+            Some(ComponentConfig::FrostedGlass(FrostedGlassConfig {
+                tint_color,
+                blur_radius,
+                noise_amount,
+                opacity,
+            })) => (tint_color.value(), *blur_radius, *noise_amount, *opacity),
             _ => (default_color, 0.0, 0.0, 1.0),
         };
-        
+
         let border_radius = self.transform.border_radius.values();
 
         ComponentBufferData {

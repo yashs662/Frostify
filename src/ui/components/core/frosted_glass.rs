@@ -2,7 +2,7 @@ use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
         Configurable, Positionable, Renderable,
-        component::{Component, ComponentBufferData, ComponentConfig, ComponentMetaData},
+        component::{Component, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
@@ -98,7 +98,9 @@ impl Configurable for FrostedGlassComponent {
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-                    label: Some(format!("{} Frosted Glass Bind Group Layout", component.id).as_str()),
+                    label: Some(
+                        format!("{} Frosted Glass Bind Group Layout", component.id).as_str(),
+                    ),
                 });
 
         // Create unified bind group for frosted glass

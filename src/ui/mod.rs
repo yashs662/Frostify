@@ -3,12 +3,12 @@ use crate::{
     color::Color,
     constants::WINDOW_CONTROL_BUTTON_SIZE,
     ui::{
-        component::{
-            Component, ComponentConfig, ComponentMetaData, ComponentType, FrostedGlassConfig, ImageConfig, TextConfig,
-        },
+        component::{Component, ComponentConfig, ComponentMetaData, ComponentType, ImageConfig},
         components::{
             button::{ButtonBackground, ButtonBuilder},
             container::FlexContainerBuilder,
+            image::{ImageBuilder, ScaleMode},
+            label::LabelBuilder,
         },
         layout::{Anchor, FlexValue, Position},
     },
@@ -68,7 +68,7 @@ pub fn create_app_ui(
                     position: 0.0,
                 },
                 GradientColorStop {
-                    color: Color::OrangeRed,
+                    color: Color::Maroon.lighten(0.2),
                     position: 0.3,
                 },
                 GradientColorStop {
@@ -110,7 +110,10 @@ pub fn create_app_ui(
 
     // Minimize button
     let minimize_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image("minimize.png".to_string()))
+        .with_background(ButtonBackground::Image(ImageConfig {
+            file_name: "minimize.png".to_string(),
+            scale_mode: ScaleMode::default(),
+        }))
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Minimize Button")
         .with_click_event(AppEvent::Minimize)
@@ -119,7 +122,10 @@ pub fn create_app_ui(
 
     // Maximize button
     let maximize_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image("maximize.png".to_string()))
+        .with_background(ButtonBackground::Image(ImageConfig {
+            file_name: "maximize.png".to_string(),
+            scale_mode: ScaleMode::default(),
+        }))
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Maximize Button")
         .with_click_event(AppEvent::Maximize)
@@ -128,7 +134,10 @@ pub fn create_app_ui(
 
     // Close button
     let close_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image("close.png".to_string()))
+        .with_background(ButtonBackground::Image(ImageConfig {
+            file_name: "close.png".to_string(),
+            scale_mode: ScaleMode::default(),
+        }))
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Close Button")
         .with_click_event(AppEvent::Close)
@@ -138,7 +147,7 @@ pub fn create_app_ui(
     // Content container
     let mut content_container = FlexContainerBuilder::new()
         .with_debug_name("Content Container")
-        .with_direction(FlexDirection::Column)
+        .with_direction(FlexDirection::Row)
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::Center)
         .with_padding(Edges::all(20.0))
@@ -146,31 +155,20 @@ pub fn create_app_ui(
         .build();
 
     // text with fixed size
-    let text_id = uuid::Uuid::new_v4();
-    let mut text = Component::new(text_id, ComponentType::Text);
-    text.set_debug_name("text");
-    text.transform.size.width = FlexValue::Fixed(200.0);
-    text.transform.size.height = FlexValue::Fixed(50.0);
-    text.configure(
-        ComponentConfig::Text(TextConfig {
-            text: "Test Text render".to_string(),
-            font_size: 16.0,
-            color: Color::Black,
-            line_height: 1.0,
-        }),
-        wgpu_ctx,
-    );
+    let text = LabelBuilder::new("Test Text render")
+        .with_size(200.0, 50.0)
+        .with_debug_name("text")
+        .with_color(Color::Black)
+        .with_font_size(16.0)
+        .build(wgpu_ctx);
 
-    // Content image
-    let image_id = uuid::Uuid::new_v4();
-    let mut image = Component::new(image_id, ComponentType::Image);
-    image.set_debug_name("Content Image");
-    image.configure(
-        ComponentConfig::Image(ImageConfig {
-            file_name: "test.png".to_string(),
-        }),
-        wgpu_ctx,
-    );
+    // Content image using the new ImageBuilder
+    let image = ImageBuilder::new("test.png")
+        .with_size(200.0, 150.0)
+        .with_uniform_border_radius(8.0)
+        .with_debug_name("Content Image")
+        .with_margin(Edges::all(10.0))
+        .build(wgpu_ctx);
 
     // Example button with gradient background
     let test_button = ButtonBuilder::new()
@@ -181,7 +179,6 @@ pub fn create_app_ui(
         .with_font_size(20.0)
         .with_debug_name("Button test")
         .with_border_radius(BorderRadius::all(5.0))
-        .with_margin(Edges::top(20.0))
         .with_click_event(AppEvent::PrintMessage("Button clicked!".to_string()))
         .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);
