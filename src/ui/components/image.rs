@@ -21,6 +21,7 @@ pub struct ImageBuilder {
 }
 
 /// Defines how an image should be scaled to fit its container
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum ScaleMode {
     /// Stretch the image to fill the entire container (default)
@@ -39,6 +40,7 @@ impl Default for ScaleMode {
     }
 }
 
+#[allow(dead_code)]
 impl ImageBuilder {
     /// Create a new image builder with the specified image file
     pub fn new(file_name: impl Into<String>) -> Self {

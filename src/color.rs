@@ -1,6 +1,6 @@
 use colorgrad::Gradient;
 
-use crate::ui::component::{GradientColorStop, GradientType};
+use crate::ui::component::{BackgroundGradientConfig, GradientType};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -134,18 +134,14 @@ impl Color {
 
     // Method to create a 2D gradient texture for more complex gradients
     pub fn generate_2d_gradient_texture(
-        color_stops: Vec<GradientColorStop>,
-        gradient_type: GradientType,
-        angle_degrees: f32,
-        center: Option<(f32, f32)>,
-        radius: Option<f32>,
+        gradient_config: BackgroundGradientConfig,
         width: u32,
         height: u32,
     ) -> image::RgbaImage {
         let mut colors = vec![];
         let mut positions = vec![];
 
-        for stop in color_stops {
+        for stop in gradient_config.color_stops {
             colors.push(stop.color.to_colorgrad_color());
             positions.push(stop.position);
         }
@@ -156,10 +152,10 @@ impl Color {
             .build::<colorgrad::LinearGradient>()
             .unwrap();
 
-        match gradient_type {
+        match gradient_config.gradient_type {
             GradientType::Linear => {
                 // Convert angle from degrees to radians
-                let angle_rad = angle_degrees * std::f32::consts::PI / 180.0;
+                let angle_rad = gradient_config.angle * std::f32::consts::PI / 180.0;
 
                 // Calculate the gradient direction vector
                 let dir_x = angle_rad.cos();
@@ -186,7 +182,7 @@ impl Color {
             }
             GradientType::Radial => {
                 // Default center is middle of image
-                let (center_x, center_y) = center.unwrap_or((0.5, 0.5));
+                let (center_x, center_y) = gradient_config.center.unwrap_or((0.5, 0.5));
 
                 // Convert center from 0-1 range to pixel coordinates
                 let center_x_px = center_x * width as f32;
@@ -205,7 +201,7 @@ impl Color {
                 let max_dist = corner_distances.iter().cloned().fold(0.0, f32::max);
 
                 // Use provided radius or default to max distance
-                let gradient_radius = radius.unwrap_or(1.0) * max_dist;
+                let gradient_radius = gradient_config.radius.unwrap_or(1.0) * max_dist;
 
                 image::ImageBuffer::from_fn(width, height, |x, y| {
                     // Calculate distance from center
@@ -228,24 +224,12 @@ impl Color {
     pub fn create_gradient_texture(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        color_stops: Vec<GradientColorStop>,
-        gradient_type: GradientType,
-        angle_degrees: f32,
-        center: Option<(f32, f32)>,
-        radius: Option<f32>,
+        gradient_config: BackgroundGradientConfig,
         width: u32,
         height: u32,
     ) -> (wgpu::Texture, wgpu::TextureView) {
         // Generate the gradient image
-        let gradient_image = Self::generate_2d_gradient_texture(
-            color_stops,
-            gradient_type,
-            angle_degrees,
-            center,
-            radius,
-            width,
-            height,
-        );
+        let gradient_image = Self::generate_2d_gradient_texture(gradient_config, width, height);
 
         // Create a texture with the gradient
         let texture_size = wgpu::Extent3d {

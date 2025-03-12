@@ -83,6 +83,7 @@ pub struct BackgroundGradientConfig {
     pub radius: Option<f32>,        // Radius for radial gradients (0.0-1.0 range)
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GradientType {
     Linear,

@@ -22,6 +22,7 @@ pub struct LabelBuilder {
     debug_name: Option<String>,
 }
 
+#[allow(dead_code)]
 impl LabelBuilder {
     /// Create a new label builder with the specified text
     pub fn new(text: impl Into<String>) -> Self {

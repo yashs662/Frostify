@@ -46,11 +46,7 @@ impl Configurable for BackgroundGradientComponent {
         let (_, gradient_texture_view) = Color::create_gradient_texture(
             &wgpu_ctx.device,
             &wgpu_ctx.queue,
-            gradient_config.color_stops,
-            gradient_config.gradient_type,
-            gradient_config.angle,
-            gradient_config.center,
-            gradient_config.radius,
+            gradient_config,
             1024,
             1024,
         );

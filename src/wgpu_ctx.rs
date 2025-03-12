@@ -260,24 +260,6 @@ impl<'window> WgpuCtx<'window> {
         let frame_capture_view = self.frame_capture_view.as_ref().unwrap();
         let frame_sample_view = self.frame_sample_view.as_ref().unwrap();
 
-        // Clear the final texture to start with a clean state
-        {
-            let clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Clear Final Texture"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: final_texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-        }
-
         // Get the entire render order
         let render_order = layout_context.get_render_order().clone();
         let mut last_idx = 0;
@@ -359,13 +341,13 @@ impl<'window> WgpuCtx<'window> {
                     };
 
                     encoder.copy_texture_to_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture: src_texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
                         },
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture: dst_texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
@@ -373,11 +355,6 @@ impl<'window> WgpuCtx<'window> {
                         },
                         texture_size,
                     );
-
-                    // Generate mipmaps for better quality blur if multiple mip levels
-                    if dst_texture.mip_level_count() > 1 {
-                        self.generate_mipmaps(encoder, dst_texture);
-                    }
                 }
 
                 // Step 3: Render the same components to final texture (for actual display)
@@ -480,25 +457,6 @@ impl<'window> WgpuCtx<'window> {
             self.text_handler
                 .render(&self.device, &self.queue, &mut final_pass);
         }
-    }
-
-    // Helper method to generate mipmaps for a texture
-    fn generate_mipmaps(&self, encoder: &mut wgpu::CommandEncoder, texture: &wgpu::Texture) {
-        // Skip if texture has just one mip level
-        if texture.mip_level_count() <= 1 {}
-
-        // Use a compute shader or blit commands to generate mipmaps
-        // This is a simplified placeholder - actual implementation would depend on
-        // available features of your GPU and wgpu version
-
-        // For a basic implementation, we would:
-        // 1. For each mip level after the base level:
-        //    - Bind the previous level as a source texture
-        //    - Bind the current level as a render target
-        //    - Draw a quad with a shader that samples and filters the source texture
-
-        // Note: A full implementation would require a compute shader or explicit blit support
-        // which depends on your platform capabilities
     }
 }
 

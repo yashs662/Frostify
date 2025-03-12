@@ -181,15 +181,13 @@ impl Positionable for FrostedGlassComponent {
         component_data.use_texture = 2;
 
         // If we have explicit blur settings in the config, ensure they're applied
-        if let Some(config) = &component.config {
-            if let ComponentConfig::FrostedGlass(frosted_config) = config {
-                // Re-apply the blur settings to ensure they're not lost during positioning
-                component_data.blur_radius = frosted_config.blur_radius.clamp(0.0, 10.0);
-                component_data.opacity = frosted_config.opacity.clamp(0.0, 1.0);
+        if let Some(ComponentConfig::FrostedGlass(frosted_config)) = &component.config {
+            // Re-apply the blur settings to ensure they're not lost during positioning
+            component_data.blur_radius = frosted_config.blur_radius.clamp(0.0, 10.0);
+            component_data.opacity = frosted_config.opacity.clamp(0.0, 1.0);
 
-                // Ensure correct color is applied
-                component_data.color = frosted_config.tint_color.value();
-            }
+            // Ensure correct color is applied
+            component_data.color = frosted_config.tint_color.value();
         }
 
         if let Some(render_data_buffer) = component.get_render_data_buffer() {

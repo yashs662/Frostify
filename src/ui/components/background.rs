@@ -25,6 +25,7 @@ pub struct BackgroundBuilder {
 }
 
 /// Types of background supported by the builder
+#[allow(dead_code)]
 pub enum BackgroundType {
     /// Solid color background
     Color(Color),
@@ -44,6 +45,7 @@ pub enum BackgroundType {
     },
 }
 
+#[allow(dead_code)]
 impl BackgroundBuilder {
     /// Create a new background builder with a solid color
     pub fn with_color(color: Color) -> Self {

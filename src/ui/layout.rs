@@ -35,6 +35,7 @@ pub struct Bounds {
 }
 
 // FlexDirection enum
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FlexDirection {
     Row,
@@ -44,6 +45,7 @@ pub enum FlexDirection {
 }
 
 // JustifyContent enum
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JustifyContent {
     Start,
@@ -55,6 +57,7 @@ pub enum JustifyContent {
 }
 
 // AlignItems enum
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AlignItems {
     Start,
@@ -65,6 +68,7 @@ pub enum AlignItems {
 }
 
 // FlexWrap enum
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FlexWrap {
     NoWrap,
@@ -73,6 +77,7 @@ pub enum FlexWrap {
 }
 
 // Enhanced FlexValue enum
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlexValue {
     Auto,
@@ -105,6 +110,7 @@ pub struct Edges {
 }
 
 // Position enum for positioning system
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Position {
     Flex,               // Default - follows flex layout rules
@@ -114,6 +120,7 @@ pub enum Position {
 }
 
 // Anchor enum
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Anchor {
     TopLeft,
@@ -138,6 +145,7 @@ pub struct ComponentTransform {
 }
 
 // Size struct to replace ComponentSize
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Size {
     pub width: FlexValue,
@@ -149,6 +157,7 @@ pub struct Size {
 }
 
 // Enhanced Layout struct
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Layout {
     // Flex container properties
@@ -197,6 +206,7 @@ pub struct GridLayout {
     pub row_gap: f32,
 }
 
+#[allow(dead_code)]
 impl BorderRadius {
     pub fn all(radius: f32) -> Self {
         Self {
@@ -239,6 +249,7 @@ pub enum EventType {
 }
 
 // Event data
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct InputEvent {
     pub event_type: EventType,
@@ -487,6 +498,17 @@ impl FlexValue {
             FlexValue::Fill => available_space,
         }
     }
+}
+
+struct SpacingData<'a> {
+    justify_content: JustifyContent,
+    is_row: bool,
+    content_space: Bounds,
+    flex_children: &'a [(Uuid, &'a Component)],
+    total_fixed_size: f32,
+    space_per_flex_unit: f32,
+    total_flex_grow: f32,
+    total_margins: f32,
 }
 
 // Layout Context implementation
@@ -1005,17 +1027,19 @@ impl LayoutContext {
             0.0
         };
 
-        // Calculate spacing based on justify_content for flex items only
-        let (start_pos, spacing_between) = self.calculate_spacing(
-            layout.justify_content,
+        let spacing_data = SpacingData {
+            justify_content: layout.justify_content,
             is_row,
             content_space,
-            &flex_children,
+            flex_children: &flex_children,
             total_fixed_size,
             space_per_flex_unit,
             total_flex_grow,
             total_margins,
-        );
+        };
+
+        // Calculate spacing based on justify_content for flex items only
+        let (start_pos, spacing_between) = self.calculate_spacing(spacing_data);
 
         // Layout flex children
         let mut current_main = start_pos;
@@ -1107,94 +1131,85 @@ impl LayoutContext {
     }
 
     // Add these helper functions to LayoutContext impl
-    fn calculate_spacing(
-        &self,
-        justify_content: JustifyContent,
-        is_row: bool,
-        content_space: Bounds,
-        flex_children: &[(Uuid, &Component)],
-        total_fixed_size: f32,
-        space_per_flex_unit: f32,
-        total_flex_grow: f32,
-        total_margins: f32,
-    ) -> (f32, f32) {
-        let main_axis_size = if is_row {
-            content_space.size.width
+    fn calculate_spacing(&self, spacing_data: SpacingData) -> (f32, f32) {
+        let main_axis_size = if spacing_data.is_row {
+            spacing_data.content_space.size.width
         } else {
-            content_space.size.height
+            spacing_data.content_space.size.height
         };
 
-        let total_flex_size = space_per_flex_unit * total_flex_grow;
+        let total_flex_size = spacing_data.space_per_flex_unit * spacing_data.total_flex_grow;
         // Include margins in total_used_space
-        let total_used_space = total_fixed_size + total_flex_size + total_margins;
+        let total_used_space =
+            spacing_data.total_fixed_size + total_flex_size + spacing_data.total_margins;
         let free_space = (main_axis_size - total_used_space).max(0.0);
 
-        match justify_content {
+        match spacing_data.justify_content {
             JustifyContent::Start => (
-                if is_row {
-                    content_space.position.x
+                if spacing_data.is_row {
+                    spacing_data.content_space.position.x
                 } else {
-                    content_space.position.y
+                    spacing_data.content_space.position.y
                 },
                 0.0,
             ),
             JustifyContent::Center => (
-                if is_row {
-                    content_space.position.x + free_space / 2.0
+                if spacing_data.is_row {
+                    spacing_data.content_space.position.x + free_space / 2.0
                 } else {
-                    content_space.position.y + free_space / 2.0
+                    spacing_data.content_space.position.y + free_space / 2.0
                 },
                 0.0,
             ),
             JustifyContent::End => (
-                if is_row {
-                    content_space.position.x + free_space
+                if spacing_data.is_row {
+                    spacing_data.content_space.position.x + free_space
                 } else {
-                    content_space.position.y + free_space
+                    spacing_data.content_space.position.y + free_space
                 },
                 0.0,
             ),
             JustifyContent::SpaceBetween => {
-                let between = if flex_children.len() > 1 {
-                    free_space / (flex_children.len() - 1) as f32
+                let between = if spacing_data.flex_children.len() > 1 {
+                    free_space / (spacing_data.flex_children.len() - 1) as f32
                 } else {
                     0.0
                 };
                 (
-                    if is_row {
-                        content_space.position.x
+                    if spacing_data.is_row {
+                        spacing_data.content_space.position.x
                     } else {
-                        content_space.position.y
+                        spacing_data.content_space.position.y
                     },
                     between,
                 )
             }
             JustifyContent::SpaceAround => {
-                let around = if !flex_children.is_empty() {
-                    free_space / flex_children.len() as f32
+                let around = if !spacing_data.flex_children.is_empty() {
+                    free_space / spacing_data.flex_children.len() as f32
                 } else {
                     0.0
                 };
                 (
-                    if is_row {
-                        content_space.position.x + around / 2.0
+                    if spacing_data.is_row {
+                        spacing_data.content_space.position.x + around / 2.0
                     } else {
-                        content_space.position.y + around / 2.0
+                        spacing_data.content_space.position.y + around / 2.0
                     },
                     around,
                 )
             }
             JustifyContent::SpaceEvenly => {
-                let evenly = if flex_children.len() + 1 > 0 {
-                    free_space / (flex_children.len() + 1) as f32
+                let evenly = if spacing_data.flex_children.len() + 1 > 0 {
+                    free_space / (spacing_data.flex_children.len() + 1) as f32
                 } else {
                     0.0
                 };
                 (
-                    if is_row {
-                        content_space.position.x + evenly
+                    if spacing_data.is_row {
+                        spacing_data.content_space.position.x + evenly
                     } else {
-                        content_space.position.y + evenly
+                        spacing_data.content_space.position.y + evenly
                     },
                     evenly,
                 )

@@ -76,6 +76,7 @@ pub struct ButtonBuilder {
     config: ButtonConfig,
 }
 
+#[allow(dead_code)]
 impl ButtonBuilder {
     pub fn new() -> Self {
         Self {
