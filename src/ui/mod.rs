@@ -7,7 +7,7 @@ use crate::{
         components::{
             button::{ButtonBackground, ButtonBuilder},
             container::FlexContainerBuilder,
-            image::{ImageBuilder, ScaleMode},
+            image::ScaleMode,
             label::LabelBuilder,
         },
         layout::{Anchor, FlexValue},
@@ -105,11 +105,10 @@ pub fn create_app_ui(
         .with_font_size(16.0)
         .build(wgpu_ctx);
 
-    // Content image using the new ImageBuilder
-    let image = ImageBuilder::new("test.png")
+    let frosted_glass_test = BackgroundBuilder::with_frosted_glass(Color::Blue, 50.0, 1.0)
         .with_size(200.0, 150.0)
         .with_uniform_border_radius(8.0)
-        .with_debug_name("Content Image")
+        .with_debug_name("Content frosted glass")
         .with_margin(Edges::all(10.0))
         .build(wgpu_ctx);
 
@@ -129,7 +128,7 @@ pub fn create_app_ui(
     // Add elements to the content container
     content_container.add_child(test_button);
     content_container.add_child(text);
-    content_container.add_child(image);
+    content_container.add_child(frosted_glass_test);
 
     // Add children to the main container
     main_container.add_child(background);

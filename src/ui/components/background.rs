@@ -40,7 +40,6 @@ pub enum BackgroundType {
     FrostedGlass {
         tint_color: Color,
         blur_radius: f32,
-        noise_amount: f32,
         opacity: f32,
     },
 }
@@ -108,17 +107,11 @@ impl BackgroundBuilder {
     }
 
     /// Create a new background builder with a frosted glass effect
-    pub fn with_frosted_glass(
-        tint_color: Color,
-        blur_radius: f32,
-        noise_amount: f32,
-        opacity: f32,
-    ) -> Self {
+    pub fn with_frosted_glass(tint_color: Color, blur_radius: f32, opacity: f32) -> Self {
         Self {
             background_type: BackgroundType::FrostedGlass {
                 tint_color,
                 blur_radius,
-                noise_amount,
                 opacity,
             },
             width: None,
@@ -275,14 +268,12 @@ impl BackgroundBuilder {
             BackgroundType::FrostedGlass {
                 tint_color,
                 blur_radius,
-                noise_amount,
                 opacity,
             } => {
                 component.configure(
                     ComponentConfig::FrostedGlass(FrostedGlassConfig {
                         tint_color,
                         blur_radius,
-                        noise_amount,
                         opacity,
                     }),
                     wgpu_ctx,

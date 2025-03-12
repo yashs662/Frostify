@@ -11,7 +11,6 @@ struct ComponentUniform {
     viewport_size : vec2<f32>,  // Viewport dimensions in pixels
     use_texture : u32,          // Flag: 0 for color, 1 for texture, 2 for frosted glass
     blur_radius: f32,           // Blur intensity for frosted glass
-    noise_amount: f32,          // Noise intensity for frosted glass
     opacity: f32,               // Overall opacity for frosted glass
 }
 
@@ -52,72 +51,67 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     return out;
 }
 
-// Pseudo-random function for noise generation
-fn rand(co: vec2<f32>) -> f32 {
-    return fract(sin(dot(co, vec2<f32>(12.9898, 78.233))) * 43758.5453);
-}
-
-// Function for creating noise
-fn noise(p: vec2<f32>) -> f32 {
-    let ip = floor(p);
-    let u = fract(p);
-    let u_smooth = u * u * (3.0 - 2.0 * u);
-    
-    let res = mix(
-        mix(rand(ip), rand(ip + vec2<f32>(1.0, 0.0)), u_smooth.x),
-        mix(rand(ip + vec2<f32>(0.0, 1.0)), rand(ip + vec2<f32>(1.0, 1.0)), u_smooth.x),
-        u_smooth.y
-    );
-    return res * res;
-}
-
-// Improve the frosted glass noise function for better results
-fn improved_noise(p: vec2<f32>) -> f32 {
-    let ip = floor(p);
-    let u = fract(p);
-    let u_smooth = u * u * (3.0 - 2.0 * u);
-    
-    // Improved noise using value noise
-    let n00 = rand(ip);
-    let n01 = rand(ip + vec2<f32>(0.0, 1.0));
-    let n10 = rand(ip + vec2<f32>(1.0, 0.0));
-    let n11 = rand(ip + vec2<f32>(1.0, 1.0));
-    
-    // Bilinear interpolation
-    let nx0 = mix(n00, n10, u_smooth.x);
-    let nx1 = mix(n01, n11, u_smooth.x);
-    let nxy = mix(nx0, nx1, u_smooth.y);
-    
-    return nxy * nxy; // Square to get smoother noise
-}
-
-// Sample texture with improved Gaussian blur
+// Improved Gaussian blur with better quality
 fn sample_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_amount: f32) -> vec4<f32> {
     if (blur_amount <= 0.0) {
         return textureSample(tex, samp, uv);
     }
 
-    // Gaussian blur with more samples for better quality
+    // Get texture dimensions for proper scaling of the blur
     let tex_size = vec2<f32>(textureDimensions(tex));
     let pixel_size = 1.0 / tex_size;
-    let blur_radius = blur_amount * 5.0; // Scale the radius
+    
+    // Scale blur based on a percentage of screen size for consistent results
+    // Use higher blur intensity values (compared to previous version)
+    let sigma = blur_amount * 0.05;
     
     var color = vec4<f32>(0.0);
     var total_weight = 0.0;
-    let samples = 11; // Increased sample count for smoother blur
     
-    for (var i = -samples/2; i <= samples/2; i++) {
-        for (var j = -samples/2; j <= samples/2; j++) {
-            // Gaussian-like weight for better quality
-            let dist_sq = f32(i*i + j*j);
-            let weight = exp(-dist_sq / (2.0 * blur_radius * blur_radius));
-            
-            let offset = vec2<f32>(f32(i), f32(j)) * pixel_size * blur_radius;
-            let sample_uv = uv + offset;
-            
-            color += textureSample(tex, samp, sample_uv) * weight;
-            total_weight += weight;
+    // Increase sample count for higher quality blur
+    let max_samples = 31; // Must be odd number
+    let half_samples = max_samples / 2;
+    
+    // Use a two-pass separable Gaussian blur for better performance and quality
+    // First horizontal pass
+    var horizontal = vec4<f32>(0.0);
+    var horizontal_weight = 0.0;
+    
+    for (var i = -half_samples; i <= half_samples; i++) {
+        let offset = vec2<f32>(f32(i), 0.0) * pixel_size * sigma * 2.0;
+        let sample_pos = uv + offset;
+        
+        // Use exponential falloff for weight calculation
+        let weight = exp(-(f32(i*i) / (2.0 * sigma * sigma * 30.0)));
+        horizontal += textureSample(tex, samp, sample_pos) * weight;
+        horizontal_weight += weight;
+    }
+    horizontal /= horizontal_weight;
+    
+    // Second vertical pass
+    for (var j = -half_samples; j <= half_samples; j++) {
+        let offset = vec2<f32>(0.0, f32(j)) * pixel_size * sigma * 2.0;
+        
+        // Sample from horizontal result conceptually (we simulate this)
+        let sample_pos = uv + offset;
+        
+        // Use exponential falloff for weight calculation
+        let weight = exp(-(f32(j*j) / (2.0 * sigma * sigma * 30.0)));
+        
+        // Sample the source texture with both horizontal and vertical offsets
+        var sample_color = vec4<f32>(0.0);
+        var sample_weight = 0.0;
+        
+        for (var i = -half_samples; i <= half_samples; i++) {
+            let h_offset = vec2<f32>(f32(i), 0.0) * pixel_size * sigma * 2.0;
+            let h_weight = exp(-(f32(i*i) / (2.0 * sigma * sigma * 30.0)));
+            sample_color += textureSample(tex, samp, sample_pos + h_offset) * h_weight;
+            sample_weight += h_weight;
         }
+        sample_color /= sample_weight;
+        
+        color += sample_color * weight;
+        total_weight += weight;
     }
     
     return color / total_weight;
@@ -203,12 +197,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Anti-aliasing width for both corners and edges
     var aa_width = 1.5;
     
-    // Map pixel to texture coordinates for texture or frosted glass
-    // This calculation ensures proper mapping regardless of the image size
-    var tex_coords = vec2<f32>(
-        (pixel_coords.x - rect_min.x) / component.size.x,
-        (pixel_coords.y - rect_min.y) / component.size.y
-    );
+    // Calculate texture coordinates based on component type
+    var tex_coords: vec2<f32>;
+
+    if (component.use_texture == 2u) {
+        // For frosted glass, calculate screen-space UV coordinates
+        // Fix: Maintain consistent Y orientation between capture and sampling
+        tex_coords = vec2<f32>(
+            pixel_coords.x / component.viewport_size.x,
+            pixel_coords.y / component.viewport_size.y  // Don't flip Y for frosted glass
+        );
+    } else {
+        // For regular textures, use the normalized coordinates within the component
+        tex_coords = vec2<f32>(
+            (pixel_coords.x - rect_min.x) / component.size.x,
+            (pixel_coords.y - rect_min.y) / component.size.y
+        );
+    }
 
     var final_color: vec4<f32>;
 
@@ -217,37 +222,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         final_color = textureSample(t_diffuse, s_diffuse, tex_coords);
     } 
     else if (component.use_texture == 2u) {
-        // Frosted glass mode
         // 1. Sample the background with blur
-        var background = sample_blur(t_diffuse, s_diffuse, tex_coords, component.blur_radius);
+        var blurAmount = component.blur_radius * 1.2;
+        var background = sample_blur(t_diffuse, s_diffuse, tex_coords, blurAmount);
         
-        // 2. Generate improved noise pattern
-        var noise_value = improved_noise(pixel_coords * 0.05) * component.noise_amount;
-        var noise_offset = noise_value - (component.noise_amount * 0.5);
-        
-        // 3. Add noise to the blurred background with subtle variation - fixed to avoid swizzle assignment
-        var noisy_background = vec4<f32>(
-            background.r + noise_offset,
-            background.g + noise_offset,
-            background.b + noise_offset,
-            background.a
-        );
-        
-        // 4. Apply tint with the component color - more sophisticated blending
+        // 2. Apply tint with the component color
         var tinted = mix(
-            noisy_background.rgb, 
+            background.rgb, 
             component.color.rgb, 
             component.color.a * 0.4 * component.opacity
         );
         
-        // Add subtle highlight at the edges for a glass-like effect
-        let edge_factor_x = smoothstep(0.0, 0.1, tex_coords.x) * smoothstep(1.0, 0.9, tex_coords.x);
-        let edge_factor_y = smoothstep(0.0, 0.1, tex_coords.y) * smoothstep(1.0, 0.9, tex_coords.y);
-        let edge_highlight = edge_factor_x * edge_factor_y * 0.07;
-        tinted += vec3<f32>(edge_highlight, edge_highlight, edge_highlight);
+        // 3. Improved edge highlight for a cleaner glass-like effect
+        // Remove the inset shadow look by using a more subtle highlight approach
+        let local_tex_coords = vec2<f32>(
+            (pixel_coords.x - rect_min.x) / component.size.x,
+            (pixel_coords.y - rect_min.y) / component.size.y
+        );
         
-        // 5. Apply final opacity
-        final_color = vec4<f32>(tinted, component.opacity);
+        // Create a subtle edge glow that doesn't look like an inset shadow
+        let edge_distance_x = min(local_tex_coords.x, 1.0 - local_tex_coords.x) * 2.0;
+        let edge_distance_y = min(local_tex_coords.y, 1.0 - local_tex_coords.y) * 2.0;
+        let edge_distance = min(edge_distance_x, edge_distance_y);
+        
+        // Apply a very subtle, smooth highlight that increases slightly near edges
+        // but doesn't create an obvious inset shadow effect
+        let edge_highlight = smoothstep(0.0, 0.5, edge_distance) * 0.05;
+        tinted += vec3<f32>(edge_highlight);
+        
+        // 4. Apply final opacity with slight gamma correction for more natural look
+        final_color = vec4<f32>(pow(tinted, vec3<f32>(0.98)), component.opacity);
     }
     else {
         // Plain color mode

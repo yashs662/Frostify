@@ -102,9 +102,8 @@ impl Configurable for ImageComponent {
             ],
             use_texture: 1, // Enable texture sampling
             blur_radius: 0.0,
-            noise_amount: 0.0,
             opacity: 1.0,
-            _padding: [0.0; 2],
+            _padding: [0.0; 3],
         };
 
         let render_data_buffer =

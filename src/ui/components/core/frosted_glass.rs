@@ -30,9 +30,13 @@ impl Configurable for FrostedGlassComponent {
         // Create component uniform data with frosted glass mode enabled (use_texture = 2)
         let mut component_data = component.get_render_data(Bounds::default());
         component_data.use_texture = 2; // Special value to enable frosted glass mode in shader
+
+        // Apply blur with a proper scale for visual effect (0-10 represents intensity percentage)
         component_data.blur_radius = frosted_config.blur_radius.clamp(0.0, 10.0);
-        component_data.noise_amount = frosted_config.noise_amount.clamp(0.0, 1.0);
         component_data.opacity = frosted_config.opacity.clamp(0.0, 1.0);
+
+        // Make sure we're using the correct color value from the config
+        component_data.color = frosted_config.tint_color.value();
 
         // Create the buffer for component data
         let render_data_buffer =
@@ -44,7 +48,8 @@ impl Configurable for FrostedGlassComponent {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        // Create a sampler for the blur operations
+        // Create an enhanced sampler for the blur operations with anisotropic filtering
+        // and mipmap support for higher quality results
         let sampler = wgpu_ctx.device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -52,10 +57,18 @@ impl Configurable for FrostedGlassComponent {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
+            anisotropy_clamp: 16, // Enable high-quality anisotropic filtering
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 32.0, // Allow full mipmap range
+            compare: None,
             ..Default::default()
         });
 
-        // Create a 1x1 white noise texture as placeholder
+        // The actual texture will be created at render time when we can capture the screen
+        // For now, register this component as needing frame capture
+        component.set_requires_frame_capture(true);
+
+        // Create a placeholder texture view until we capture the actual frame
         let placeholder_texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
@@ -114,7 +127,7 @@ impl Configurable for FrostedGlassComponent {
                         binding: 0,
                         resource: render_data_buffer.as_entire_binding(),
                     },
-                    // Texture view (for background capture or noise texture)
+                    // Texture view (will be replaced with captured frame)
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::TextureView(&texture_view),
@@ -131,6 +144,7 @@ impl Configurable for FrostedGlassComponent {
         vec![
             ComponentMetaData::BindGroup(bind_group),
             ComponentMetaData::RenderDataBuffer(render_data_buffer),
+            ComponentMetaData::Sampler(sampler),
         ]
     }
 }
@@ -163,8 +177,20 @@ impl Positionable for FrostedGlassComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
         let mut component_data = component.get_render_data(bounds);
 
-        // Ensure frosted glass mode is enabled
+        // Ensure frosted glass mode is enabled and blur parameters are preserved
         component_data.use_texture = 2;
+
+        // If we have explicit blur settings in the config, ensure they're applied
+        if let Some(config) = &component.config {
+            if let ComponentConfig::FrostedGlass(frosted_config) = config {
+                // Re-apply the blur settings to ensure they're not lost during positioning
+                component_data.blur_radius = frosted_config.blur_radius.clamp(0.0, 10.0);
+                component_data.opacity = frosted_config.opacity.clamp(0.0, 1.0);
+
+                // Ensure correct color is applied
+                component_data.color = frosted_config.tint_color.value();
+            }
+        }
 
         if let Some(render_data_buffer) = component.get_render_data_buffer() {
             wgpu_ctx.queue.write_buffer(
@@ -173,5 +199,63 @@ impl Positionable for FrostedGlassComponent {
                 bytemuck::cast_slice(&[component_data]),
             );
         }
+    }
+}
+
+impl FrostedGlassComponent {
+    // Add a new method to update the bind group with the captured frame texture
+    pub fn update_with_frame_texture(
+        component: &mut Component,
+        device: &wgpu::Device,
+        frame_texture_view: &wgpu::TextureView,
+    ) -> bool {
+        // Get the existing resources
+        let render_data_buffer = match component.get_render_data_buffer() {
+            Some(buffer) => buffer,
+            None => {
+                error!("No render data buffer found for frosted glass component");
+                return false;
+            }
+        };
+
+        let sampler = match component.get_sampler() {
+            Some(sampler) => sampler,
+            None => {
+                error!("No sampler found for frosted glass component");
+                return false;
+            }
+        };
+
+        // Create new bind group with the captured frame texture
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+            label: Some(
+                format!("{} Updated Frosted Glass Bind Group Layout", component.id).as_str(),
+            ),
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: render_data_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(frame_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+            label: Some(format!("{} Updated Frosted Glass Bind Group", component.id).as_str()),
+        });
+
+        // Replace the old bind group with the new one
+        component.update_bind_group(bind_group);
+
+        true
     }
 }

@@ -33,7 +33,6 @@ pub enum ButtonBackground {
     FrostedGlass {
         tint_color: Color,
         blur_radius: f32,
-        noise_amount: f32,
         opacity: f32,
     },
 }
@@ -227,7 +226,6 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
         ButtonBackground::FrostedGlass {
             tint_color,
             blur_radius,
-            noise_amount,
             opacity,
         } => {
             let bg_id = Uuid::new_v4();
@@ -242,7 +240,6 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
                 ComponentConfig::FrostedGlass(FrostedGlassConfig {
                     tint_color,
                     blur_radius,
-                    noise_amount,
                     opacity,
                 }),
                 wgpu_ctx,

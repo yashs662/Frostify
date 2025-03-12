@@ -504,7 +504,22 @@ impl LayoutContext {
     }
 
     pub fn draw(&mut self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
-        for id in &self.render_order {
+        // Draw all components in order
+        self.draw_range(render_pass, app_pipelines, 0, self.render_order.len());
+    }
+
+    pub fn draw_range(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass,
+        app_pipelines: &mut AppPipelines,
+        start: usize,
+        end: usize,
+    ) {
+        let range_end = end.min(self.render_order.len());
+        let range_start = start.min(range_end);
+
+        for i in range_start..range_end {
+            let id = &self.render_order[i];
             if let Some(component) = self.components.get_mut(id) {
                 if !component.requires_to_be_drawn() {
                     continue;
@@ -512,7 +527,6 @@ impl LayoutContext {
 
                 if self.computed_bounds.contains_key(id) {
                     // Update the component's z-index with the computed value from manager
-                    // (this doesn't affect layout, just ensures consistent rendering)
                     let computed_z = self.z_index_manager.get_z_index(id);
                     component.transform.z_index = computed_z;
 
@@ -530,6 +544,61 @@ impl LayoutContext {
                 );
             }
         }
+    }
+
+    // Helper method to draw a single component by ID
+    pub fn draw_single(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass,
+        app_pipelines: &mut AppPipelines,
+        component_id: &Uuid,
+    ) {
+        if let Some(component) = self.components.get_mut(component_id) {
+            if !component.requires_to_be_drawn() {
+                return;
+            }
+
+            if self.computed_bounds.contains_key(component_id) {
+                // Update the component's z-index with the computed value from manager
+                let computed_z = self.z_index_manager.get_z_index(component_id);
+                component.transform.z_index = computed_z;
+
+                component.draw(render_pass, app_pipelines);
+            } else {
+                error!(
+                    "Computed bounds not found for component id: {}, unable to draw single component",
+                    component_id
+                );
+            }
+        } else {
+            error!(
+                "Component with id: {} not found for single rendering",
+                component_id
+            );
+        }
+    }
+
+    pub fn get_frame_capture_components(&self) -> Vec<(usize, Uuid)> {
+        let mut components_needing_capture = Vec::new();
+
+        // Find all components that need frame capture and their positions in the render order
+        for (i, id) in self.render_order.iter().enumerate() {
+            if let Some(component) = self.components.get(id) {
+                if component.requires_frame_capture() {
+                    components_needing_capture.push((i, *id));
+                }
+            }
+        }
+
+        components_needing_capture
+    }
+
+    pub fn get_render_order(&self) -> &Vec<Uuid> {
+        &self.render_order
+    }
+
+    pub fn get_component_mut(&mut self, id: &Uuid) -> Option<&mut Component> {
+        self.components.get_mut(id)
     }
 
     fn debug_print_component_insertion(&self, component: &Component) {

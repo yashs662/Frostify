@@ -40,6 +40,7 @@ pub struct Component {
     requires_children_extraction: bool,
     is_clickable: bool,
     is_draggable: bool,
+    requires_frame_capture: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +62,7 @@ pub enum ComponentMetaData {
     DragEvent(AppEvent),
     ChildComponents(Vec<Component>),
     ImageMetadata(ImageMetadata),
+    Sampler(wgpu::Sampler),
 }
 
 #[derive(Debug, Clone)]
@@ -116,9 +118,8 @@ pub struct TextConfig {
 #[derive(Debug, Clone)]
 pub struct FrostedGlassConfig {
     pub tint_color: Color,
-    pub blur_radius: f32,  // Blur intensity (0-10)
-    pub noise_amount: f32, // Noise intensity (0.0-1.0)
-    pub opacity: f32,      // Overall opacity (0.0-1.0)
+    pub blur_radius: f32, // Blur intensity (0-10)
+    pub opacity: f32,     // Overall opacity (0.0-1.0)
 }
 
 #[repr(C)]
@@ -131,9 +132,8 @@ pub struct ComponentBufferData {
     pub screen_size: [f32; 2],
     pub use_texture: u32, // Flag: 1 if using texture, 0 if using color, 2 for frosted glass
     pub blur_radius: f32, // Blur amount for frosted glass (0-10)
-    pub noise_amount: f32, // Noise intensity for frosted glass (0.0-1.0)
     pub opacity: f32,     // Opacity for frosted glass (0.0-1.0)
-    pub _padding: [f32; 2], // Padding to align to 16 bytes
+    pub _padding: [f32; 3], // Padding to align to 16 bytes
 }
 
 impl ComponentConfig {
@@ -188,6 +188,7 @@ impl Component {
             requires_children_extraction: false,
             is_clickable: false,
             is_draggable: false,
+            requires_frame_capture: false,
         }
     }
 
@@ -422,17 +423,16 @@ impl Component {
         let size = [bounds.size.width, bounds.size.height];
 
         // Get color and frosted glass parameters if available
-        let (color, blur_radius, noise_amount, opacity) = match &self.config {
+        let (color, blur_radius, opacity) = match &self.config {
             Some(ComponentConfig::BackgroundColor(BackgroundColorConfig { color })) => {
-                (color.value(), 0.0, 0.0, 1.0)
+                (color.value(), 0.0, 1.0)
             }
             Some(ComponentConfig::FrostedGlass(FrostedGlassConfig {
                 tint_color,
                 blur_radius,
-                noise_amount,
                 opacity,
-            })) => (tint_color.value(), *blur_radius, *noise_amount, *opacity),
-            _ => (default_color, 0.0, 0.0, 1.0),
+            })) => (tint_color.value(), *blur_radius, *opacity),
+            _ => (default_color, 0.0, 1.0),
         };
 
         let border_radius = self.transform.border_radius.values();
@@ -445,9 +445,35 @@ impl Component {
             screen_size: [self.screen_size.width, self.screen_size.height],
             use_texture: 0, // Default to color mode
             blur_radius,
-            noise_amount,
             opacity,
-            _padding: [0.0, 0.0],
+            _padding: [0.0; 3],
         }
+    }
+
+    pub fn set_requires_frame_capture(&mut self, requires_frame_capture: bool) {
+        self.requires_frame_capture = requires_frame_capture;
+    }
+
+    pub fn requires_frame_capture(&self) -> bool {
+        self.requires_frame_capture
+    }
+
+    pub fn get_sampler(&self) -> Option<&wgpu::Sampler> {
+        self.metadata.iter().find_map(|m| match m {
+            ComponentMetaData::Sampler(sampler) => Some(sampler),
+            _ => None,
+        })
+    }
+
+    pub fn update_bind_group(&mut self, new_bind_group: wgpu::BindGroup) {
+        for metadata in &mut self.metadata {
+            if let ComponentMetaData::BindGroup(_) = metadata {
+                *metadata = ComponentMetaData::BindGroup(new_bind_group);
+                return;
+            }
+        }
+        // If we didn't find an existing bind group, add a new one
+        self.metadata
+            .push(ComponentMetaData::BindGroup(new_bind_group));
     }
 }
