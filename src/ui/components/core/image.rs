@@ -164,24 +164,6 @@ pub struct ImageMetadata {
     pub scale_mode: ScaleMode,
 }
 
-impl Component {
-    pub fn get_image_metadata(&self) -> Option<&ImageMetadata> {
-        self.metadata.iter().find_map(|m| match m {
-            ComponentMetaData::ImageMetadata(metadata) => Some(metadata),
-            _ => None,
-        })
-    }
-}
-
-impl ComponentMetaData {
-    pub fn image_metadata(&self) -> Option<&ImageMetadata> {
-        match self {
-            ComponentMetaData::ImageMetadata(metadata) => Some(metadata),
-            _ => None,
-        }
-    }
-}
-
 impl Renderable for ImageComponent {
     fn draw(
         component: &mut Component,

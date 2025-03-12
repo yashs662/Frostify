@@ -3,18 +3,19 @@ use crate::{
     color::Color,
     constants::WINDOW_CONTROL_BUTTON_SIZE,
     ui::{
-        component::{Component, ComponentConfig, ComponentMetaData, ComponentType, ImageConfig},
+        component::{Component, ComponentConfig, ComponentMetaData, ImageConfig},
         components::{
             button::{ButtonBackground, ButtonBuilder},
             container::FlexContainerBuilder,
             image::{ImageBuilder, ScaleMode},
             label::LabelBuilder,
         },
-        layout::{Anchor, FlexValue, Position},
+        layout::{Anchor, FlexValue},
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use component::{BackgroundGradientConfig, GradientColorStop, GradientType};
+use component::GradientColorStop;
+use components::background::BackgroundBuilder;
 use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -57,34 +58,93 @@ pub fn create_app_ui(
         .build();
 
     // Background
-    let background_id = uuid::Uuid::new_v4();
-    let mut background = Component::new(background_id, ComponentType::BackgroundGradient);
-    background.set_debug_name("Background");
-    background.configure(
-        ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
-            color_stops: vec![
-                GradientColorStop {
-                    color: Color::Cyan,
-                    position: 0.0,
-                },
-                GradientColorStop {
-                    color: Color::Maroon.lighten(0.2),
-                    position: 0.3,
-                },
-                GradientColorStop {
-                    color: Color::Black,
-                    position: 0.5,
-                },
-            ],
-            gradient_type: GradientType::Radial,
-            angle: 0.0,
-            center: Some((1.0, 0.0)),
-            radius: Some(1.8),
-        }),
-        wgpu_ctx,
-    );
-    background.transform.position_type = Position::Absolute(Anchor::TopLeft);
+    let background = BackgroundBuilder::with_radial_gradient(
+        vec![
+            GradientColorStop {
+                color: Color::Cyan,
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::Cyan,
+                position: 0.3,
+            },
+            GradientColorStop {
+                color: Color::Red,
+                position: 0.3,
+            },
+            GradientColorStop {
+                color: Color::Black,
+                position: 0.7,
+            },
+        ],
+        (1.0, 0.0),
+        1.6,
+    )
+    .with_debug_name("Background")
+    .with_fixed_position(Anchor::Center)
+    .build(wgpu_ctx);
 
+    // Create nav bar using the extracted function
+    let nav_bar_container = create_nav_bar(wgpu_ctx, event_tx.clone(), main_container_id);
+
+    // Content container
+    let mut content_container = FlexContainerBuilder::new()
+        .with_debug_name("Content Container")
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .with_padding(Edges::all(20.0))
+        .with_parent(main_container_id)
+        .build();
+
+    // text with fixed size
+    let text = LabelBuilder::new("Test Text render")
+        .with_size(200.0, 50.0)
+        .with_debug_name("text")
+        .with_color(Color::Black)
+        .with_font_size(16.0)
+        .build(wgpu_ctx);
+
+    // Content image using the new ImageBuilder
+    let image = ImageBuilder::new("test.png")
+        .with_size(200.0, 150.0)
+        .with_uniform_border_radius(8.0)
+        .with_debug_name("Content Image")
+        .with_margin(Edges::all(10.0))
+        .build(wgpu_ctx);
+
+    // Example button with gradient background
+    let test_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Color(Color::Blue.darken(0.2)))
+        .with_text("Click Me")
+        .with_text_color(Color::White)
+        .with_size(150.0, 50.0)
+        .with_font_size(20.0)
+        .with_debug_name("Button test")
+        .with_border_radius(BorderRadius::all(5.0))
+        .with_click_event(AppEvent::PrintMessage("Button clicked!".to_string()))
+        .with_event_sender(event_tx.clone())
+        .build(wgpu_ctx);
+
+    // Add elements to the content container
+    content_container.add_child(test_button);
+    content_container.add_child(text);
+    content_container.add_child(image);
+
+    // Add children to the main container
+    main_container.add_child(background);
+    main_container.add_child(nav_bar_container);
+    main_container.add_child(content_container);
+
+    // Add components in the correct order
+    layout_context.add_component(main_container);
+}
+
+fn create_nav_bar(
+    wgpu_ctx: &mut WgpuCtx,
+    event_tx: UnboundedSender<AppEvent>,
+    parent_id: uuid::Uuid,
+) -> Component {
     // Nav bar container
     let mut nav_bar_container = FlexContainerBuilder::new()
         .with_debug_name("Nav Bar Container")
@@ -93,7 +153,7 @@ pub fn create_app_ui(
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::End)
         .with_padding(Edges::all(10.0))
-        .with_parent(main_container_id)
+        .with_parent(parent_id)
         .with_drag_event(AppEvent::DragWindow)
         .with_event_sender(event_tx.clone())
         .build();
@@ -144,45 +204,6 @@ pub fn create_app_ui(
         .with_event_sender(event_tx.clone())
         .build(wgpu_ctx);
 
-    // Content container
-    let mut content_container = FlexContainerBuilder::new()
-        .with_debug_name("Content Container")
-        .with_direction(FlexDirection::Row)
-        .with_align_items(AlignItems::Center)
-        .with_justify_content(JustifyContent::Center)
-        .with_padding(Edges::all(20.0))
-        .with_parent(main_container_id)
-        .build();
-
-    // text with fixed size
-    let text = LabelBuilder::new("Test Text render")
-        .with_size(200.0, 50.0)
-        .with_debug_name("text")
-        .with_color(Color::Black)
-        .with_font_size(16.0)
-        .build(wgpu_ctx);
-
-    // Content image using the new ImageBuilder
-    let image = ImageBuilder::new("test.png")
-        .with_size(200.0, 150.0)
-        .with_uniform_border_radius(8.0)
-        .with_debug_name("Content Image")
-        .with_margin(Edges::all(10.0))
-        .build(wgpu_ctx);
-
-    // Example button with gradient background
-    let test_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Color(Color::Blue.darken(0.2)))
-        .with_text("Click Me")
-        .with_text_color(Color::White)
-        .with_size(150.0, 50.0)
-        .with_font_size(20.0)
-        .with_debug_name("Button test")
-        .with_border_radius(BorderRadius::all(5.0))
-        .with_click_event(AppEvent::PrintMessage("Button clicked!".to_string()))
-        .with_event_sender(event_tx.clone())
-        .build(wgpu_ctx);
-
     // Add children to the nav buttons container
     nav_buttons_container.add_child(minimize_button);
     nav_buttons_container.add_child(maximize_button);
@@ -191,16 +212,5 @@ pub fn create_app_ui(
     // Add children to the nav bar container
     nav_bar_container.add_child(nav_buttons_container);
 
-    // Add elements to the content container
-    content_container.add_child(test_button);
-    content_container.add_child(text);
-    content_container.add_child(image);
-
-    // Add children to the main container
-    main_container.add_child(background);
-    main_container.add_child(nav_bar_container);
-    main_container.add_child(content_container);
-
-    // Add components in the correct order
-    layout_context.add_component(main_container);
+    nav_bar_container
 }

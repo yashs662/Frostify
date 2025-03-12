@@ -51,8 +51,8 @@ impl Configurable for BackgroundGradientComponent {
             gradient_config.angle,
             gradient_config.center,
             gradient_config.radius,
-            512, // Width of texture
-            512, // Height of texture
+            1024,
+            1024,
         );
 
         // Create a sampler for the gradient texture
@@ -63,6 +63,7 @@ impl Configurable for BackgroundGradientComponent {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
+            anisotropy_clamp: 16, // Enable anisotropic filtering for sharper edges
             ..Default::default()
         });
 

@@ -335,6 +335,13 @@ impl Component {
         self.metadata.iter().find_map(matcher)
     }
 
+    pub fn get_image_metadata(&self) -> Option<&ImageMetadata> {
+        self.metadata.iter().find_map(|m| match m {
+            ComponentMetaData::ImageMetadata(metadata) => Some(metadata),
+            _ => None,
+        })
+    }
+
     pub fn get_render_data_buffer(&self) -> Option<&wgpu::Buffer> {
         self.get_metadata(|m| match m {
             ComponentMetaData::RenderDataBuffer(buf) => Some(buf),
