@@ -15,29 +15,10 @@ pub struct FrostedGlassComponent;
 impl Configurable for FrostedGlassComponent {
     fn configure(
         component: &mut Component,
-        config: ComponentConfig,
+        _config: ComponentConfig,
         wgpu_ctx: &mut WgpuCtx,
     ) -> Vec<ComponentMetaData> {
-        // Extract the frosted glass configuration
-        let frosted_config = match config.clone().get_frosted_glass_config() {
-            Some(config) => config,
-            None => {
-                error!("Expected frosted glass config for FrostedGlassComponent");
-                return Vec::new();
-            }
-        };
-
-        // Create component uniform data with frosted glass mode enabled (use_texture = 2)
-        let mut component_data = component.get_render_data(Bounds::default());
-        component_data.use_texture = 2; // Special value to enable frosted glass mode in shader
-
-        // Apply blur with a proper scale for visual effect (0-10 represents intensity percentage)
-        component_data.blur_radius = frosted_config.blur_radius.clamp(0.0, 10.0);
-        component_data.opacity = frosted_config.opacity.clamp(0.0, 1.0);
-
-        // Make sure we're using the correct color value from the config
-        component_data.color = frosted_config.tint_color.value();
-
+        let component_data = component.get_render_data(Bounds::default());
         // Create the buffer for component data
         let render_data_buffer =
             wgpu_ctx
@@ -58,8 +39,6 @@ impl Configurable for FrostedGlassComponent {
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
             anisotropy_clamp: 16, // Enable high-quality anisotropic filtering
-            lod_min_clamp: 0.0,
-            lod_max_clamp: 32.0, // Allow full mipmap range
             compare: None,
             ..Default::default()
         });
@@ -175,26 +154,11 @@ impl Renderable for FrostedGlassComponent {
 
 impl Positionable for FrostedGlassComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
-        let mut component_data = component.get_render_data(bounds);
-
-        // Ensure frosted glass mode is enabled and blur parameters are preserved
-        component_data.use_texture = 2;
-
-        // If we have explicit blur settings in the config, ensure they're applied
-        if let Some(ComponentConfig::FrostedGlass(frosted_config)) = &component.config {
-            // Re-apply the blur settings to ensure they're not lost during positioning
-            component_data.blur_radius = frosted_config.blur_radius.clamp(0.0, 10.0);
-            component_data.opacity = frosted_config.opacity.clamp(0.0, 1.0);
-
-            // Ensure correct color is applied
-            component_data.color = frosted_config.tint_color.value();
-        }
-
         if let Some(render_data_buffer) = component.get_render_data_buffer() {
             wgpu_ctx.queue.write_buffer(
                 render_data_buffer,
                 0,
-                bytemuck::cast_slice(&[component_data]),
+                bytemuck::cast_slice(&[component.get_render_data(bounds)]),
             );
         }
     }

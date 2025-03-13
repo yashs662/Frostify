@@ -145,13 +145,11 @@ impl Renderable for BackgroundColorComponent {
 
 impl Positionable for BackgroundColorComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
-        let component_data = component.get_render_data(bounds);
-        // Update render data buffer
         if let Some(render_data_buffer) = component.get_render_data_buffer() {
             wgpu_ctx.queue.write_buffer(
                 render_data_buffer,
                 0,
-                bytemuck::cast_slice(&[component_data]),
+                bytemuck::cast_slice(&[component.get_render_data(bounds)]),
             );
         }
     }

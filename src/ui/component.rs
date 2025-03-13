@@ -25,6 +25,23 @@ use super::{
     layout::BorderRadius,
 };
 
+/// Defines the position of the border relative to the component edges
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BorderPosition {
+    /// Border drawn inside the component's bounds
+    Inside,
+    /// Border straddles the component's edges (default)
+    Center,
+    /// Border drawn outside the component's bounds
+    Outside,
+}
+
+impl Default for BorderPosition {
+    fn default() -> Self {
+        Self::Center
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Component {
     pub id: Uuid,
@@ -41,6 +58,9 @@ pub struct Component {
     is_clickable: bool,
     is_draggable: bool,
     requires_frame_capture: bool,
+    pub border_width: f32,
+    pub border_color: Color,
+    pub border_position: BorderPosition,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -127,14 +147,18 @@ pub struct FrostedGlassConfig {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ComponentBufferData {
     pub color: [f32; 4],
-    pub location: [f32; 2],
-    pub size: [f32; 2],
-    pub border_radius: [f32; 4],
-    pub screen_size: [f32; 2],
-    pub use_texture: u32, // Flag: 1 if using texture, 0 if using color, 2 for frosted glass
-    pub blur_radius: f32, // Blur amount for frosted glass (0-10)
-    pub opacity: f32,     // Opacity for frosted glass (0.0-1.0)
-    pub _padding: [f32; 3], // Padding to align to 16 bytes
+    pub position: [f32; 2],      // Position in pixels (top-left corner)
+    pub size: [f32; 2],          // Size in pixels (width, height)
+    pub border_radius: [f32; 4], // Corner radii in pixels (top-left, top-right, bottom-left, bottom-right)
+    pub screen_size: [f32; 2],   // Viewport dimensions in pixels
+    pub use_texture: u32,        // Flag: 0 for color, 1 for texture, 2 for frosted glass
+    pub blur_radius: f32,        // Blur amount for frosted glass (0-10)
+    pub opacity: f32,            // Overall opacity for frosted glass (0.0-1.0)
+    pub _padding: [f32; 3],
+    pub border_color: [f32; 4], // Border color
+    pub border_width: f32,      // Border thickness in pixels
+    pub border_position: u32,   // Border position: 0=inside, 1=center, 2=outside
+    pub _padding2: [f32; 2],
 }
 
 impl ComponentConfig {
@@ -190,6 +214,9 @@ impl Component {
             is_clickable: false,
             is_draggable: false,
             requires_frame_capture: false,
+            border_width: 0.0,
+            border_color: Color::Transparent,
+            border_position: BorderPosition::default(),
         }
     }
 
@@ -420,7 +447,7 @@ impl Component {
 
     pub fn get_render_data(&self, bounds: Bounds) -> ComponentBufferData {
         let default_color = [1.0, 0.0, 1.0, 1.0];
-        let location = [bounds.position.x, bounds.position.y];
+        let position = [bounds.position.x, bounds.position.y];
         let size = [bounds.size.width, bounds.size.height];
 
         // Get color and frosted glass parameters if available
@@ -436,18 +463,35 @@ impl Component {
             _ => (default_color, 0.0, 1.0),
         };
 
+        let use_texture = match &self.config {
+            Some(ComponentConfig::BackgroundGradient(_)) | Some(ComponentConfig::Image(_)) => 1,
+            Some(ComponentConfig::FrostedGlass(_)) => 2,
+            _ => 0,
+        };
+
         let border_radius = self.transform.border_radius.values();
+
+        // Convert border position enum to u32 for shader
+        let border_position_value = match self.border_position {
+            BorderPosition::Inside => 0u32,
+            BorderPosition::Center => 1u32,
+            BorderPosition::Outside => 2u32,
+        };
 
         ComponentBufferData {
             color,
-            location,
+            position,
             size,
             border_radius,
             screen_size: [self.screen_size.width, self.screen_size.height],
-            use_texture: 0, // Default to color mode
+            use_texture,
             blur_radius,
             opacity,
             _padding: [0.0; 3],
+            border_color: self.border_color.value(),
+            border_width: self.border_width,
+            border_position: border_position_value,
+            _padding2: [0.0; 2],
         }
     }
 
@@ -476,5 +520,9 @@ impl Component {
         // If we didn't find an existing bind group, add a new one
         self.metadata
             .push(ComponentMetaData::BindGroup(new_bind_group));
+    }
+
+    pub fn set_border_position(&mut self, position: BorderPosition) {
+        self.border_position = position;
     }
 }

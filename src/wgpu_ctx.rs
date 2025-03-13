@@ -395,8 +395,12 @@ impl<'window> WgpuCtx<'window> {
                     );
 
                     let components_to_render = render_order[last_idx..start_idx].to_vec();
-                    self.text_handler
-                        .render(&self.device, &self.queue, &mut render_pass, components_to_render);
+                    self.text_handler.render(
+                        &self.device,
+                        &self.queue,
+                        &mut render_pass,
+                        components_to_render,
+                    );
                 }
             }
 
@@ -466,8 +470,12 @@ impl<'window> WgpuCtx<'window> {
                 render_order.len(),
             );
             let components_to_render = render_order[last_idx..].to_vec();
-            self.text_handler
-                .render(&self.device, &self.queue, &mut final_pass, components_to_render);
+            self.text_handler.render(
+                &self.device,
+                &self.queue,
+                &mut final_pass,
+                components_to_render,
+            );
         }
     }
 }

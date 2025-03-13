@@ -43,6 +43,7 @@ pub enum Color {
     Yellow,
     YellowGreen,
     Custom([f32; 4]),
+    Transparent,
 }
 
 #[allow(dead_code)]
@@ -87,6 +88,7 @@ impl Color {
             Color::Yellow => [1.0, 1.0, 0.0, 1.0],
             Color::YellowGreen => [0.6, 0.8, 0.2, 1.0],
             Color::Custom(color) => color,
+            Color::Transparent => [0.0, 0.0, 0.0, 0.0],
         }
     }
 

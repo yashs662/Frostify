@@ -2,8 +2,8 @@ use crate::{
     color::Color,
     ui::{
         component::{
-            BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
-            ComponentType, FrostedGlassConfig, GradientColorStop, GradientType,
+            BackgroundColorConfig, BackgroundGradientConfig, BorderPosition, Component,
+            ComponentConfig, ComponentType, FrostedGlassConfig, GradientColorStop, GradientType,
         },
         layout::{Anchor, BorderRadius, Edges, FlexValue, Position},
     },
@@ -22,6 +22,9 @@ pub struct BackgroundBuilder {
     padding: Option<Edges>,
     z_index: Option<i32>,
     debug_name: Option<String>,
+    border_width: Option<f32>,
+    border_color: Option<Color>,
+    border_position: Option<BorderPosition>,
 }
 
 /// Types of background supported by the builder
@@ -59,6 +62,9 @@ impl BackgroundBuilder {
             padding: None,
             z_index: None,
             debug_name: None,
+            border_width: None,
+            border_color: None,
+            border_position: None,
         }
     }
 
@@ -80,6 +86,9 @@ impl BackgroundBuilder {
             padding: None,
             z_index: None,
             debug_name: None,
+            border_width: None,
+            border_color: None,
+            border_position: None,
         }
     }
 
@@ -105,6 +114,9 @@ impl BackgroundBuilder {
             padding: None,
             z_index: None,
             debug_name: None,
+            border_width: None,
+            border_color: None,
+            border_position: None,
         }
     }
 
@@ -124,6 +136,9 @@ impl BackgroundBuilder {
             padding: None,
             z_index: None,
             debug_name: None,
+            border_width: None,
+            border_color: None,
+            border_position: None,
         }
     }
 
@@ -194,6 +209,27 @@ impl BackgroundBuilder {
         self
     }
 
+    /// Set both border width and color in one call
+    pub fn with_border(mut self, width: f32, color: Color) -> Self {
+        self.border_width = Some(width);
+        self.border_color = Some(color);
+        self
+    }
+
+    /// Set border width, color, and position
+    pub fn with_border_full(mut self, width: f32, color: Color, position: BorderPosition) -> Self {
+        self.border_width = Some(width);
+        self.border_color = Some(color);
+        self.border_position = Some(position);
+        self
+    }
+
+    /// Set the border position
+    pub fn with_border_position(mut self, position: BorderPosition) -> Self {
+        self.border_position = Some(position);
+        self
+    }
+
     /// Build and return the configured background component
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         let id = Uuid::new_v4();
@@ -239,6 +275,18 @@ impl BackgroundBuilder {
 
         if let Some(padding) = self.padding {
             component.layout.padding = padding;
+        }
+
+        if let Some(border_width) = self.border_width {
+            component.border_width = border_width;
+        }
+
+        if let Some(border_color) = self.border_color {
+            component.border_color = border_color;
+        }
+
+        if let Some(border_position) = self.border_position {
+            component.set_border_position(border_position);
         }
 
         // Configure the background based on the specified type
@@ -291,5 +339,12 @@ impl BackgroundBuilder {
 impl From<f32> for FlexValue {
     fn from(value: f32) -> Self {
         FlexValue::Fixed(value)
+    }
+}
+
+// Implement From<i32> for FlexValue to allow for convenient conversions
+impl From<i32> for FlexValue {
+    fn from(value: i32) -> Self {
+        FlexValue::Fixed(value as f32)
     }
 }

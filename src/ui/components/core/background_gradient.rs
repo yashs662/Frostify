@@ -29,8 +29,7 @@ impl Configurable for BackgroundGradientComponent {
         };
 
         // Create component uniform data with texture mode enabled
-        let mut component_data = component.get_render_data(Bounds::default());
-        component_data.use_texture = 1; // Enable texture mode for the shader
+        let component_data = component.get_render_data(Bounds::default());
 
         // Create the buffer for component data
         let render_data_buffer =
@@ -133,16 +132,11 @@ impl Renderable for BackgroundGradientComponent {
 
 impl Positionable for BackgroundGradientComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
-        let mut component_data = component.get_render_data(bounds);
-
-        // Ensure texture mode is enabled
-        component_data.use_texture = 1;
-
         if let Some(render_data_buffer) = component.get_render_data_buffer() {
             wgpu_ctx.queue.write_buffer(
                 render_data_buffer,
                 0,
-                bytemuck::cast_slice(&[component_data]),
+                bytemuck::cast_slice(&[component.get_render_data(bounds)]),
             );
         }
     }

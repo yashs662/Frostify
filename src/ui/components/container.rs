@@ -1,7 +1,8 @@
 use crate::{
     app::AppEvent,
+    color::Color,
     ui::{
-        component::{Component, ComponentType},
+        component::{BorderPosition, Component, ComponentType},
         layout::{
             AlignItems, Edges, FlexDirection, FlexValue, FlexWrap, JustifyContent, Layout, Position,
         },
@@ -27,6 +28,9 @@ pub struct FlexContainerConfig {
     pub click_event: Option<AppEvent>,
     pub drag_event: Option<AppEvent>,
     pub event_sender: Option<UnboundedSender<AppEvent>>,
+    pub border_width: Option<f32>,
+    pub border_color: Option<Color>,
+    pub border_position: Option<BorderPosition>,
 }
 
 impl Default for FlexContainerConfig {
@@ -47,6 +51,9 @@ impl Default for FlexContainerConfig {
             click_event: None,
             drag_event: None,
             event_sender: None,
+            border_width: None,
+            border_color: None,
+            border_position: None,
         }
     }
 }
@@ -144,6 +151,24 @@ impl FlexContainerBuilder {
         self
     }
 
+    pub fn with_border(mut self, width: f32, color: Color) -> Self {
+        self.config.border_width = Some(width);
+        self.config.border_color = Some(color);
+        self
+    }
+
+    pub fn with_border_full(mut self, width: f32, color: Color, position: BorderPosition) -> Self {
+        self.config.border_width = Some(width);
+        self.config.border_color = Some(color);
+        self.config.border_position = Some(position);
+        self
+    }
+
+    pub fn with_border_position(mut self, position: BorderPosition) -> Self {
+        self.config.border_position = Some(position);
+        self
+    }
+
     pub fn build(self) -> Component {
         create_flex_container(self.config)
     }
@@ -191,6 +216,15 @@ fn create_flex_container(config: FlexContainerConfig) -> Component {
     }
     if let Some(position) = config.position {
         container.transform.position_type = position;
+    }
+    if let Some(width) = config.border_width {
+        container.border_width = width;
+    }
+    if let Some(color) = config.border_color {
+        container.border_color = color;
+    }
+    if let Some(position) = config.border_position {
+        container.set_border_position(position);
     }
 
     container

@@ -3,9 +3,9 @@ use crate::{
     color::Color,
     ui::{
         component::{
-            BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
-            ComponentType, FrostedGlassConfig, GradientColorStop, GradientType, ImageConfig,
-            TextConfig,
+            BackgroundColorConfig, BackgroundGradientConfig, BorderPosition, Component,
+            ComponentConfig, ComponentType, FrostedGlassConfig, GradientColorStop, GradientType,
+            ImageConfig, TextConfig,
         },
         layout::{Anchor, BorderRadius, Edges, FlexValue, Position},
     },
@@ -51,6 +51,9 @@ pub struct ButtonConfig {
     pub click_event: Option<AppEvent>,
     pub event_sender: Option<UnboundedSender<AppEvent>>,
     pub z_index: Option<i32>,
+    pub border_width: Option<f32>,
+    pub border_color: Option<Color>,
+    pub border_position: Option<BorderPosition>,
 }
 
 impl Default for ButtonConfig {
@@ -68,6 +71,9 @@ impl Default for ButtonConfig {
             click_event: None,
             event_sender: None,
             z_index: None,
+            border_width: None,
+            border_color: None,
+            border_position: None,
         }
     }
 }
@@ -135,6 +141,24 @@ impl ButtonBuilder {
         self
     }
 
+    pub fn with_border(mut self, width: f32, color: Color) -> Self {
+        self.config.border_width = Some(width);
+        self.config.border_color = Some(color);
+        self
+    }
+
+    pub fn with_border_full(mut self, width: f32, color: Color, position: BorderPosition) -> Self {
+        self.config.border_width = Some(width);
+        self.config.border_color = Some(color);
+        self.config.border_position = Some(position);
+        self
+    }
+
+    pub fn with_border_position(mut self, position: BorderPosition) -> Self {
+        self.config.border_position = Some(position);
+        self
+    }
+
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         create_button(wgpu_ctx, self.config)
     }
@@ -179,6 +203,15 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);
             }
+            if let Some(border_width) = config.border_width {
+                bg.border_width = border_width;
+            }
+            if let Some(border_color) = config.border_color {
+                bg.border_color = border_color;
+            }
+            if let Some(border_position) = config.border_position {
+                bg.set_border_position(border_position);
+            }
             bg.configure(
                 ComponentConfig::BackgroundColor(BackgroundColorConfig { color }),
                 wgpu_ctx,
@@ -199,6 +232,15 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.set_z_index(0);
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);
+            }
+            if let Some(border_width) = config.border_width {
+                bg.border_width = border_width;
+            }
+            if let Some(border_color) = config.border_color {
+                bg.border_color = border_color;
+            }
+            if let Some(border_position) = config.border_position {
+                bg.set_border_position(border_position);
             }
             bg.configure(
                 ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
@@ -221,6 +263,15 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);
             }
+            if let Some(border_width) = config.border_width {
+                bg.border_width = border_width;
+            }
+            if let Some(border_color) = config.border_color {
+                bg.border_color = border_color;
+            }
+            if let Some(border_position) = config.border_position {
+                bg.set_border_position(border_position);
+            }
             bg.configure(ComponentConfig::Image(img_config), wgpu_ctx);
             container.add_child(bg);
         }
@@ -236,6 +287,15 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             bg.set_z_index(0);
             if let Some(radius) = config.border_radius {
                 bg.set_border_radius(radius);
+            }
+            if let Some(border_width) = config.border_width {
+                bg.border_width = border_width;
+            }
+            if let Some(border_color) = config.border_color {
+                bg.border_color = border_color;
+            }
+            if let Some(border_position) = config.border_position {
+                bg.set_border_position(border_position);
             }
             bg.configure(
                 ComponentConfig::FrostedGlass(FrostedGlassConfig {

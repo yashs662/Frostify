@@ -3,7 +3,7 @@ use crate::{
     img_utils::RgbaImg,
     ui::{
         Configurable, Positionable, Renderable,
-        component::{Component, ComponentBufferData, ComponentConfig, ComponentMetaData},
+        component::{Component, ComponentConfig, ComponentMetaData},
         components::image::ScaleMode,
         layout::Bounds,
     },
@@ -90,21 +90,7 @@ impl Configurable for ImageComponent {
             ..Default::default()
         });
 
-        // Create the render data buffer with component uniform data
-        let component_data = ComponentBufferData {
-            color: [1.0, 1.0, 1.0, 1.0], // White color to preserve original texture colors
-            location: [0.0, 0.0],        // Will be updated in set_position
-            size: [0.0, 0.0],            // Will be updated in set_position
-            border_radius: component.transform.border_radius.values(),
-            screen_size: [
-                wgpu_ctx.surface_config.width as f32,
-                wgpu_ctx.surface_config.height as f32,
-            ],
-            use_texture: 1, // Enable texture sampling
-            blur_radius: 0.0,
-            opacity: 1.0,
-            _padding: [0.0; 3],
-        };
+        let component_data = component.get_render_data(Bounds::default());
 
         let render_data_buffer =
             wgpu_ctx
@@ -204,7 +190,7 @@ impl Positionable for ImageComponent {
                 let container_height = bounds.size.height;
 
                 // Store the original bounds position for later restoration
-                let original_position = [component_data.location[0], component_data.location[1]];
+                let original_position = [component_data.position[0], component_data.position[1]];
 
                 // Apply scaling calculations based on scale_mode
                 match metadata.scale_mode {
@@ -221,13 +207,13 @@ impl Positionable for ImageComponent {
                             let new_height = container_width / original_aspect;
                             let y_offset = (container_height - new_height) / 2.0;
                             component_data.size[1] = new_height;
-                            component_data.location[1] += y_offset;
+                            component_data.position[1] += y_offset;
                         } else {
                             // Image is taller than container (relative to width)
                             let new_width = container_height * original_aspect;
                             let x_offset = (container_width - new_width) / 2.0;
                             component_data.size[0] = new_width;
-                            component_data.location[0] += x_offset;
+                            component_data.position[0] += x_offset;
                         }
                     }
                     ScaleMode::Cover => {
@@ -256,7 +242,7 @@ impl Positionable for ImageComponent {
 
                         // Store the scaled dimensions for the shader's texture calculations
                         component_data.size = [scaled_width, scaled_height];
-                        component_data.location = [
+                        component_data.position = [
                             original_position[0] + x_offset,
                             original_position[1] + y_offset,
                         ];
@@ -273,8 +259,8 @@ impl Positionable for ImageComponent {
                             let y_offset = (container_height - original_height) / 2.0;
                             component_data.size[0] = original_width;
                             component_data.size[1] = original_height;
-                            component_data.location[0] += x_offset;
-                            component_data.location[1] += y_offset;
+                            component_data.position[0] += x_offset;
+                            component_data.position[1] += y_offset;
                         } else {
                             // If the image is larger than the container, use contain logic
                             let original_aspect = original_width / original_height;
@@ -284,20 +270,17 @@ impl Positionable for ImageComponent {
                                 component_data.size[0] = container_width;
                                 component_data.size[1] = container_width / original_aspect;
                                 let y_offset = (container_height - component_data.size[1]) / 2.0;
-                                component_data.location[1] += y_offset;
+                                component_data.position[1] += y_offset;
                             } else {
                                 component_data.size[1] = container_height;
                                 component_data.size[0] = container_height * original_aspect;
                                 let x_offset = (container_width - component_data.size[0]) / 2.0;
-                                component_data.location[0] += x_offset;
+                                component_data.position[0] += x_offset;
                             }
                         }
                     }
                 }
             }
-
-            // Make sure texture flag is set
-            component_data.use_texture = 1;
 
             wgpu_ctx.queue.write_buffer(
                 render_data_buffer,

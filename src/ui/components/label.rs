@@ -1,7 +1,7 @@
 use crate::{
     color::Color,
     ui::{
-        component::{Component, ComponentConfig, ComponentType, TextConfig},
+        component::{BorderPosition, Component, ComponentConfig, ComponentType, TextConfig},
         layout::{Anchor, Edges, FlexValue, Position},
     },
     wgpu_ctx::WgpuCtx,
@@ -20,6 +20,9 @@ pub struct LabelBuilder {
     padding: Option<Edges>,
     z_index: Option<i32>,
     debug_name: Option<String>,
+    border_width: Option<f32>,
+    border_color: Option<Color>,
+    border_position: Option<BorderPosition>,
 }
 
 #[allow(dead_code)]
@@ -37,6 +40,9 @@ impl LabelBuilder {
             padding: None,
             z_index: None,
             debug_name: None,
+            border_width: None,
+            border_color: None,
+            border_position: None,
         }
     }
 
@@ -114,6 +120,27 @@ impl LabelBuilder {
         self
     }
 
+    /// Set both border width and color in one call
+    pub fn with_border(mut self, width: f32, color: Color) -> Self {
+        self.border_width = Some(width);
+        self.border_color = Some(color);
+        self
+    }
+
+    /// Set border width, color, and position in one call
+    pub fn with_border_full(mut self, width: f32, color: Color, position: BorderPosition) -> Self {
+        self.border_width = Some(width);
+        self.border_color = Some(color);
+        self.border_position = Some(position);
+        self
+    }
+
+    /// Set the border position
+    pub fn with_border_position(mut self, position: BorderPosition) -> Self {
+        self.border_position = Some(position);
+        self
+    }
+
     /// Build and return the configured text label component
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         let id = Uuid::new_v4();
@@ -145,6 +172,18 @@ impl LabelBuilder {
 
         if let Some(padding) = self.padding {
             component.layout.padding = padding;
+        }
+
+        if let Some(border_width) = self.border_width {
+            component.border_width = border_width;
+        }
+
+        if let Some(border_color) = self.border_color {
+            component.border_color = border_color;
+        }
+
+        if let Some(border_position) = self.border_position {
+            component.set_border_position(border_position);
         }
 
         // Configure the text properties
