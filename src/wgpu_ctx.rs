@@ -246,8 +246,12 @@ impl<'window> WgpuCtx<'window> {
         });
 
         layout_context.draw(&mut render_pass, &mut self.app_pipelines);
-        self.text_handler
-            .render(&self.device, &self.queue, &mut render_pass);
+        self.text_handler.render(
+            &self.device,
+            &self.queue,
+            &mut render_pass,
+            layout_context.get_render_order().to_vec(),
+        );
     }
 
     fn staged_render_pass(
@@ -326,8 +330,13 @@ impl<'window> WgpuCtx<'window> {
                         last_idx,
                         start_idx,
                     );
-                    self.text_handler
-                        .render(&self.device, &self.queue, &mut capture_pass);
+                    let components_to_render = render_order[last_idx..start_idx].to_vec();
+                    self.text_handler.render(
+                        &self.device,
+                        &self.queue,
+                        &mut capture_pass,
+                        components_to_render,
+                    );
                 }
 
                 // Step 2: Copy the captured frame to the sample texture
@@ -384,8 +393,10 @@ impl<'window> WgpuCtx<'window> {
                         last_idx,
                         start_idx,
                     );
+
+                    let components_to_render = render_order[last_idx..start_idx].to_vec();
                     self.text_handler
-                        .render(&self.device, &self.queue, &mut render_pass);
+                        .render(&self.device, &self.queue, &mut render_pass, components_to_render);
                 }
             }
 
@@ -454,8 +465,9 @@ impl<'window> WgpuCtx<'window> {
                 last_idx,
                 render_order.len(),
             );
+            let components_to_render = render_order[last_idx..].to_vec();
             self.text_handler
-                .render(&self.device, &self.queue, &mut final_pass);
+                .render(&self.device, &self.queue, &mut final_pass, components_to_render);
         }
     }
 }

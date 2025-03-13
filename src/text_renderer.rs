@@ -176,12 +176,14 @@ impl TextHandler {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         render_pass: &mut wgpu::RenderPass<'a>,
+        components_to_draw: Vec<Uuid>,
     ) {
         let text_areas = self
             .buffers
             .buffers
-            .values()
-            .map(|text_render_data| glyphon::TextArea {
+            .iter()
+            .filter(|(id, _)| components_to_draw.contains(id))
+            .map(|(_, text_render_data)| glyphon::TextArea {
                 buffer: &text_render_data.buffer,
                 left: text_render_data.bounds.position.x,
                 top: text_render_data.bounds.position.y,
