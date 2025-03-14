@@ -1,8 +1,8 @@
 use crate::{
-    color::Color,
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
         Configurable, Positionable, Renderable,
+        color::Color,
         component::{Component, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },

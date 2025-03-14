@@ -166,9 +166,6 @@ fn check_corner(pixel_coords: vec2<f32>) -> vec4<f32> {
     
     // Check top-left corner region
     let tl_center = vec2<f32>(corners[0].x, corners[0].y);
-    let tl_outer_radius = corners[0].w;
-    
-    // Calculate distance from corner center
     let tl_dist = distance(pixel_coords, tl_center);
     
     // Check if we're in the corner's detection region
@@ -309,37 +306,124 @@ fn get_content_color(pixel_coords: vec2<f32>, tex_coords: vec2<f32>, base_color:
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     } 
     else if (component.use_texture == 2u) {
-        // Frosted glass effect
-        var blurAmount = component.blur_radius * 1.2;
-        var background = sample_blur(t_diffuse, s_diffuse, tex_coords, blurAmount);
+        // Improved frosted glass effect using high-quality Gaussian blur
+        var blurAmount = component.blur_radius;
+        var background = gaussian_blur(t_diffuse, s_diffuse, tex_coords, blurAmount);
         
-        // Mix the background with the tint color, respecting opacity
+        // Mix the background with the tint color using a more subtle approach
         var tinted = mix(
             background.rgb, 
             base_color.rgb, 
-            base_color.a * 0.4 * component.opacity
+            base_color.a * 0.25 * component.opacity
         );
         
-        // Calculate local coordinates for edge effects
-        let local_tex_coords = vec2<f32>(
-            (pixel_coords.x - content_min.x) / (content_max.x - content_min.x),
-            (pixel_coords.y - content_min.y) / (content_max.y - content_min.y)
-        );
+        // Apply subtle brightness and saturation adjustments for macOS-like appearance
+        let luminance = dot(tinted, vec3<f32>(0.299, 0.587, 0.114));
+        let saturation_adjust = mix(vec3<f32>(luminance), tinted, 1.05); // Slightly boost saturation
         
-        // Add subtle edge highlighting
-        let edge_distance_x = min(local_tex_coords.x, 1.0 - local_tex_coords.x) * 2.0;
-        let edge_distance_y = min(local_tex_coords.y, 1.0 - local_tex_coords.y) * 2.0;
-        let edge_distance = min(edge_distance_x, edge_distance_y);
-        
-        let edge_highlight = smoothstep(0.0, 0.5, edge_distance) * 0.05;
-        tinted += vec3<f32>(edge_highlight);
-        
-        return vec4<f32>(pow(tinted, vec3<f32>(0.98)), component.opacity);
+        // Final glass effect with correct opacity
+        return vec4<f32>(saturation_adjust, component.opacity);
     }
     else {
         // Plain color mode
         return base_color;
     }
+}
+
+// Normal distribution function for Gaussian kernel
+fn normpdf(x: f32, sigma: f32) -> f32 {
+    return 0.39894 * exp(-0.5 * x * x / (sigma * sigma)) / sigma;
+}
+
+// High-quality Gaussian blur implementation with enhanced blur effect
+fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius: f32) -> vec4<f32> {
+    if (blur_radius <= 0.0) {
+        return textureSample(tex, samp, uv);
+    }
+
+    // Amplify the blur radius to make it more effective
+    let effective_blur = blur_radius * 2.5;
+    
+    let tex_size = vec2<f32>(textureDimensions(tex));
+    let pixel_size = 1.0 / tex_size;
+    
+    // Scale sigma based on blur_radius with stronger effect
+    let sigma = max(2.0, min(effective_blur * 0.5, 20.0));
+    
+    // Define the kernel size based on sigma (odd number)
+    // Larger kernel size for more pronounced blur
+    let kernel_size = min(15, max(5, i32(sigma * 2.5) | 1)); // Ensure odd number
+    let k_size = (kernel_size - 1) / 2;
+    
+    // Create the 1D kernel
+    var kernel: array<f32, 15>; // Increased size for larger kernel
+    var z = 0.0;
+    
+    // Fill kernel with Gaussian values
+    for (var j = 0; j <= k_size; j++) {
+        let value = normpdf(f32(j), sigma);
+        if (j < 15) { // Safety check
+            kernel[k_size + j] = value;
+            if (j > 0 && (k_size - j) >= 0) {
+                kernel[k_size - j] = value;
+            }
+        }
+        if (j > 0) {
+            z += 2.0 * value;
+        } else {
+            z += value;
+        }
+    }
+    
+    // Normalize kernel
+    for (var j = 0; j < min(kernel_size, 15); j++) {
+        kernel[j] /= z;
+    }
+    
+    // Two-pass blur with larger sampling offsets for stronger effect
+    // First horizontal pass
+    var horizontal = vec4<f32>(0.0);
+    for (var i = -k_size; i <= k_size; i++) {
+        // Use larger sampling distance for more pronounced blur
+        let offset = vec2<f32>(f32(i), 0.0) * pixel_size * 1.5;
+        var factor: f32 = 0.0;
+        if (i < 15 && i >= -k_size) {
+            factor = kernel[k_size + i];
+        } else {
+            factor = 0.0;
+        }
+        horizontal += textureSample(tex, samp, uv + offset) * factor;
+    }
+    
+    // Second vertical pass with increased sampling radius
+    var final_color = vec4<f32>(0.0);
+    for (var j = -k_size; j <= k_size; j++) {
+        // Increased sampling distance for vertical pass too
+        let vertical_uv = uv + vec2<f32>(0.0, f32(j)) * pixel_size * 1.5;
+        
+        // Sample directly from texture for better performance
+        var h_sample = vec4<f32>(0.0);
+        for (var i = -k_size; i <= k_size; i++) {
+            let sample_uv = vertical_uv + vec2<f32>(f32(i), 0.0) * pixel_size * 1.5;
+            var factor: f32 = 0.0;
+            if (i < 15 && i >= -k_size) {
+                factor = kernel[k_size + i];
+            } else {
+                factor = 0.0;
+            }
+            h_sample += textureSample(tex, samp, sample_uv) * factor;
+        }
+        
+        var kernel_factor: f32 = 0.0;
+        if (j < 15 && j >= -k_size) {
+            kernel_factor = kernel[k_size + j];
+        } else {
+            kernel_factor = 0.0;
+        }
+        final_color += h_sample * kernel_factor;
+    }
+    
+    return final_color;
 }
 
 // Apply anti-aliasing to edges
@@ -431,44 +515,6 @@ fn apply_edge_aa(color: vec4<f32>, pixel_coords: vec2<f32>, corner_result: vec4<
     }
     
     return result;
-}
-
-// Improved Gaussian blur with better performance and quality
-fn sample_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_amount: f32) -> vec4<f32> {
-    if (blur_amount <= 0.0) {
-        return textureSample(tex, samp, uv);
-    }
-
-    // Get texture dimensions for proper scaling of the blur
-    let tex_size = vec2<f32>(textureDimensions(tex));
-    let pixel_size = 1.0 / tex_size;
-    
-    // Scale blur based on a percentage of screen size for consistent results
-    let sigma = blur_amount * 0.05;
-    
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    
-    // Use a more optimized 1-pass blur with fewer samples for better performance
-    let max_samples = 13; // Smaller sample count for better performance
-    let half_samples = max_samples / 2;
-    
-    // Single-pass blur that approximates a two-pass Gaussian
-    for (var i = -half_samples; i <= half_samples; i++) {
-        for (var j = -half_samples; j <= half_samples; j++) {
-            let offset = vec2<f32>(f32(i), f32(j)) * pixel_size * sigma * 3.0;
-            let sample_pos = uv + offset;
-            
-            // Use a single-pass circular Gaussian weight function
-            let dist_squared = f32(i*i + j*j);
-            let weight = exp(-dist_squared / (2.0 * sigma * sigma * 10.0));
-            
-            color += textureSample(tex, samp, sample_pos) * weight;
-            total_weight += weight;
-        }
-    }
-    
-    return color / total_weight;
 }
 
 // Convert screen UVs to pixel coordinates 

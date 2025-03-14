@@ -1,6 +1,6 @@
-use crate::{
+use crate::ui::{
     color::Color,
-    ui::layout::{Bounds, ComponentSize},
+    layout::{Bounds, ComponentSize},
 };
 use glyphon::Metrics;
 use std::collections::HashMap;
@@ -191,7 +191,12 @@ impl TextHandler {
                 bounds: glyphon::TextBounds::default(),
                 default_color: text_render_data.color.to_glyphon_color(),
                 custom_glyphs: &[],
-            });
+            })
+            .collect::<Vec<_>>();
+
+        if text_areas.is_empty() {
+            return;
+        }
 
         self.text_renderer
             .prepare(

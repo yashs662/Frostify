@@ -3,7 +3,7 @@
     windows_subsystem = "windows"
 )]
 
-use crate::app::App;
+use crate::{app::App, ui::asset};
 use colored::*;
 use env_logger::Builder;
 use log::LevelFilter;
@@ -15,14 +15,11 @@ use winit::{
 };
 
 mod app;
-mod asset;
-mod color;
 mod constants;
 mod errors;
-mod img_utils;
 mod test;
-mod text_renderer;
 mod ui;
+mod utils;
 mod wgpu_ctx;
 
 fn main() -> Result<(), EventLoopError> {

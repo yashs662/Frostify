@@ -1,6 +1,6 @@
 use crate::{
-    color::Color,
     ui::{
+        color::Color,
         component::{BorderPosition, Component, ComponentConfig, ComponentType, TextConfig},
         layout::{Anchor, Edges, FlexValue, Position},
     },

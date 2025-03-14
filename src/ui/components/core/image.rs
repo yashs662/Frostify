@@ -1,10 +1,10 @@
 use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-    img_utils::RgbaImg,
     ui::{
         Configurable, Positionable, Renderable,
         component::{Component, ComponentConfig, ComponentMetaData},
         components::image::ScaleMode,
+        img_utils::RgbaImg,
         layout::Bounds,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},

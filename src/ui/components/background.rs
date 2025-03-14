@@ -1,6 +1,7 @@
 use crate::{
-    color::Color,
+    app::AppEvent,
     ui::{
+        color::Color,
         component::{
             BackgroundColorConfig, BackgroundGradientConfig, BorderPosition, Component,
             ComponentConfig, ComponentType, FrostedGlassConfig, GradientColorStop, GradientType,
@@ -9,6 +10,7 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
+use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
 /// Builder for creating and configuring background components
@@ -25,6 +27,8 @@ pub struct BackgroundBuilder {
     border_width: Option<f32>,
     border_color: Option<Color>,
     border_position: Option<BorderPosition>,
+    drag_event: Option<AppEvent>,
+    event_sender: Option<UnboundedSender<AppEvent>>,
 }
 
 /// Types of background supported by the builder
@@ -65,6 +69,8 @@ impl BackgroundBuilder {
             border_width: None,
             border_color: None,
             border_position: None,
+            drag_event: None,
+            event_sender: None,
         }
     }
 
@@ -89,6 +95,8 @@ impl BackgroundBuilder {
             border_width: None,
             border_color: None,
             border_position: None,
+            drag_event: None,
+            event_sender: None,
         }
     }
 
@@ -117,6 +125,8 @@ impl BackgroundBuilder {
             border_width: None,
             border_color: None,
             border_position: None,
+            drag_event: None,
+            event_sender: None,
         }
     }
 
@@ -139,6 +149,8 @@ impl BackgroundBuilder {
             border_width: None,
             border_color: None,
             border_position: None,
+            drag_event: None,
+            event_sender: None,
         }
     }
 
@@ -182,6 +194,16 @@ impl BackgroundBuilder {
     /// Set a uniform border radius for all corners
     pub fn with_uniform_border_radius(mut self, radius: f32) -> Self {
         self.border_radius = Some(BorderRadius::all(radius));
+        self
+    }
+
+    pub fn with_drag_event(mut self, event: AppEvent) -> Self {
+        self.drag_event = Some(event);
+        self
+    }
+
+    pub fn with_event_sender(mut self, event_sender: UnboundedSender<AppEvent>) -> Self {
+        self.event_sender = Some(event_sender);
         self
     }
 
@@ -287,6 +309,14 @@ impl BackgroundBuilder {
 
         if let Some(border_position) = self.border_position {
             component.set_border_position(border_position);
+        }
+
+        if let Some(drag_event) = self.drag_event {
+            component.set_drag_event(drag_event);
+        }
+
+        if let Some(event_sender) = self.event_sender {
+            component.set_event_sender(event_sender);
         }
 
         // Configure the background based on the specified type

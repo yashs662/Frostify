@@ -1,9 +1,9 @@
 use crate::{
-    text_renderer::OptionalTextUpdateData,
     ui::{
         Configurable, Positionable, Renderable,
         component::{Component, ComponentConfig, ComponentMetaData},
         layout::{Bounds, ComponentPosition, ComponentSize},
+        text_renderer::OptionalTextUpdateData,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };

@@ -1,10 +1,10 @@
 use crate::{
-    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-    text_renderer::TextHandler,
     ui::{
         components::core::frosted_glass::FrostedGlassComponent,
         layout::{ComponentSize, LayoutContext},
+        text_renderer::TextHandler,
     },
+    utils::create_unified_pipeline,
 };
 use std::sync::Arc;
 use wgpu::MemoryHints::Performance;
@@ -21,9 +21,11 @@ pub struct WgpuCtx<'window> {
     pub queue: wgpu::Queue,
     pub text_handler: TextHandler,
     pub app_pipelines: AppPipelines,
-    frame_capture_texture: Option<wgpu::Texture>, // For capturing frames (as render target)
-    frame_capture_view: Option<wgpu::TextureView>,
-    frame_sample_texture: Option<wgpu::Texture>, // For sampling from captured frames (as resource)
+    // Main render texture for all drawing operations
+    main_render_texture: Option<wgpu::Texture>,
+    main_render_view: Option<wgpu::TextureView>,
+    // Texture that can be sampled for frosted glass effects
+    frame_sample_texture: Option<wgpu::Texture>,
     frame_sample_view: Option<wgpu::TextureView>,
 }
 
@@ -83,8 +85,8 @@ impl<'window> WgpuCtx<'window> {
             queue,
             text_handler,
             app_pipelines: AppPipelines { unified_pipeline },
-            frame_capture_texture: None,
-            frame_capture_view: None,
+            main_render_texture: None,
+            main_render_view: None,
             frame_sample_texture: None,
             frame_sample_view: None,
         }
@@ -94,15 +96,16 @@ impl<'window> WgpuCtx<'window> {
         pollster::block_on(WgpuCtx::new_async(window))
     }
 
-    fn ensure_frame_textures(&mut self) {
+    // Improved texture creation with better usage flags
+    fn ensure_render_textures(&mut self) {
         // Check if we need to create or resize the textures
-        let needs_new_textures = match (&self.frame_capture_texture, &self.frame_sample_texture) {
+        let needs_new_textures = match (&self.main_render_texture, &self.frame_sample_texture) {
             (None, _) | (_, None) => true,
-            (Some(capture_tex), Some(sample_tex)) => {
-                let capture_size = capture_tex.size();
+            (Some(main_tex), Some(sample_tex)) => {
+                let main_size = main_tex.size();
                 let sample_size = sample_tex.size();
-                capture_size.width != self.surface_config.width
-                    || capture_size.height != self.surface_config.height
+                main_size.width != self.surface_config.width
+                    || main_size.height != self.surface_config.height
                     || sample_size.width != self.surface_config.width
                     || sample_size.height != self.surface_config.height
             }
@@ -115,28 +118,31 @@ impl<'window> WgpuCtx<'window> {
                 depth_or_array_layers: 1,
             };
 
-            // Create a texture for capturing frames (as render target only)
-            // Use a high-quality format that matches the surface
-            let frame_capture_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Frame Capture Texture"),
+            // Create main render texture with explicit usage flags
+            let main_render_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Main Render Texture"),
                 size: texture_size,
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: self.surface_config.format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
 
-            // Create a separate texture for sampling (as resource only)
-            // Enable mipmapping for better filtering
+            // Calculate appropriate mip levels for the frame sample texture
+            let mip_level_count = Self::calculate_mip_level_count(
+                self.surface_config.width,
+                self.surface_config.height,
+            );
+
+            // Create a texture for sampling with mipmap support
             let frame_sample_texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Frame Sample Texture"),
                 size: texture_size,
-                mip_level_count: Self::calculate_mip_level_count(
-                    self.surface_config.width,
-                    self.surface_config.height,
-                ),
+                mip_level_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: self.surface_config.format,
@@ -144,17 +150,18 @@ impl<'window> WgpuCtx<'window> {
                 view_formats: &[],
             });
 
-            let frame_capture_view =
-                frame_capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let main_render_view =
+                main_render_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
             let frame_sample_view =
                 frame_sample_texture.create_view(&wgpu::TextureViewDescriptor {
                     base_mip_level: 0,
-                    mip_level_count: None, // Use all mip levels
+                    mip_level_count: Some(mip_level_count), // Specify all mip levels explicitly
                     ..Default::default()
                 });
 
-            self.frame_capture_texture = Some(frame_capture_texture);
-            self.frame_capture_view = Some(frame_capture_view);
+            self.main_render_texture = Some(main_render_texture);
+            self.main_render_view = Some(main_render_view);
             self.frame_sample_texture = Some(frame_sample_texture);
             self.frame_sample_view = Some(frame_sample_view);
         }
@@ -174,9 +181,9 @@ impl<'window> WgpuCtx<'window> {
         self.text_handler
             .update_viewport_size(&self.surface_config, &self.queue);
 
-        // Reset frame textures to be recreated at the right size
-        self.frame_capture_texture = None;
-        self.frame_capture_view = None;
+        // Reset render textures to be recreated at the right size
+        self.main_render_texture = None;
+        self.main_render_view = None;
         self.frame_sample_texture = None;
         self.frame_sample_view = None;
     }
@@ -193,267 +200,58 @@ impl<'window> WgpuCtx<'window> {
             .surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
-        let texture_view = surface_texture
+        let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Ensure we have frame textures for glass effects
-        self.ensure_frame_textures();
+        // Ensure we have render textures
+        self.ensure_render_textures();
 
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        // Get the render order and identify which components need frame capture
+        // Get components that need frame capture for frosted glass effect
         let components_needing_capture = layout_context.get_frame_capture_components();
 
-        if components_needing_capture.is_empty() {
-            // No frosted glass components, proceed with standard rendering
-            self.standard_render_pass(&mut encoder, &texture_view, layout_context);
-        } else {
-            // We have frosted glass components, render in stages
-            self.staged_render_pass(
-                &mut encoder,
-                &texture_view,
-                layout_context,
-                components_needing_capture,
-            );
-        }
+        // Use optimized rendering process with proper texture synchronization
+        self.render_with_progressive_updates(
+            &mut encoder,
+            &surface_view,
+            layout_context,
+            components_needing_capture,
+        );
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
     }
 
-    fn standard_render_pass(
+    fn render_with_progressive_updates(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        texture_view: &wgpu::TextureView,
-        layout_context: &mut LayoutContext,
-    ) {
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-
-        layout_context.draw(&mut render_pass, &mut self.app_pipelines);
-        self.text_handler.render(
-            &self.device,
-            &self.queue,
-            &mut render_pass,
-            layout_context.get_render_order().to_vec(),
-        );
-    }
-
-    fn staged_render_pass(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        final_texture_view: &wgpu::TextureView,
+        final_surface_view: &wgpu::TextureView,
         layout_context: &mut LayoutContext,
         components_needing_capture: Vec<(usize, uuid::Uuid)>,
     ) {
-        let frame_capture_view = self.frame_capture_view.as_ref().unwrap();
-        let frame_sample_view = self.frame_sample_view.as_ref().unwrap();
+        // Get the main render view and render order
+        let main_render_view = match &self.main_render_view {
+            Some(view) => view,
+            None => return, // Can't render without a view
+        };
 
-        // Get the entire render order
         let render_order = layout_context.get_render_order().clone();
         let mut last_idx = 0;
 
-        // Group adjacent frosted glass components to minimize render passes
-        let mut grouped_components: Vec<(usize, usize, Vec<uuid::Uuid>)> = Vec::new();
-        let mut current_group_start = None;
-        let mut current_group_ids = Vec::new();
-
-        // First, group adjacent frosted glass components
-        for (idx, component_id) in components_needing_capture.iter() {
-            if current_group_start.is_none() {
-                // Start a new group
-                current_group_start = Some(*idx);
-                current_group_ids.push(*component_id);
-            } else if *idx == current_group_start.unwrap() + current_group_ids.len() {
-                // Adjacent component, add to current group
-                current_group_ids.push(*component_id);
-            } else {
-                // Non-adjacent component, finish current group and start a new one
-                grouped_components.push((
-                    current_group_start.unwrap(),
-                    current_group_start.unwrap() + current_group_ids.len(),
-                    std::mem::take(&mut current_group_ids),
-                ));
-                current_group_start = Some(*idx);
-                current_group_ids.push(*component_id);
-            }
-        }
-
-        // Add the final group if it exists
-        if !current_group_ids.is_empty() {
-            grouped_components.push((
-                current_group_start.unwrap(),
-                current_group_start.unwrap() + current_group_ids.len(),
-                current_group_ids,
-            ));
-        }
-
-        // Process each group
-        for (start_idx, end_idx, component_ids) in grouped_components {
-            if start_idx > last_idx {
-                // Step 1: Render components up to this group to the capture texture
-                {
-                    let mut capture_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Capture Frame Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: frame_capture_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                    });
-
-                    // Draw all components up to this point
-                    layout_context.draw_range(
-                        &mut capture_pass,
-                        &mut self.app_pipelines,
-                        last_idx,
-                        start_idx,
-                    );
-                    let components_to_render = render_order[last_idx..start_idx].to_vec();
-                    self.text_handler.render(
-                        &self.device,
-                        &self.queue,
-                        &mut capture_pass,
-                        components_to_render,
-                    );
-                }
-
-                // Step 2: Copy the captured frame to the sample texture
-                if let (Some(src_texture), Some(dst_texture)) =
-                    (&self.frame_capture_texture, &self.frame_sample_texture)
-                {
-                    let texture_size = wgpu::Extent3d {
-                        width: self.surface_config.width,
-                        height: self.surface_config.height,
-                        depth_or_array_layers: 1,
-                    };
-
-                    encoder.copy_texture_to_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: src_texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::TexelCopyTextureInfo {
-                            texture: dst_texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        texture_size,
-                    );
-                }
-
-                // Step 3: Render the same components to final texture (for actual display)
-                {
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Render to Final - Background"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: final_texture_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: if last_idx == 0 {
-                                    wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-                                } else {
-                                    wgpu::LoadOp::Load
-                                },
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                    });
-
-                    layout_context.draw_range(
-                        &mut render_pass,
-                        &mut self.app_pipelines,
-                        last_idx,
-                        start_idx,
-                    );
-
-                    let components_to_render = render_order[last_idx..start_idx].to_vec();
-                    self.text_handler.render(
-                        &self.device,
-                        &self.queue,
-                        &mut render_pass,
-                        components_to_render,
-                    );
-                }
-            }
-
-            // Step 4: Update all frosted glass components in this group with the sample texture view
-            for component_id in &component_ids {
-                if let Some(component) = layout_context.get_component_mut(component_id) {
-                    FrostedGlassComponent::update_with_frame_texture(
-                        component,
-                        &self.device,
-                        frame_sample_view, // Use the sample texture view
-                    );
-                }
-            }
-
-            // Step 5: Render all frosted glass components in this group to the final texture
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Render to Final - Glass Components"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: final_texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load, // Load the existing content
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-
-                // Draw all frosted glass components in this group
-                for component_id in &component_ids {
-                    layout_context.draw_single(
-                        &mut render_pass,
-                        &mut self.app_pipelines,
-                        component_id,
-                    );
-                }
-            }
-
-            last_idx = end_idx;
-        }
-
-        // If there are components after the last frosted glass component, render them too
-        if last_idx < render_order.len() {
-            let mut final_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Final Pass"),
+        // If no frosted glass components, render everything in one pass
+        if components_needing_capture.is_empty() {
+            // Single render pass for all components
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Main Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: final_texture_view,
+                    view: main_render_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                        load: wgpu::LoadOp::Load, // Already cleared in draw()
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -462,82 +260,301 @@ impl<'window> WgpuCtx<'window> {
                 timestamp_writes: None,
             });
 
-            // Draw the remaining components
-            layout_context.draw_range(
-                &mut final_pass,
-                &mut self.app_pipelines,
-                last_idx,
-                render_order.len(),
-            );
-            let components_to_render = render_order[last_idx..].to_vec();
+            layout_context.draw(&mut render_pass, &mut self.app_pipelines);
             self.text_handler.render(
                 &self.device,
                 &self.queue,
-                &mut final_pass,
-                components_to_render,
+                &mut render_pass,
+                render_order.clone(),
+            );
+        } else {
+            // For each frosted glass component or group
+            for (idx, component_id) in &components_needing_capture {
+                // If there are components to render before this frosted glass component
+                if *idx > last_idx {
+                    // Render components between last_idx and current index
+                    {
+                        let mut render_pass =
+                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some("Progressive Render Pass"),
+                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                    view: main_render_view,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load: wgpu::LoadOp::Load,
+                                        store: wgpu::StoreOp::Store,
+                                    },
+                                })],
+                                depth_stencil_attachment: None,
+                                occlusion_query_set: None,
+                                timestamp_writes: None,
+                            });
+
+                        layout_context.draw_range(
+                            &mut render_pass,
+                            &mut self.app_pipelines,
+                            last_idx,
+                            *idx,
+                        );
+
+                        let components_to_render = render_order[last_idx..*idx].to_vec();
+                        self.text_handler.render(
+                            &self.device,
+                            &self.queue,
+                            &mut render_pass,
+                            components_to_render,
+                        );
+                    }
+
+                    // Copy the current state to the sample texture and generate mipmaps
+                    self.capture_current_frame_texture(encoder);
+                }
+
+                // Update the frosted glass component with the current frame texture
+                // IMPORTANT: Do this after copying the texture to ensure we have the latest frame
+                if let Some(component) = layout_context.get_component_mut(component_id) {
+                    if let Some(frame_sample_view) = &self.frame_sample_view {
+                        FrostedGlassComponent::update_with_frame_texture(
+                            component,
+                            &self.device,
+                            frame_sample_view,
+                        );
+                    }
+                }
+
+                // Render the frosted glass component
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Glass Component Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: main_render_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+
+                    layout_context.draw_single(
+                        &mut render_pass,
+                        &mut self.app_pipelines,
+                        component_id,
+                    );
+                }
+
+                self.capture_current_frame_texture(encoder);
+
+                last_idx = *idx + 1;
+            }
+
+            // Render any remaining components
+            if last_idx < render_order.len() {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Final Components Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: main_render_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+                layout_context.draw_range(
+                    &mut render_pass,
+                    &mut self.app_pipelines,
+                    last_idx,
+                    render_order.len(),
+                );
+
+                let components_to_render = render_order[last_idx..].to_vec();
+                self.text_handler.render(
+                    &self.device,
+                    &self.queue,
+                    &mut render_pass,
+                    components_to_render,
+                );
+            }
+        }
+
+        // Blit the main texture to the surface using a final render pass
+        self.blit_to_surface(encoder, final_surface_view);
+    }
+
+    // New helper method to properly capture the current frame and generate mipmaps
+    fn capture_current_frame_texture(&self, encoder: &mut wgpu::CommandEncoder) {
+        if let (Some(main_texture), Some(sample_texture)) =
+            (&self.main_render_texture, &self.frame_sample_texture)
+        {
+            let texture_size = wgpu::Extent3d {
+                width: self.surface_config.width,
+                height: self.surface_config.height,
+                depth_or_array_layers: 1,
+            };
+
+            // Copy from main render texture to frame sample texture (base mip level only)
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: main_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: sample_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                texture_size,
             );
         }
     }
-}
 
-fn create_unified_pipeline(
-    device: &wgpu::Device,
-    swap_chain_format: wgpu::TextureFormat,
-) -> wgpu::RenderPipeline {
-    // Create unified shader for both color and texture
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("Unified Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("../assets/shaders/color.wgsl").into()),
-    });
+    // New helper method to blit the final texture to the surface
+    fn blit_to_surface(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        surface_view: &wgpu::TextureView,
+    ) {
+        if let Some(main_render_view) = &self.main_render_view {
+            // Create a bind group for texture sampling
+            let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
 
-    // Create unified bind group layout that supports both color-only and texture rendering
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-        label: Some("Unified Bind Group Layout"),
-    });
+            let bind_group_layout =
+                self.device
+                    .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                        entries: &[
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Texture {
+                                    multisampled: false,
+                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                    sample_type: wgpu::TextureSampleType::Float {
+                                        filterable: true,
+                                    },
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 1,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                                count: None,
+                            },
+                        ],
+                        label: Some("texture_bind_group_layout"),
+                    });
 
-    // Pipeline layout that works for both standard components and frosted glass
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Unified Pipeline Layout"),
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
-    });
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(main_render_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+                label: Some("texture_bind_group"),
+            });
 
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("Unified Pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main"),
-            buffers: &[], // No vertex buffers needed for full-screen triangle approach
-            compilation_options: Default::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_main"),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: swap_chain_format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-            compilation_options: Default::default(),
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode: None,
-            unclipped_depth: false,
-            polygon_mode: wgpu::PolygonMode::Fill,
-            conservative: false,
-        },
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState {
-            count: 1,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-        cache: None,
-    })
+            // Create pipeline for blitting (can be cached/stored as a member for better performance)
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("Blit Shader"),
+                    source: wgpu::ShaderSource::Wgsl(
+                        include_str!("../assets/shaders/blit.wgsl").into(),
+                    ),
+                });
+
+            let pipeline_layout =
+                self.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Blit Pipeline Layout"),
+                        bind_group_layouts: &[&bind_group_layout],
+                        push_constant_ranges: &[],
+                    });
+
+            let blit_pipeline =
+                self.device
+                    .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some("Blit Pipeline"),
+                        layout: Some(&pipeline_layout),
+                        vertex: wgpu::VertexState {
+                            module: &shader,
+                            entry_point: Some("vs_main"),
+                            buffers: &[],
+                            compilation_options: Default::default(),
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &shader,
+                            entry_point: Some("fs_main"),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: self.surface_config.format,
+                                blend: Some(wgpu::BlendState::REPLACE),
+                                write_mask: wgpu::ColorWrites::ALL,
+                            })],
+                            compilation_options: Default::default(),
+                        }),
+                        primitive: wgpu::PrimitiveState {
+                            topology: wgpu::PrimitiveTopology::TriangleList,
+                            strip_index_format: None,
+                            front_face: wgpu::FrontFace::Ccw,
+                            cull_mode: None,
+                            unclipped_depth: false,
+                            polygon_mode: wgpu::PolygonMode::Fill,
+                            conservative: false,
+                        },
+                        depth_stencil: None,
+                        multisample: wgpu::MultisampleState {
+                            count: 1,
+                            mask: !0,
+                            alpha_to_coverage_enabled: false,
+                        },
+                        multiview: None,
+                        cache: None,
+                    });
+
+            // Start the render pass to render to the surface
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Final Surface Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&blit_pipeline);
+            render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.draw(0..6, 0..1); // Draw two triangles (a quad)
+        }
+    }
 }

@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
-use log::{error, info};
+use log::error;
 use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use winit::{
@@ -22,7 +22,6 @@ pub enum AppEvent {
     Close,
     Maximize,
     Minimize,
-    PrintMessage(String),
     DragWindow,
 }
 
@@ -61,10 +60,6 @@ impl App<'_> {
                             window.set_minimized(true);
                             return true;
                         }
-                    }
-                    AppEvent::PrintMessage(msg) => {
-                        info!("{}", msg);
-                        return true;
                     }
                     AppEvent::DragWindow => {
                         if let Some(window) = &self.window {

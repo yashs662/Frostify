@@ -1,7 +1,7 @@
 use crate::{
     app::AppEvent,
-    color::Color,
     ui::{
+        color::Color,
         component::{
             BackgroundColorConfig, BackgroundGradientConfig, BorderPosition, Component,
             ComponentConfig, ComponentType, FrostedGlassConfig, GradientColorStop, GradientType,

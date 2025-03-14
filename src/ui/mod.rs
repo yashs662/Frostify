@@ -1,8 +1,8 @@
 use crate::{
     app::AppEvent,
-    color::Color,
     constants::WINDOW_CONTROL_BUTTON_SIZE,
     ui::{
+        color::Color,
         component::{Component, ComponentConfig, ComponentMetaData, ImageConfig},
         components::{
             button::{ButtonBackground, ButtonBuilder},
@@ -13,14 +13,18 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use component::{BorderPosition, GradientColorStop};
-use components::background::BackgroundBuilder;
+use component::BorderPosition;
+use components::{background::BackgroundBuilder, image::ImageBuilder};
 use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent, Position};
 use tokio::sync::mpsc::UnboundedSender;
 
+pub mod asset;
+pub mod color;
 pub mod component;
 pub mod components;
+pub mod img_utils;
 pub mod layout;
+pub mod text_renderer;
 pub mod z_index_manager;
 
 pub trait Configurable {
@@ -56,34 +60,29 @@ pub fn create_app_ui(
         .build();
 
     // Background
-    let background = BackgroundBuilder::with_radial_gradient(
-        vec![
-            GradientColorStop {
-                color: Color::Black,
-                position: 0.0,
-            },
-            GradientColorStop {
-                color: Color::Black.lighten(0.01),
-                position: 1.0,
-            },
-        ],
-        (0.5, 0.5),
-        1.0,
-    )
-    .with_debug_name("Background")
-    .with_fixed_position(Anchor::Center)
-    .build(wgpu_ctx);
+    let background = ImageBuilder::new("album_art.png")
+        .with_scale_mode(ScaleMode::Cover)
+        .with_debug_name("Background")
+        .with_fixed_position(Anchor::Center)
+        .build(wgpu_ctx);
+
+    let frosted_glass = BackgroundBuilder::with_frosted_glass(Color::Black, 10.0, 1.0)
+        .with_debug_name("Frosted Glass")
+        .with_position(Position::Absolute(Anchor::Center))
+        .with_z_index(1)
+        .build(wgpu_ctx);
 
     // Create nav bar using the extracted function
     let nav_bar_container = create_nav_bar(wgpu_ctx, event_tx.clone());
     let player_container = create_player_bar(wgpu_ctx, event_tx.clone());
-    let border_demo_container = create_border_demo(wgpu_ctx);
+    // let border_demo_container = create_border_demo(wgpu_ctx);
 
     // Add children to the main container
     main_container.add_child(background);
+    main_container.add_child(frosted_glass);
     main_container.add_child(nav_bar_container);
     main_container.add_child(player_container);
-    main_container.add_child(border_demo_container);
+    // main_container.add_child(border_demo_container);
 
     // Add components in the correct order
     layout_context.add_component(main_container);
@@ -93,13 +92,22 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
     // Nav bar container
     let mut nav_bar_container = FlexContainerBuilder::new()
         .with_debug_name("Nav Bar Container")
-        .with_size(FlexValue::Fill, FlexValue::Fixed(44.0))
+        .with_size(FlexValue::Fill, FlexValue::Fixed(64.0))
         .with_direction(FlexDirection::Row)
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::End)
+        .with_padding(Edges::all(10.0))
+        .build();
+
+    let nav_bar_background = BackgroundBuilder::with_frosted_glass(Color::Black, 100.0, 1.0)
+        .with_debug_name("Nav Bar Background")
+        .with_border_radius(BorderRadius::all(5.0))
+        .with_margin(Edges::all(10.0))
+        .with_border(1.0, Color::Black.lighten(0.01))
+        .with_fixed_position(Anchor::Center)
         .with_drag_event(AppEvent::DragWindow)
         .with_event_sender(event_tx.clone())
-        .build();
+        .build(wgpu_ctx);
 
     // Nav buttons container
     let mut nav_buttons_container = FlexContainerBuilder::new()
@@ -107,8 +115,8 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
         .with_direction(FlexDirection::Row)
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::SpaceBetween)
-        .with_width(FlexValue::Fixed(92.0))
-        .with_margin(Edges::all(10.0))
+        .with_width(FlexValue::Fixed(128.0))
+        .with_margin(Edges::right(10.0))
         .with_parent(nav_bar_container.id)
         .build();
 
@@ -155,6 +163,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
 
     // Add children to the nav bar container
     nav_bar_container.add_child(nav_buttons_container);
+    nav_bar_container.add_child(nav_bar_background);
 
     nav_bar_container
 }
@@ -174,10 +183,10 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, _event_tx: UnboundedSender<AppEvent
 
     // Create frosted glass background with an outside border
     let player_container_background =
-        BackgroundBuilder::with_frosted_glass(Color::Black, 10.0, 0.8)
+        BackgroundBuilder::with_frosted_glass(Color::Black, 100.0, 1.0)
             .with_debug_name("Player Container Background")
-            .with_border_radius(BorderRadius::all(10.0))
-            .with_border_full(1.0, Color::White, BorderPosition::Outside)
+            .with_border_radius(BorderRadius::all(5.0))
+            .with_border_full(1.0, Color::Black.lighten(0.01), BorderPosition::Inside)
             .build(wgpu_ctx);
 
     player_container.add_child(player_container_background);

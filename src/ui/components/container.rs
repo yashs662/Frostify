@@ -1,7 +1,7 @@
 use crate::{
     app::AppEvent,
-    color::Color,
     ui::{
+        color::Color,
         component::{BorderPosition, Component, ComponentType},
         layout::{
             AlignItems, Edges, FlexDirection, FlexValue, FlexWrap, JustifyContent, Layout, Position,

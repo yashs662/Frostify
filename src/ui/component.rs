@@ -1,8 +1,8 @@
 use crate::{
     app::AppEvent,
-    color::Color,
     ui::{
         Configurable, Positionable, Renderable,
+        color::Color,
         components::core::{
             background_color::BackgroundColorComponent,
             background_gradient::BackgroundGradientComponent, image::ImageComponent,
@@ -26,20 +26,16 @@ use super::{
 };
 
 /// Defines the position of the border relative to the component edges
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[allow(dead_code)]
 pub enum BorderPosition {
     /// Border drawn inside the component's bounds
     Inside,
-    /// Border straddles the component's edges (default)
+    /// Border straddles the component's edges
     Center,
     /// Border drawn outside the component's bounds
+    #[default]
     Outside,
-}
-
-impl Default for BorderPosition {
-    fn default() -> Self {
-        Self::Center
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -179,13 +175,6 @@ impl ComponentConfig {
     pub fn get_gradient_config(self) -> Option<BackgroundGradientConfig> {
         match self {
             Self::BackgroundGradient(config) => Some(config),
-            _ => None,
-        }
-    }
-
-    pub fn get_frosted_glass_config(self) -> Option<FrostedGlassConfig> {
-        match self {
-            Self::FrostedGlass(config) => Some(config),
             _ => None,
         }
     }
