@@ -161,18 +161,6 @@ impl BackgroundBuilder {
         self
     }
 
-    /// Set the width of the background using FlexValue
-    pub fn with_width(mut self, width: impl Into<FlexValue>) -> Self {
-        self.width = Some(width.into());
-        self
-    }
-
-    /// Set the height of the background using FlexValue
-    pub fn with_height(mut self, height: impl Into<FlexValue>) -> Self {
-        self.height = Some(height.into());
-        self
-    }
-
     /// Set the position of the background
     pub fn with_position(mut self, position: Position) -> Self {
         self.position = Some(position);
@@ -362,19 +350,5 @@ impl BackgroundBuilder {
         }
 
         component
-    }
-}
-
-// Implement From<f32> for FlexValue to allow for convenient conversions
-impl From<f32> for FlexValue {
-    fn from(value: f32) -> Self {
-        FlexValue::Fixed(value)
-    }
-}
-
-// Implement From<i32> for FlexValue to allow for convenient conversions
-impl From<i32> for FlexValue {
-    fn from(value: i32) -> Self {
-        FlexValue::Fixed(value as f32)
     }
 }

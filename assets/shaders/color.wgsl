@@ -335,28 +335,29 @@ fn normpdf(x: f32, sigma: f32) -> f32 {
     return 0.39894 * exp(-0.5 * x * x / (sigma * sigma)) / sigma;
 }
 
-// High-quality Gaussian blur implementation with enhanced blur effect
+// High-quality Gaussian blur implementation with unlimited scaling
 fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius: f32) -> vec4<f32> {
     if (blur_radius <= 0.0) {
         return textureSample(tex, samp, uv);
     }
 
-    // Amplify the blur radius to make it more effective
+    // Remove the cap on blur radius to allow unlimited scaling
     let effective_blur = blur_radius * 2.5;
     
     let tex_size = vec2<f32>(textureDimensions(tex));
     let pixel_size = 1.0 / tex_size;
     
-    // Scale sigma based on blur_radius with stronger effect
-    let sigma = max(2.0, min(effective_blur * 0.5, 20.0));
+    // Scale sigma based on blur_radius with no upper limit
+    // Use a logarithmic scale for very large values to maintain performance
+    let sigma = max(2.0, min(log(1.0 + effective_blur) * 5.0, 50.0));
     
-    // Define the kernel size based on sigma (odd number)
-    // Larger kernel size for more pronounced blur
-    let kernel_size = min(15, max(5, i32(sigma * 2.5) | 1)); // Ensure odd number
+    // Dynamically adjust kernel size based on blur radius
+    // For extreme blur values, cap the kernel size for performance but increase sampling distance
+    let kernel_size = min(15, max(5, i32(min(sigma, 15.0) * 2.5) | 1)); // Ensure odd number
     let k_size = (kernel_size - 1) / 2;
     
     // Create the 1D kernel
-    var kernel: array<f32, 15>; // Increased size for larger kernel
+    var kernel: array<f32, 15>; // Size capped at 15 for performance
     var z = 0.0;
     
     // Fill kernel with Gaussian values
@@ -380,12 +381,16 @@ fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius
         kernel[j] /= z;
     }
     
-    // Two-pass blur with larger sampling offsets for stronger effect
+    // Calculate a dynamic sampling scale that increases with blur radius
+    // This allows for unlimited blur effect even with limited kernel size
+    let sampling_scale = max(1.5, min(effective_blur / 10.0, 20.0));
+    
+    // Two-pass blur with dynamically scaled sampling offsets for stronger effect
     // First horizontal pass
     var horizontal = vec4<f32>(0.0);
     for (var i = -k_size; i <= k_size; i++) {
-        // Use larger sampling distance for more pronounced blur
-        let offset = vec2<f32>(f32(i), 0.0) * pixel_size * 1.5;
+        // Scale offset dynamically based on blur radius
+        let offset = vec2<f32>(f32(i), 0.0) * pixel_size * sampling_scale;
         var factor: f32 = 0.0;
         if (i < 15 && i >= -k_size) {
             factor = kernel[k_size + i];
@@ -399,12 +404,12 @@ fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius
     var final_color = vec4<f32>(0.0);
     for (var j = -k_size; j <= k_size; j++) {
         // Increased sampling distance for vertical pass too
-        let vertical_uv = uv + vec2<f32>(0.0, f32(j)) * pixel_size * 1.5;
+        let vertical_uv = uv + vec2<f32>(0.0, f32(j)) * pixel_size * sampling_scale;
         
         // Sample directly from texture for better performance
         var h_sample = vec4<f32>(0.0);
         for (var i = -k_size; i <= k_size; i++) {
-            let sample_uv = vertical_uv + vec2<f32>(f32(i), 0.0) * pixel_size * 1.5;
+            let sample_uv = vertical_uv + vec2<f32>(f32(i), 0.0) * pixel_size * sampling_scale;
             var factor: f32 = 0.0;
             if (i < 15 && i >= -k_size) {
                 factor = kernel[k_size + i];

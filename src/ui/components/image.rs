@@ -11,7 +11,8 @@ use uuid::Uuid;
 /// Builder for creating and configuring image components
 pub struct ImageBuilder {
     file_name: String,
-    size: Option<(f32, f32)>,
+    width: Option<FlexValue>,
+    height: Option<FlexValue>,
     position: Option<Position>,
     border_radius: Option<BorderRadius>,
     margin: Option<Edges>,
@@ -50,7 +51,8 @@ impl ImageBuilder {
     pub fn new(file_name: impl Into<String>) -> Self {
         Self {
             file_name: file_name.into(),
-            size: None,
+            width: None,
+            height: None,
             position: None,
             border_radius: None,
             margin: None,
@@ -65,22 +67,9 @@ impl ImageBuilder {
     }
 
     /// Set the image size
-    pub fn with_size(mut self, width: f32, height: f32) -> Self {
-        self.size = Some((width, height));
-        self
-    }
-
-    /// Set the width of the image
-    pub fn with_width(mut self, width: f32) -> Self {
-        let height = self.size.map_or(0.0, |(_, h)| h);
-        self.size = Some((width, height));
-        self
-    }
-
-    /// Set the height of the image
-    pub fn with_height(mut self, height: f32) -> Self {
-        let width = self.size.map_or(0.0, |(w, _)| w);
-        self.size = Some((width, height));
+    pub fn with_size(mut self, width: impl Into<FlexValue>, height: impl Into<FlexValue>) -> Self {
+        self.width = Some(width.into());
+        self.height = Some(height.into());
         self
     }
 
@@ -169,9 +158,12 @@ impl ImageBuilder {
             component.set_debug_name(debug_name);
         }
 
-        if let Some((width, height)) = self.size {
-            component.transform.size.width = FlexValue::Fixed(width);
-            component.transform.size.height = FlexValue::Fixed(height);
+        if let Some(width) = self.width {
+            component.transform.size.width = width;
+        }
+
+        if let Some(height) = self.height {
+            component.transform.size.height = height;
         }
 
         if let Some(position) = self.position {

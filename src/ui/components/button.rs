@@ -43,8 +43,8 @@ pub struct ButtonConfig {
     pub text: Option<String>,
     pub text_color: Option<Color>,
     pub font_size: Option<f32>,
-    pub width: Option<f32>,
-    pub height: Option<f32>,
+    pub width: Option<FlexValue>,
+    pub height: Option<FlexValue>,
     pub margin: Option<Edges>,
     pub debug_name: Option<String>,
     pub border_radius: Option<BorderRadius>,
@@ -115,9 +115,9 @@ impl ButtonBuilder {
         self
     }
 
-    pub fn with_size(mut self, width: f32, height: f32) -> Self {
-        self.config.width = Some(width);
-        self.config.height = Some(height);
+    pub fn with_size(mut self, width: impl Into<FlexValue>, height: impl Into<FlexValue>) -> Self {
+        self.config.width = Some(width.into());
+        self.config.height = Some(height.into());
         self
     }
 
@@ -168,10 +168,10 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
     let mut container_builder = FlexContainerBuilder::new();
     // Set fixed size if specified
     if let Some(width) = config.width {
-        container_builder = container_builder.with_width(FlexValue::Fixed(width));
+        container_builder = container_builder.with_width(width);
     }
     if let Some(height) = config.height {
-        container_builder = container_builder.with_height(FlexValue::Fixed(height));
+        container_builder = container_builder.with_height(height);
     }
     if let Some(name) = config.debug_name.clone() {
         container_builder = container_builder.with_debug_name(name);

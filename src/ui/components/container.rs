@@ -80,9 +80,9 @@ impl FlexContainerBuilder {
         self
     }
 
-    pub fn with_size(mut self, width: FlexValue, height: FlexValue) -> Self {
-        self.config.width = width;
-        self.config.height = height;
+    pub fn with_size(mut self, width: impl Into<FlexValue>, height: impl Into<FlexValue>) -> Self {
+        self.config.width = width.into();
+        self.config.height = height.into();
         self
     }
 

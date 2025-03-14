@@ -1404,3 +1404,17 @@ impl LayoutContext {
         components_affected
     }
 }
+
+// Implement From<f32> for FlexValue to allow for convenient conversions
+impl From<f32> for FlexValue {
+    fn from(value: f32) -> Self {
+        FlexValue::Fixed(value)
+    }
+}
+
+// Implement From<i32> for FlexValue to allow for convenient conversions
+impl From<i32> for FlexValue {
+    fn from(value: i32) -> Self {
+        FlexValue::Fixed(value as f32)
+    }
+}

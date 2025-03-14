@@ -57,6 +57,7 @@ pub struct Component {
     pub border_width: f32,
     pub border_color: Color,
     pub border_position: BorderPosition,
+    pub fit_to_size: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -206,6 +207,7 @@ impl Component {
             border_width: 0.0,
             border_color: Color::Transparent,
             border_position: BorderPosition::default(),
+            fit_to_size: false,
         }
     }
 
@@ -234,6 +236,10 @@ impl Component {
 
     pub fn set_border_radius(&mut self, radius: BorderRadius) {
         self.transform.border_radius = radius;
+    }
+
+    pub fn set_fit_to_size(&mut self, fit_to_size: bool) {
+        self.fit_to_size = fit_to_size;
     }
 
     pub fn get_all_children(&self) -> Vec<Uuid> {
