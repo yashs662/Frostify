@@ -24,6 +24,7 @@ pub struct LabelBuilder {
     border_width: Option<f32>,
     border_color: Option<Color>,
     border_position: Option<BorderPosition>,
+    fit_to_size: bool,
 }
 
 #[allow(dead_code)]
@@ -45,6 +46,7 @@ impl LabelBuilder {
             border_width: None,
             border_color: None,
             border_position: None,
+            fit_to_size: false,
         }
     }
 
@@ -130,6 +132,12 @@ impl LabelBuilder {
         self
     }
 
+    /// Set whether the text label should fit to its size
+    pub fn set_fit_to_size(mut self) -> Self {
+        self.fit_to_size = true;
+        self
+    }
+
     /// Build and return the configured text label component
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         let id = Uuid::new_v4();
@@ -176,6 +184,10 @@ impl LabelBuilder {
 
         if let Some(border_position) = self.border_position {
             component.set_border_position(border_position);
+        }
+
+        if self.fit_to_size {
+            component.set_fit_to_size(true);
         }
 
         // Configure the text properties

@@ -22,7 +22,7 @@ use super::{
         core::{frosted_glass::FrostedGlassComponent, image::ImageMetadata},
         image::ScaleMode,
     },
-    layout::BorderRadius,
+    layout::{BorderRadius, FlexValue},
 };
 
 /// Defines the position of the border relative to the component edges
@@ -80,6 +80,7 @@ pub enum ComponentMetaData {
     ChildComponents(Vec<Component>),
     ImageMetadata(ImageMetadata),
     Sampler(wgpu::Sampler),
+    CanBeResizedTo(ComponentSize),
 }
 
 #[derive(Debug, Clone)]
@@ -355,8 +356,27 @@ impl Component {
         self.parent_id = Some(parent_id);
     }
 
+    pub fn resize_to_metadata(&mut self) {
+        if let Some(size) = self.can_be_resized_to_metadata() {
+            self.transform.size.width = FlexValue::Fixed(size.width);
+            self.transform.size.height = FlexValue::Fixed(size.height);
+        }
+    }
+
+    pub fn remove_resize_metadata(&mut self) {
+        self.metadata
+            .retain(|m| !matches!(m, ComponentMetaData::CanBeResizedTo(_)));
+    }
+
     fn get_metadata<T>(&self, matcher: fn(&ComponentMetaData) -> Option<&T>) -> Option<&T> {
         self.metadata.iter().find_map(matcher)
+    }
+
+    pub fn can_be_resized_to_metadata(&self) -> Option<ComponentSize> {
+        self.metadata.iter().find_map(|m| match m {
+            ComponentMetaData::CanBeResizedTo(size) => Some(*size),
+            _ => None,
+        })
     }
 
     pub fn get_image_metadata(&self) -> Option<&ImageMetadata> {

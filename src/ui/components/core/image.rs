@@ -5,7 +5,7 @@ use crate::{
         component::{Component, ComponentConfig, ComponentMetaData},
         components::image::ScaleMode,
         img_utils::RgbaImg,
-        layout::Bounds,
+        layout::{Bounds, ComponentSize},
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
@@ -176,6 +176,7 @@ impl Renderable for ImageComponent {
 
 impl Positionable for ImageComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
+        let mut can_be_resized_to = None;
         if let Some(render_data_buffer) = component.get_render_data_buffer() {
             let mut component_data = component.get_render_data(bounds);
 
@@ -202,19 +203,31 @@ impl Positionable for ImageComponent {
                         let original_aspect = original_width / original_height;
                         let container_aspect = container_width / container_height;
 
-                        if original_aspect > container_aspect {
+                        can_be_resized_to = if original_aspect > container_aspect {
                             // Image is wider than container (relative to height)
                             let new_height = container_width / original_aspect;
                             let y_offset = (container_height - new_height) / 2.0;
                             component_data.size[1] = new_height;
                             component_data.position[1] += y_offset;
+
+                            // Add metadata indicating the actual size the component can be resized to
+                            Some(ComponentSize {
+                                width: container_width,
+                                height: new_height,
+                            })
                         } else {
                             // Image is taller than container (relative to width)
                             let new_width = container_height * original_aspect;
                             let x_offset = (container_width - new_width) / 2.0;
                             component_data.size[0] = new_width;
                             component_data.position[0] += x_offset;
-                        }
+
+                            // Add metadata indicating the actual size the component can be resized to
+                            Some(ComponentSize {
+                                width: new_width,
+                                height: container_height,
+                            })
+                        };
                     }
                     ScaleMode::Cover => {
                         // COVER - scale to fill while preserving aspect ratio
@@ -247,13 +260,17 @@ impl Positionable for ImageComponent {
                             original_position[1] + y_offset,
                         ];
 
-                        // Add special flag to indicate clipping should be enforced
-                        // We'll send the actual container bounds through an additional structure
-                        // that will be used by the shader to clip the content
+                        // Add metadata indicating the actual size the component takes
+                        can_be_resized_to = Some(ComponentSize {
+                            width: scaled_width,
+                            height: scaled_height,
+                        });
                     }
                     ScaleMode::Original => {
                         // ORIGINAL - use original image dimensions
-                        if original_width < container_width && original_height < container_height {
+                        can_be_resized_to = if original_width < container_width
+                            && original_height < container_height
+                        {
                             // Center the image in the container
                             let x_offset = (container_width - original_width) / 2.0;
                             let y_offset = (container_height - original_height) / 2.0;
@@ -261,6 +278,12 @@ impl Positionable for ImageComponent {
                             component_data.size[1] = original_height;
                             component_data.position[0] += x_offset;
                             component_data.position[1] += y_offset;
+
+                            // Add metadata indicating the actual size the component can be resized to
+                            Some(ComponentSize {
+                                width: original_width,
+                                height: original_height,
+                            })
                         } else {
                             // If the image is larger than the container, use contain logic
                             let original_aspect = original_width / original_height;
@@ -271,11 +294,23 @@ impl Positionable for ImageComponent {
                                 component_data.size[1] = container_width / original_aspect;
                                 let y_offset = (container_height - component_data.size[1]) / 2.0;
                                 component_data.position[1] += y_offset;
+
+                                // Add metadata indicating the actual size the component can be resized to
+                                Some(ComponentSize {
+                                    width: container_width,
+                                    height: component_data.size[1],
+                                })
                             } else {
                                 component_data.size[1] = container_height;
                                 component_data.size[0] = container_height * original_aspect;
                                 let x_offset = (container_width - component_data.size[0]) / 2.0;
                                 component_data.position[0] += x_offset;
+
+                                // Add metadata indicating the actual size the component can be resized to
+                                Some(ComponentSize {
+                                    width: component_data.size[0],
+                                    height: container_height,
+                                })
                             }
                         }
                     }
@@ -287,6 +322,12 @@ impl Positionable for ImageComponent {
                 0,
                 bytemuck::cast_slice(&[component_data]),
             );
+        }
+
+        if can_be_resized_to.is_some() && component.fit_to_size {
+            component.metadata.push(ComponentMetaData::CanBeResizedTo(
+                can_be_resized_to.unwrap(),
+            ));
         }
     }
 }

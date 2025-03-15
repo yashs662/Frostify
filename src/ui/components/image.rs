@@ -23,6 +23,7 @@ pub struct ImageBuilder {
     border_width: Option<f32>,
     border_color: Option<Color>,
     border_position: Option<BorderPosition>,
+    fit_to_size: bool,
 }
 
 /// Defines how an image should be scaled to fit its container
@@ -63,6 +64,7 @@ impl ImageBuilder {
             border_width: None,
             border_color: None,
             border_position: None,
+            fit_to_size: false,
         }
     }
 
@@ -148,6 +150,11 @@ impl ImageBuilder {
         self
     }
 
+    pub fn set_fit_to_size(mut self) -> Self {
+        self.fit_to_size = true;
+        self
+    }
+
     /// Build and return the configured image component
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         let id = Uuid::new_v4();
@@ -196,6 +203,10 @@ impl ImageBuilder {
 
         if let Some(border_position) = self.border_position {
             component.set_border_position(border_position);
+        }
+
+        if self.fit_to_size {
+            component.set_fit_to_size(true);
         }
 
         // Configure the image with scale mode

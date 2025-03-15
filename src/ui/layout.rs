@@ -697,6 +697,20 @@ impl LayoutContext {
                 component.set_position(wgpu_ctx, *bounds, self.viewport_size);
             }
         }
+
+        // check if any components have the canbe resized to metadata if so resize them and calculate layout again, remove metadata
+        let mut re_layout_required = false;
+        for (_, component) in self.components.iter_mut() {
+            if component.can_be_resized_to_metadata().is_some() {
+                re_layout_required = true;
+                component.resize_to_metadata();
+                component.remove_resize_metadata();
+            }
+        }
+
+        if re_layout_required {
+            self.compute_layout();
+        }
     }
 
     pub fn compute_layout(&mut self) {

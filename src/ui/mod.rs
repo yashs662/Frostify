@@ -230,6 +230,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, _event_tx: UnboundedSender<AppEvent
         .with_debug_name("Player Container")
         .with_size(FlexValue::Fill, FlexValue::Fixed(100.0))
         .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
         .with_padding(Edges::all(10.0))
         .build();
 
@@ -245,18 +246,17 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, _event_tx: UnboundedSender<AppEvent
     let current_song_album_art = ImageBuilder::new("album_art.png")
         .with_scale_mode(ScaleMode::Contain)
         .with_debug_name("Current Song Album Art")
-        .with_size(60, 60)
         .with_z_index(1)
         .with_margin(Edges::all(10.0))
         .with_uniform_border_radius(5.0)
+        .set_fit_to_size()
         .build(wgpu_ctx);
 
     let current_song_info = LabelBuilder::new("Song Name\n\nArtist Name")
         .with_color(Color::White)
         .with_font_size(16.0)
         .with_debug_name("Current Song Info")
-        .with_margin(Edges::custom(10.0, 10.0, 10.0, 0.0))
-        .with_size(90, FlexValue::Fill)
+        .set_fit_to_size()
         .with_z_index(1)
         .build(wgpu_ctx);
 
