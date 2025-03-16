@@ -27,6 +27,13 @@ pub mod layout;
 pub mod text_renderer;
 pub mod z_index_manager;
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum UiView {
+    #[default]
+    Login,
+    Home,
+}
+
 pub trait Configurable {
     fn configure(
         component: &mut Component,

@@ -519,6 +519,13 @@ impl LayoutContext {
         self.compute_layout();
     }
 
+    pub fn clear(&mut self) {
+        self.components.clear();
+        self.computed_bounds.clear();
+        self.render_order.clear();
+        self.z_index_manager.clear();
+    }
+
     /// Used for testing purposes only
     #[allow(dead_code)]
     pub fn get_computed_bounds(&self) -> &BTreeMap<Uuid, Bounds> {
@@ -651,7 +658,7 @@ impl LayoutContext {
             }
         }
 
-        // check if any components have the canbe resized to metadata if so resize them and calculate layout again, remove metadata
+        // check if any components have the can be resized to metadata if so resize them and calculate layout again, remove metadata
         let mut re_layout_required = false;
         for (_, component) in self.components.iter_mut() {
             if component.can_be_resized_to_metadata().is_some() {

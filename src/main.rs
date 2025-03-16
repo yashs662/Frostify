@@ -15,6 +15,7 @@ use winit::{
 };
 
 mod app;
+mod auth;
 mod constants;
 mod core;
 mod errors;

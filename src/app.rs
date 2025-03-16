@@ -1,13 +1,15 @@
 use crate::{
+    auth::oauth::SpotifyAuthResponse,
     constants::WINDOW_RESIZE_BORDER_WIDTH,
+    core::worker::{Worker, WorkerResponse},
     ui::{
-        create_app_ui, create_login_ui,
+        UiView, create_app_ui, create_login_ui,
         layout::{self},
     },
     wgpu_ctx::WgpuCtx,
 };
-use log::error;
-use std::sync::Arc;
+use log::{debug, error, info};
+use std::{sync::Arc, time::Instant};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use winit::{
     application::ApplicationHandler,
@@ -30,17 +32,21 @@ pub enum AppEvent {
 pub struct App<'window> {
     window: Option<Arc<Window>>,
     wgpu_ctx: Option<WgpuCtx<'window>>,
-    cursor_position: Option<(f64, f64)>,
     event_sender: Option<UnboundedSender<AppEvent>>,
     event_receiver: Option<UnboundedReceiver<AppEvent>>,
     layout_context: layout::LayoutContext,
     app_state: AppState,
+    worker: Option<Worker>,
 }
 
 #[derive(Default)]
-struct AppState {
-    logged_in: bool,
+pub struct AppState {
     resize_state: Option<ResizeState>,
+    auth_state: Option<SpotifyAuthResponse>,
+    current_view: Option<UiView>,
+    last_draw_inst: Option<Instant>,
+    is_checking_auth: bool,
+    cursor_position: Option<(f64, f64)>,
 }
 
 struct ResizeState {
@@ -70,6 +76,19 @@ impl App<'_> {
                     }
                     AppEvent::DragWindow => {
                         if let Some(window) = &self.window {
+                            if window.is_maximized() {
+                                if let Some(cursor_position) = self.app_state.cursor_position {
+                                    let old_window_size = window.inner_size();
+                                    let x_ratio = cursor_position.0 / old_window_size.width as f64;
+                                    window.set_maximized(false);
+                                    let new_window_size = window.inner_size();
+                                    window.set_outer_position(winit::dpi::PhysicalPosition::new(
+                                        cursor_position.0
+                                            - (new_window_size.width as f64 * x_ratio),
+                                        cursor_position.1 - 20.0,
+                                    ));
+                                }
+                            }
                             window.drag_window().unwrap_or_else(|e| {
                                 error!("Failed to drag window: {}", e);
                             });
@@ -77,7 +96,10 @@ impl App<'_> {
                         }
                     }
                     AppEvent::Login => {
-                        log::debug!("Login event received");
+                        debug!("Login event received");
+                        if let Some(worker) = &self.worker {
+                            worker.start_oauth();
+                        }
                         return true;
                     }
                 }
@@ -89,6 +111,97 @@ impl App<'_> {
             error!("No event receiver");
         }
         false
+    }
+
+    pub fn change_view(
+        wgpu_ctx: &mut Option<WgpuCtx>,
+        layout_context: &mut layout::LayoutContext,
+        app_state: &mut AppState,
+        event_sender: UnboundedSender<AppEvent>,
+        view: UiView,
+    ) {
+        if let Some(wgpu_ctx) = wgpu_ctx {
+            layout_context.clear();
+            match view {
+                UiView::Login => {
+                    create_login_ui(wgpu_ctx, event_sender, layout_context);
+                }
+                UiView::Home => {
+                    create_app_ui(wgpu_ctx, event_sender, layout_context);
+                }
+            }
+
+            // Resize the viewport (even though we haven't actually resized the window)
+            // To ensure all components are correctly positioned, have correct textures, etc.
+            // Done 3 times as it allows for components calculate their size after layout (FlexValue::Fit)
+            // to ensure they are correctly positioned, this is cheap enough to do 3 times (usually 1-2 ms)
+            layout_context.resize_viewport(wgpu_ctx);
+            layout_context.resize_viewport(wgpu_ctx);
+            layout_context.resize_viewport(wgpu_ctx);
+            app_state.current_view = Some(view);
+        }
+    }
+
+    fn check_worker_responses(&mut self) {
+        if let Some(worker) = &mut self.worker {
+            while let Some(response) = worker.poll_responses() {
+                match response {
+                    WorkerResponse::OAuthStarted { auth_url } => {
+                        debug!("OAuth flow started, URL: {}", auth_url);
+                        webbrowser::open(&auth_url).unwrap();
+                    }
+                    WorkerResponse::OAuthComplete { auth_response } => {
+                        info!("OAuth flow completed successfully");
+                        self.app_state.auth_state = Some(auth_response);
+                        App::change_view(
+                            &mut self.wgpu_ctx,
+                            &mut self.layout_context,
+                            &mut self.app_state,
+                            self.event_sender.as_ref().unwrap().clone(),
+                            UiView::Home,
+                        );
+
+                        // focus on the window after login
+                        if let Some(window) = &self.window {
+                            window.focus_window();
+                        }
+                    }
+                    WorkerResponse::OAuthFailed { error } => {
+                        error!("OAuth flow failed: {}", error);
+                        // Stay on the login screen
+                        self.app_state.is_checking_auth = false;
+                    }
+                    WorkerResponse::TokensLoaded { auth_response } => {
+                        info!("Loaded stored tokens");
+                        self.app_state.auth_state = Some(auth_response);
+                        self.app_state.is_checking_auth = false;
+
+                        App::change_view(
+                            &mut self.wgpu_ctx,
+                            &mut self.layout_context,
+                            &mut self.app_state,
+                            self.event_sender.as_ref().unwrap().clone(),
+                            UiView::Home,
+                        );
+                    }
+                    WorkerResponse::NoStoredTokens => {
+                        debug!("No stored tokens found, showing login screen");
+                        self.app_state.is_checking_auth = false;
+
+                        // Make sure we're in the login view
+                        if self.app_state.current_view != Some(UiView::Login) {
+                            App::change_view(
+                                &mut self.wgpu_ctx,
+                                &mut self.layout_context,
+                                &mut self.app_state,
+                                self.event_sender.as_ref().unwrap().clone(),
+                                UiView::Login,
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn get_resize_direction(&self, x: f64, y: f64) -> Option<ResizeDirection> {
@@ -183,14 +296,25 @@ impl ApplicationHandler for App<'_> {
             self.event_sender = Some(event_tx.clone());
             self.event_receiver = Some(event_rx);
 
-            if self.app_state.logged_in {
-                create_app_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
-            } else {
-                create_login_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
-            }
+            // Initialize the worker thread
+            self.worker = Some(Worker::new());
+
+            // Start with login UI by default
+            create_login_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
 
             self.wgpu_ctx = Some(wgpu_ctx);
+
+            // Check for stored tokens as soon as the app starts
+            if let Some(worker) = &self.worker {
+                info!("Checking for stored tokens...");
+                self.app_state.is_checking_auth = true;
+                worker.try_load_tokens();
+            }
         }
+
+        // Check for any pending events after resuming
+        self.check_worker_responses();
+        self.try_handle_app_event(event_loop);
     }
 
     fn window_event(
@@ -201,6 +325,11 @@ impl ApplicationHandler for App<'_> {
     ) {
         match event {
             WindowEvent::CloseRequested => {
+                // Clean up worker thread before exit
+                if let Some(mut worker) = self.worker.take() {
+                    debug!("Shutting down worker thread");
+                    worker.shutdown();
+                }
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
@@ -213,14 +342,39 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::RedrawRequested => {
+                // Always check for worker responses during loading phase
+                if self.app_state.is_checking_auth
+                    || self.app_state.current_view == Some(UiView::Login)
+                {
+                    self.check_worker_responses();
+                    self.try_handle_app_event(event_loop);
+                }
+
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
                     wgpu_ctx.draw(&mut self.layout_context);
                     wgpu_ctx.text_handler.trim_atlas();
+                    self.app_state.last_draw_inst = Some(Instant::now());
+                }
+
+                // request redraw after drawing - do this if we have any animations to continuously draw,
+                // if not focused limit to 30fps else allow winit to do vsync
+                if let Some(window) = &self.window {
+                    if !window.has_focus() {
+                        if let Some(last_draw_inst) = self.app_state.last_draw_inst {
+                            let elapsed = last_draw_inst.elapsed();
+                            if elapsed.as_millis() < (1000 / 30) {
+                                std::thread::sleep(std::time::Duration::from_millis(
+                                    ((1000 / 30) - elapsed.as_millis()) as u64,
+                                ));
+                            }
+                        }
+                    }
+                    window.request_redraw();
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
                 if let Some(window) = &self.window {
-                    self.cursor_position = Some((position.x, position.y));
+                    self.app_state.cursor_position = Some((position.x, position.y));
 
                     if let Some(resize_state) = &self.app_state.resize_state {
                         window
@@ -236,7 +390,7 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if let Some((x, y)) = self.cursor_position {
+                if let Some((x, y)) = self.app_state.cursor_position {
                     match state {
                         winit::event::ElementState::Pressed => {
                             if let Some(direction) = self.get_resize_direction(x, y) {
@@ -260,6 +414,13 @@ impl ApplicationHandler for App<'_> {
                             let logical_x = x / scale_factor;
                             let logical_y = y / scale_factor;
 
+                            log::debug!(
+                                "Mouse input at ({}, {}), state: {:?}",
+                                logical_x,
+                                logical_y,
+                                state
+                            );
+
                             let input_event = layout::InputEvent {
                                 event_type: layout::EventType::from(state),
                                 position: Some(layout::ComponentPosition {
@@ -272,9 +433,10 @@ impl ApplicationHandler for App<'_> {
                             };
 
                             let affected_components = self.layout_context.handle_event(input_event);
-                            if !affected_components.is_empty() {
-                                self.try_handle_app_event(event_loop);
-                            }
+                            log::debug!("Affected components: {:?}", affected_components);
+
+                            // Always check for events regardless of affected components
+                            self.try_handle_app_event(event_loop);
                         }
                     }
                 }

@@ -35,6 +35,14 @@ impl ZIndexManager {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.base_indices.clear();
+        self.adjustments.clear();
+        self.hierarchy.clear();
+        self.computed_indices.clear();
+        self.dirty = true;
+    }
+
     /// Register a component and its parent relationship
     pub fn register_component(&mut self, component_id: Uuid, parent_id: Option<Uuid>) {
         self.hierarchy.insert(component_id, parent_id);
