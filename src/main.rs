@@ -16,6 +16,7 @@ use winit::{
 
 mod app;
 mod constants;
+mod core;
 mod errors;
 mod test;
 mod ui;

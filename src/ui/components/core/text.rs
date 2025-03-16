@@ -48,7 +48,9 @@ impl Positionable for TextComponent {
         let text_computed_bounds = wgpu_ctx.text_handler.measure_text(component.id);
         let calc_bounds = if let Some(text_size) = text_computed_bounds {
             if component.fit_to_size {
-                component.metadata.push(ComponentMetaData::CanBeResizedTo(text_size));
+                component
+                    .metadata
+                    .push(ComponentMetaData::CanBeResizedTo(text_size));
             }
             if text_size.width == 0.0 || text_size.height == 0.0 {
                 // Initial Layout is not yet computed, wait for next set_position call

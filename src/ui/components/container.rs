@@ -31,6 +31,7 @@ pub struct FlexContainerConfig {
     pub border_width: Option<f32>,
     pub border_color: Option<Color>,
     pub border_position: Option<BorderPosition>,
+    fit_to_size: bool,
 }
 
 impl Default for FlexContainerConfig {
@@ -54,6 +55,7 @@ impl Default for FlexContainerConfig {
             border_width: None,
             border_color: None,
             border_position: None,
+            fit_to_size: false,
         }
     }
 }
@@ -68,6 +70,11 @@ impl FlexContainerBuilder {
         Self {
             config: FlexContainerConfig::default(),
         }
+    }
+
+    pub fn set_fit_to_size(mut self) -> Self {
+        self.config.fit_to_size = true;
+        self
     }
 
     pub fn with_width(mut self, width: FlexValue) -> Self {
@@ -225,6 +232,9 @@ fn create_flex_container(config: FlexContainerConfig) -> Component {
     }
     if let Some(position) = config.border_position {
         container.set_border_position(position);
+    }
+    if config.fit_to_size {
+        container.set_fit_to_size(true);
     }
 
     container

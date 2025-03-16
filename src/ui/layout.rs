@@ -525,46 +525,14 @@ impl LayoutContext {
         &self.computed_bounds
     }
 
-    pub fn draw(&mut self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
-        // Draw all components in order
-        self.draw_range(render_pass, app_pipelines, 0, self.render_order.len());
-    }
-
-    pub fn draw_range(
+    pub fn draw_group(
         &mut self,
         render_pass: &mut wgpu::RenderPass,
         app_pipelines: &mut AppPipelines,
-        start: usize,
-        end: usize,
+        group: Vec<Uuid>,
     ) {
-        let range_end = end.min(self.render_order.len());
-        let range_start = start.min(range_end);
-
-        for i in range_start..range_end {
-            let id = &self.render_order[i];
-            if let Some(component) = self.components.get_mut(id) {
-                if !component.requires_to_be_drawn() {
-                    continue;
-                }
-
-                if self.computed_bounds.contains_key(id) {
-                    // Update the component's z-index with the computed value from manager
-                    let computed_z = self.z_index_manager.get_z_index(id);
-                    component.transform.z_index = computed_z;
-
-                    component.draw(render_pass, app_pipelines);
-                } else {
-                    error!(
-                        "Computed bounds not found for component id: {}, unable to draw",
-                        id
-                    );
-                }
-            } else {
-                error!(
-                    "Component with id: {} not found for rendering, render order is corrupt",
-                    id
-                );
-            }
+        for id in group {
+            self.draw_single(render_pass, app_pipelines, &id);
         }
     }
 
@@ -598,21 +566,6 @@ impl LayoutContext {
                 component_id
             );
         }
-    }
-
-    pub fn get_frame_capture_components(&self) -> Vec<(usize, Uuid)> {
-        let mut components_needing_capture = Vec::new();
-
-        // Find all components that need frame capture and their positions in the render order
-        for (i, id) in self.render_order.iter().enumerate() {
-            if let Some(component) = self.components.get(id) {
-                if component.requires_frame_capture() {
-                    components_needing_capture.push((i, *id));
-                }
-            }
-        }
-
-        components_needing_capture
     }
 
     pub fn get_render_order(&self) -> &Vec<Uuid> {

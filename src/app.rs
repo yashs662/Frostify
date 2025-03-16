@@ -1,7 +1,7 @@
 use crate::{
     constants::WINDOW_RESIZE_BORDER_WIDTH,
     ui::{
-        create_app_ui,
+        create_app_ui, create_login_ui,
         layout::{self},
     },
     wgpu_ctx::WgpuCtx,
@@ -23,6 +23,7 @@ pub enum AppEvent {
     Maximize,
     Minimize,
     DragWindow,
+    Login,
 }
 
 #[derive(Default)]
@@ -33,6 +34,12 @@ pub struct App<'window> {
     event_sender: Option<UnboundedSender<AppEvent>>,
     event_receiver: Option<UnboundedReceiver<AppEvent>>,
     layout_context: layout::LayoutContext,
+    app_state: AppState,
+}
+
+#[derive(Default)]
+struct AppState {
+    logged_in: bool,
     resize_state: Option<ResizeState>,
 }
 
@@ -68,6 +75,10 @@ impl App<'_> {
                             });
                             return true;
                         }
+                    }
+                    AppEvent::Login => {
+                        log::debug!("Login event received");
+                        return true;
                     }
                 }
             } else {
@@ -172,7 +183,11 @@ impl ApplicationHandler for App<'_> {
             self.event_sender = Some(event_tx.clone());
             self.event_receiver = Some(event_rx);
 
-            create_app_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
+            if self.app_state.logged_in {
+                create_app_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
+            } else {
+                create_login_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
+            }
 
             self.wgpu_ctx = Some(wgpu_ctx);
         }
@@ -207,7 +222,7 @@ impl ApplicationHandler for App<'_> {
                 if let Some(window) = &self.window {
                     self.cursor_position = Some((position.x, position.y));
 
-                    if let Some(resize_state) = &self.resize_state {
+                    if let Some(resize_state) = &self.app_state.resize_state {
                         window
                             .drag_resize_window(resize_state.direction)
                             .unwrap_or_else(|e| {
@@ -225,13 +240,13 @@ impl ApplicationHandler for App<'_> {
                     match state {
                         winit::event::ElementState::Pressed => {
                             if let Some(direction) = self.get_resize_direction(x, y) {
-                                self.resize_state = Some(ResizeState { direction });
+                                self.app_state.resize_state = Some(ResizeState { direction });
                                 return;
                             }
                         }
                         winit::event::ElementState::Released => {
-                            if self.resize_state.is_some() {
-                                self.resize_state = None;
+                            if self.app_state.resize_state.is_some() {
+                                self.app_state.resize_state = None;
                                 self.update_resize_cursor(x, y);
                                 return;
                             }

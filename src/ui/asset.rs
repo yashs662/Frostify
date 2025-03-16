@@ -21,6 +21,10 @@ pub fn initialize_assets() {
         "album_art.png",
         include_bytes!("../../assets/album_art.png") as &[u8],
     );
+    assets.insert(
+        "frostify_logo.png",
+        include_bytes!("../../assets/frostify_logo.png") as &[u8],
+    );
 
     ASSET_STORE
         .set(assets)

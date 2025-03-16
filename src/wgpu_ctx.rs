@@ -1,5 +1,6 @@
 use crate::{
     ui::{
+        component::ComponentType,
         components::core::frosted_glass::FrostedGlassComponent,
         layout::{ComponentSize, LayoutContext},
         text_renderer::TextHandler,
@@ -211,27 +212,17 @@ impl<'window> WgpuCtx<'window> {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        // Get components that need frame capture for frosted glass effect
-        let components_needing_capture = layout_context.get_frame_capture_components();
-
-        // Use optimized rendering process with proper texture synchronization
-        self.render_with_progressive_updates(
-            &mut encoder,
-            &surface_view,
-            layout_context,
-            components_needing_capture,
-        );
+        self.render(&mut encoder, &surface_view, layout_context);
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
     }
 
-    fn render_with_progressive_updates(
+    fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         final_surface_view: &wgpu::TextureView,
         layout_context: &mut LayoutContext,
-        components_needing_capture: Vec<(usize, uuid::Uuid)>,
     ) {
         // Get the main render view and render order
         let main_render_view = match &self.main_render_view {
@@ -239,127 +230,72 @@ impl<'window> WgpuCtx<'window> {
             None => return, // Can't render without a view
         };
 
-        let render_order = layout_context.get_render_order().clone();
-        let mut last_idx = 0;
+        let render_groups = prepare_render_groups(layout_context);
 
-        // If no frosted glass components, render everything in one pass
-        if components_needing_capture.is_empty() {
-            // Single render pass for all components
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Main Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: main_render_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load, // Already cleared in draw()
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
+        for (idx, (render_group, (frosted_group, text_group))) in render_groups.iter().enumerate() {
+            // First render pass should clear the main render target
+            let load_op = if idx == 0 {
+                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+            } else {
+                wgpu::LoadOp::Load
+            };
 
-            layout_context.draw(&mut render_pass, &mut self.app_pipelines);
-            self.text_handler.render(
-                &self.device,
-                &self.queue,
-                &mut render_pass,
-                render_order.clone(),
-            );
-        } else {
-            // For each frosted glass component or group
-            for (idx, component_id) in &components_needing_capture {
-                // If there are components to render before this frosted glass component
-                if *idx > last_idx {
-                    // Render components between last_idx and current index
-                    {
-                        let mut render_pass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Progressive Render Pass"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: main_render_view,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Load,
-                                        store: wgpu::StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: None,
-                                occlusion_query_set: None,
-                                timestamp_writes: None,
-                            });
-
-                        layout_context.draw_range(
-                            &mut render_pass,
-                            &mut self.app_pipelines,
-                            last_idx,
-                            *idx,
-                        );
-
-                        let components_to_render = render_order[last_idx..*idx].to_vec();
-                        self.text_handler.render(
-                            &self.device,
-                            &self.queue,
-                            &mut render_pass,
-                            components_to_render,
-                        );
-                    }
-
-                    // Copy the current state to the sample texture and generate mipmaps
+            if *frosted_group {
+                if idx != 0 {
                     self.capture_current_frame_texture(encoder);
                 }
 
-                // Update the frosted glass component with the current frame texture
-                // IMPORTANT: Do this after copying the texture to ensure we have the latest frame
-                if let Some(component) = layout_context.get_component_mut(component_id) {
-                    if let Some(frame_sample_view) = &self.frame_sample_view {
-                        FrostedGlassComponent::update_with_frame_texture(
-                            component,
-                            &self.device,
-                            frame_sample_view,
-                        );
+                for (frosted_idx, frosted_component) in render_group.iter().enumerate() {
+                    if let Some(component) = layout_context.get_component_mut(frosted_component) {
+                        if let Some(frame_sample_view) = &self.frame_sample_view {
+                            FrostedGlassComponent::update_with_frame_texture(
+                                component,
+                                &self.device,
+                                frame_sample_view,
+                            );
+                        }
+
+                        {
+                            let mut render_pass =
+                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("Progressive Render Pass"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: main_render_view,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: if frosted_idx == 0 && idx == 0 {
+                                                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                                            } else {
+                                                wgpu::LoadOp::Load
+                                            },
+                                            store: wgpu::StoreOp::Store,
+                                        },
+                                    })],
+                                    depth_stencil_attachment: None,
+                                    occlusion_query_set: None,
+                                    timestamp_writes: None,
+                                });
+
+                            layout_context.draw_single(
+                                &mut render_pass,
+                                &mut self.app_pipelines,
+                                frosted_component,
+                            );
+                        }
+
+                        if frosted_idx != render_group.len() - 1 {
+                            self.capture_current_frame_texture(encoder);
+                        }
                     }
                 }
-
-                // Render the frosted glass component
-                {
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Glass Component Render Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: main_render_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                    });
-
-                    layout_context.draw_single(
-                        &mut render_pass,
-                        &mut self.app_pipelines,
-                        component_id,
-                    );
-                }
-
-                self.capture_current_frame_texture(encoder);
-
-                last_idx = *idx + 1;
-            }
-
-            // Render any remaining components
-            if last_idx < render_order.len() {
+            } else {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Final Components Render Pass"),
+                    label: Some("Progressive Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: main_render_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
+                            load: load_op,
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -368,20 +304,20 @@ impl<'window> WgpuCtx<'window> {
                     timestamp_writes: None,
                 });
 
-                layout_context.draw_range(
-                    &mut render_pass,
-                    &mut self.app_pipelines,
-                    last_idx,
-                    render_order.len(),
-                );
-
-                let components_to_render = render_order[last_idx..].to_vec();
-                self.text_handler.render(
-                    &self.device,
-                    &self.queue,
-                    &mut render_pass,
-                    components_to_render,
-                );
+                if *text_group {
+                    self.text_handler.render(
+                        &self.device,
+                        &self.queue,
+                        &mut render_pass,
+                        render_group.clone(),
+                    );
+                } else {
+                    layout_context.draw_group(
+                        &mut render_pass,
+                        &mut self.app_pipelines,
+                        render_group.clone(),
+                    );
+                }
             }
         }
 
@@ -557,4 +493,53 @@ impl<'window> WgpuCtx<'window> {
             render_pass.draw(0..6, 0..1); // Draw two triangles (a quad)
         }
     }
+}
+
+fn prepare_render_groups(
+    layout_context: &mut LayoutContext,
+) -> Vec<(Vec<uuid::Uuid>, (bool, bool))> {
+    let render_order = layout_context.get_render_order().clone();
+
+    // (Vec<Uuid>, is_frosted_glass, is_text)
+    let mut render_groups = Vec::new();
+    let mut sub_render_group = Vec::new();
+    let mut frosted_group = false;
+    let mut text_group = false;
+
+    for component_id in render_order {
+        if let Some(component) = layout_context.get_component(&component_id) {
+            if component.component_type == ComponentType::Container {
+                // Containers are not rendered directly, so we skip them
+                continue;
+            }
+
+            let is_frosted = component.is_frosted_component();
+            let is_text = component.is_text_component();
+
+            // If component type changes, push current group and start a new one
+            if (is_frosted && !frosted_group)
+                || (is_text && !text_group)
+                || (!is_frosted && !is_text && (frosted_group || text_group))
+            {
+                // Only push if we have components in the current group
+                if !sub_render_group.is_empty() {
+                    render_groups.push((sub_render_group, (frosted_group, text_group)));
+                    sub_render_group = Vec::new();
+                }
+
+                // Update flags for the new group
+                frosted_group = is_frosted;
+                text_group = is_text;
+            }
+
+            // Add component to current group
+            sub_render_group.push(component_id);
+        }
+    }
+
+    // Don't forget to add the final group if it contains components
+    if !sub_render_group.is_empty() {
+        render_groups.push((sub_render_group, (frosted_group, text_group)));
+    }
+    render_groups
 }

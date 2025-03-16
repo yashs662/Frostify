@@ -43,10 +43,6 @@ impl Configurable for FrostedGlassComponent {
             ..Default::default()
         });
 
-        // The actual texture will be created at render time when we can capture the screen
-        // For now, register this component as needing frame capture
-        component.set_requires_frame_capture(true);
-
         // Create a placeholder texture view until we capture the actual frame
         let placeholder_texture_size = wgpu::Extent3d {
             width: 1,

@@ -53,7 +53,6 @@ pub struct Component {
     requires_children_extraction: bool,
     is_clickable: bool,
     is_draggable: bool,
-    requires_frame_capture: bool,
     pub border_width: f32,
     pub border_color: Color,
     pub border_position: BorderPosition,
@@ -204,7 +203,6 @@ impl Component {
             requires_children_extraction: false,
             is_clickable: false,
             is_draggable: false,
-            requires_frame_capture: false,
             border_width: 0.0,
             border_color: Color::Transparent,
             border_position: BorderPosition::default(),
@@ -333,7 +331,12 @@ impl Component {
                     FrostedGlassComponent::set_position(self, wgpu_ctx, bounds);
                 }
             }
-        };
+        } else {
+            // Container
+            if self.fit_to_size {
+                // calculate the containers size based on the children
+            }
+        }
     }
 
     pub fn add_child(&mut self, child: Component) {
@@ -361,6 +364,14 @@ impl Component {
             self.transform.size.width = FlexValue::Fixed(size.width);
             self.transform.size.height = FlexValue::Fixed(size.height);
         }
+    }
+
+    pub fn is_frosted_component(&self) -> bool {
+        matches!(self.component_type, ComponentType::FrostedGlass)
+    }
+
+    pub fn is_text_component(&self) -> bool {
+        matches!(self.component_type, ComponentType::Text)
     }
 
     pub fn remove_resize_metadata(&mut self) {
@@ -508,14 +519,6 @@ impl Component {
             border_position: border_position_value,
             _padding2: [0.0; 2],
         }
-    }
-
-    pub fn set_requires_frame_capture(&mut self, requires_frame_capture: bool) {
-        self.requires_frame_capture = requires_frame_capture;
-    }
-
-    pub fn requires_frame_capture(&self) -> bool {
-        self.requires_frame_capture
     }
 
     pub fn get_sampler(&self) -> Option<&wgpu::Sampler> {

@@ -54,6 +54,7 @@ pub struct ButtonConfig {
     pub border_width: Option<f32>,
     pub border_color: Option<Color>,
     pub border_position: Option<BorderPosition>,
+    fit_to_size: bool,
 }
 
 impl Default for ButtonConfig {
@@ -74,6 +75,7 @@ impl Default for ButtonConfig {
             border_width: None,
             border_color: None,
             border_position: None,
+            fit_to_size: false,
         }
     }
 }
@@ -88,6 +90,11 @@ impl ButtonBuilder {
         Self {
             config: ButtonConfig::default(),
         }
+    }
+
+    pub fn set_fit_to_size(mut self) -> Self {
+        self.config.fit_to_size = true;
+        self
     }
 
     pub fn with_background(mut self, background: ButtonBackground) -> Self {
@@ -187,6 +194,9 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
     }
     if let Some(margin) = config.margin {
         container_builder = container_builder.with_margin(margin);
+    }
+    if config.fit_to_size {
+        container_builder = container_builder.set_fit_to_size();
     }
     let mut container = container_builder.build();
     container.flag_children_extraction();
@@ -325,6 +335,9 @@ fn create_button(wgpu_ctx: &mut WgpuCtx, config: ButtonConfig) -> Component {
             }),
             wgpu_ctx,
         );
+        if container.fit_to_size {
+            text_component.set_fit_to_size(true);
+        }
         container.add_child(text_component);
     }
 

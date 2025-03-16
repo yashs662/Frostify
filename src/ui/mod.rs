@@ -13,7 +13,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use component::BorderPosition;
+use component::{BorderPosition, GradientColorStop};
 use components::{background::BackgroundBuilder, image::ImageBuilder, label::LabelBuilder};
 use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent, Position};
 use tokio::sync::mpsc::UnboundedSender;
@@ -45,6 +45,91 @@ pub trait Renderable {
 
 pub trait Positionable {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds);
+}
+
+pub fn create_login_ui(
+    wgpu_ctx: &mut WgpuCtx,
+    event_tx: UnboundedSender<AppEvent>,
+    layout_context: &mut layout::LayoutContext,
+) {
+    let mut main_container = FlexContainerBuilder::new()
+        .with_debug_name("Main Container")
+        .with_direction(FlexDirection::Column)
+        .build();
+
+    // Background
+    let background = BackgroundBuilder::with_linear_gradient(
+        vec![
+            GradientColorStop {
+                color: Color::Crimson,
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::MidnightBlue,
+                position: 1.0,
+            },
+        ],
+        90.0,
+    )
+    .with_debug_name("Background")
+    .with_fixed_position(Anchor::Center)
+    .build(wgpu_ctx);
+
+    let nav_bar_container = create_nav_bar(wgpu_ctx, event_tx.clone());
+
+    main_container.add_child(nav_bar_container);
+    main_container.add_child(background);
+
+    let mut sub_container = FlexContainerBuilder::new()
+        .with_debug_name("Sub Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build();
+
+    // Welcome label
+    let welcome_label = ButtonBuilder::new()
+        .with_text("Welcome to Frostify")
+        .with_font_size(24.0)
+        .with_size(FlexValue::Fit, FlexValue::Fixed(40.0))
+        .with_text_color(Color::White)
+        .with_background(ButtonBackground::None)
+        .with_debug_name("Welcome Label")
+        .build(wgpu_ctx);
+
+    // Logo
+    let logo = ImageBuilder::new("frostify_logo.png")
+        .with_scale_mode(ScaleMode::Contain)
+        .with_size(FlexValue::Fixed(100.0), FlexValue::Fixed(100.0))
+        .with_debug_name("Logo")
+        .build(wgpu_ctx);
+
+    // Login button
+    let login_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::FrostedGlass {
+            tint_color: Color::Black,
+            blur_radius: 5.0,
+            opacity: 1.0,
+        })
+        .with_text("Login with Spotify")
+        .with_font_size(16.0)
+        .with_text_color(Color::White)
+        .with_border_radius(BorderRadius::all(5.0))
+        .with_border(1.0, Color::White)
+        .with_margin(Edges::all(10.0))
+        .with_size(200.0, 50.0)
+        .with_debug_name("Login Button")
+        .with_click_event(AppEvent::Login)
+        .with_event_sender(event_tx.clone())
+        .build(wgpu_ctx);
+
+    sub_container.add_child(welcome_label);
+    sub_container.add_child(logo);
+    sub_container.add_child(login_button);
+
+    main_container.add_child(sub_container);
+
+    layout_context.add_component(main_container);
 }
 
 pub fn create_app_ui(

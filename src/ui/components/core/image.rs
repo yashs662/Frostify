@@ -324,10 +324,12 @@ impl Positionable for ImageComponent {
             );
         }
 
-        if can_be_resized_to.is_some() && component.fit_to_size {
-            component.metadata.push(ComponentMetaData::CanBeResizedTo(
-                can_be_resized_to.unwrap(),
-            ));
+        if let Some(bounds) = can_be_resized_to {
+            if component.fit_to_size {
+                component
+                    .metadata
+                    .push(ComponentMetaData::CanBeResizedTo(bounds));
+            }
         }
     }
 }
