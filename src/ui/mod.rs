@@ -316,13 +316,14 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
     nav_bar_container
 }
 
-fn create_player_bar(wgpu_ctx: &mut WgpuCtx, _event_tx: UnboundedSender<AppEvent>) -> Component {
+fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -> Component {
     // Player container
     let mut player_container = FlexContainerBuilder::new()
         .with_debug_name("Player Container")
         .with_size(FlexValue::Fill, FlexValue::Fixed(100.0))
         .with_direction(FlexDirection::Row)
         .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::SpaceBetween)
         .with_padding(Edges::all(10.0))
         .build();
 
@@ -352,11 +353,126 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, _event_tx: UnboundedSender<AppEvent
         .with_z_index(1)
         .build(wgpu_ctx);
 
-    // TODO: implement Flex fit content for image and labels to only occupy required space
+    let mut song_info_container = FlexContainerBuilder::new()
+        .with_debug_name("Song Info Container")
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Start)
+        .build();
+
+    song_info_container.add_child(current_song_album_art);
+    song_info_container.add_child(current_song_info);
+
+    let mut player_controls_container = FlexContainerBuilder::new()
+        .with_fixed_position(Anchor::Center)
+        .with_size(FlexValue::Fraction(0.6), FlexValue::Fill)
+        .with_debug_name("Player Controls Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build();
+
+    let mut player_controls_sub_container = FlexContainerBuilder::new()
+        .with_debug_name("Player Controls Sub Container")
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .with_padding(Edges::horizontal(20.0))
+        .with_margin(Edges::top(10.0))
+        .build();
+
+    let player_control_btns_size = 20.0;
+
+    let shuffle_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Image(ImageConfig {
+            file_name: "shuffle.png".to_string(),
+            scale_mode: ScaleMode::default(),
+        }))
+        .with_size(player_control_btns_size, player_control_btns_size)
+        .with_debug_name("Shuffle Button")
+        .with_click_event(AppEvent::Shuffle)
+        .with_event_sender(event_tx.clone())
+        .with_margin(Edges::right(10.0))
+        .build(wgpu_ctx);
+
+    let previous_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Image(ImageConfig {
+            file_name: "skip-back.png".to_string(),
+            scale_mode: ScaleMode::default(),
+        }))
+        .with_size(player_control_btns_size, player_control_btns_size)
+        .with_debug_name("Previous Button")
+        .with_click_event(AppEvent::PreviousTrack)
+        .with_event_sender(event_tx.clone())
+        .with_margin(Edges::horizontal(10.0))
+        .build(wgpu_ctx);
+
+    let play_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Image(ImageConfig {
+            file_name: "play.png".to_string(),
+            scale_mode: ScaleMode::default(),
+        }))
+        .with_size(player_control_btns_size, player_control_btns_size)
+        .with_debug_name("Play Button")
+        .with_click_event(AppEvent::PlayPause)
+        .with_event_sender(event_tx.clone())
+        .with_margin(Edges::horizontal(10.0))
+        .build(wgpu_ctx);
+
+    let next_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Image(ImageConfig {
+            file_name: "skip-forward.png".to_string(),
+            scale_mode: ScaleMode::default(),
+        }))
+        .with_size(player_control_btns_size, player_control_btns_size)
+        .with_debug_name("Next Button")
+        .with_click_event(AppEvent::NextTrack)
+        .with_event_sender(event_tx.clone())
+        .with_margin(Edges::horizontal(10.0))
+        .build(wgpu_ctx);
+
+    let repeat_button = ButtonBuilder::new()
+        .with_background(ButtonBackground::Image(ImageConfig {
+            file_name: "repeat.png".to_string(),
+            scale_mode: ScaleMode::default(),
+        }))
+        .with_size(player_control_btns_size, player_control_btns_size)
+        .with_debug_name("Repeat Button")
+        .with_click_event(AppEvent::Repeat)
+        .with_event_sender(event_tx.clone())
+        .with_margin(Edges::left(10.0))
+        .build(wgpu_ctx);
+
+    player_controls_sub_container.add_child(shuffle_button);
+    player_controls_sub_container.add_child(previous_button);
+    player_controls_sub_container.add_child(play_button);
+    player_controls_sub_container.add_child(next_button);
+    player_controls_sub_container.add_child(repeat_button);
+
+    player_controls_container.add_child(player_controls_sub_container);
+
+    // placeholder background for the song slider
+    let song_progress_slider = BackgroundBuilder::with_color(Color::Gray.lighten(0.2))
+        .with_debug_name("Song Progress Slider Background")
+        .with_size(FlexValue::Fraction(0.6), FlexValue::Fixed(4.0))
+        .with_margin(Edges::bottom(20.0))
+        .with_border_radius(BorderRadius::all(2.0))
+        .build(wgpu_ctx);
+
+    player_controls_container.add_child(song_progress_slider);
+
+    // placeholder background for the volume slider
+    let volume_slider = BackgroundBuilder::with_color(Color::Gray.lighten(0.2))
+        .with_debug_name("Volume Slider Background")
+        .with_size(FlexValue::Fixed(100.0), FlexValue::Fixed(4.0))
+        .with_margin(Edges::all(10.0))
+        .with_border_radius(BorderRadius::all(2.0))
+        .build(wgpu_ctx);
 
     player_container.add_child(player_container_background);
-    player_container.add_child(current_song_album_art);
-    player_container.add_child(current_song_info);
+    player_container.add_child(song_info_container);
+    player_container.add_child(player_controls_container);
+    player_container.add_child(volume_slider);
 
     player_container
 }

@@ -26,6 +26,11 @@ pub enum AppEvent {
     Minimize,
     DragWindow,
     Login,
+    Shuffle,
+    Repeat,
+    PlayPause,
+    PreviousTrack,
+    NextTrack,
 }
 
 #[derive(Default)]
@@ -100,6 +105,26 @@ impl App<'_> {
                         if let Some(worker) = &self.worker {
                             worker.start_oauth();
                         }
+                        return true;
+                    }
+                    AppEvent::Shuffle => {
+                        debug!("Shuffle event received");
+                        return true;
+                    }
+                    AppEvent::Repeat => {
+                        debug!("Repeat event received");
+                        return true;
+                    }
+                    AppEvent::PlayPause => {
+                        debug!("Play/Pause event received");
+                        return true;
+                    }
+                    AppEvent::PreviousTrack => {
+                        debug!("Previous track event received");
+                        return true;
+                    }
+                    AppEvent::NextTrack => {
+                        debug!("Next track event received");
                         return true;
                     }
                 }

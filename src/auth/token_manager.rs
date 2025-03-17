@@ -81,6 +81,21 @@ pub fn load_tokens() -> Result<StoredTokens, AuthError> {
     let serialized = entry.get_secret()?;
     let serialized = std::str::from_utf8(&serialized)?;
     let tokens: StoredTokens = serde_json::from_str(serialized)?;
+    // debug the time in minutes/seconds until the token expires
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or(Duration::from_secs(0))
+        .as_secs();
+    if tokens.expires_at < now {
+        debug!("Stored Spotify tokens have expired");
+    } else {
+        let time_until_expiration = tokens.expires_at - now;
+        debug!(
+            "Loaded stored Spotify tokens, time until expiration: {} minutes {} seconds",
+            time_until_expiration / 60,
+            time_until_expiration % 60
+        );
+    }
     debug!("Loaded stored Spotify tokens");
     Ok(tokens)
 }

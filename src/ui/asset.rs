@@ -2,33 +2,40 @@ use std::{collections::HashMap, sync::OnceLock};
 
 static ASSET_STORE: OnceLock<HashMap<&'static str, &'static [u8]>> = OnceLock::new();
 
-pub fn initialize_assets() {
-    let mut assets = HashMap::new();
-    assets.insert(
-        "close.png",
-        include_bytes!("../../assets/close.png") as &[u8],
-    );
-    assets.insert(
-        "minimize.png",
-        include_bytes!("../../assets/minimize.png") as &[u8],
-    );
-    assets.insert(
-        "maximize.png",
-        include_bytes!("../../assets/maximize.png") as &[u8],
-    );
-    assets.insert("test.png", include_bytes!("../../assets/test.png") as &[u8]);
-    assets.insert(
-        "album_art.png",
-        include_bytes!("../../assets/album_art.png") as &[u8],
-    );
-    assets.insert(
-        "frostify_logo.png",
-        include_bytes!("../../assets/frostify_logo.png") as &[u8],
-    );
+// macro to insert assets into the asset store
+macro_rules! insert_assets {
+    ($($file_name:literal),*) => {
+        {
+            let mut assets = HashMap::new();
+            $(
+                assets.insert(
+                    $file_name,
+                    include_bytes!(concat!("../../assets/", $file_name)) as &[u8],
+                );
+            )*
+            ASSET_STORE
+                .set(assets)
+                .expect("Asset store already initialized");
+        }
+    };
+}
 
-    ASSET_STORE
-        .set(assets)
-        .expect("Asset store already initialized");
+pub fn initialize_assets() {
+    insert_assets!(
+        "close.png",
+        "minimize.png",
+        "maximize.png",
+        "test.png",
+        "album_art.png",
+        "frostify_logo.png",
+        "shuffle.png",
+        "repeat.png",
+        "skip-back.png",
+        "play.png",
+        "pause.png",
+        "skip-forward.png",
+        "volume.png"
+    );
 }
 
 pub fn get_asset(file_name: &str) -> Option<&'static [u8]> {

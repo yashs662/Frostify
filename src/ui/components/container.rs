@@ -4,7 +4,7 @@ use crate::{
         color::Color,
         component::{BorderPosition, Component, ComponentType},
         layout::{
-            AlignItems, Edges, FlexDirection, FlexValue, FlexWrap, JustifyContent, Layout, Position,
+            AlignItems, Anchor, Edges, FlexDirection, FlexValue, FlexWrap, JustifyContent, Layout, Position
         },
     },
 };
@@ -90,6 +90,11 @@ impl FlexContainerBuilder {
     pub fn with_size(mut self, width: impl Into<FlexValue>, height: impl Into<FlexValue>) -> Self {
         self.config.width = width.into();
         self.config.height = height.into();
+        self
+    }
+
+    pub fn with_fixed_position(mut self, anchor: Anchor) -> Self {
+        self.config.position = Some(Position::Fixed(anchor));
         self
     }
 
