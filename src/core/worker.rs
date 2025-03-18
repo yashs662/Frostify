@@ -4,8 +4,10 @@ use crate::auth::{
 };
 use log::{debug, error, info};
 use std::thread;
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::{
+    runtime::Runtime,
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+};
 
 // Commands that can be sent to the background worker
 #[derive(Debug)]

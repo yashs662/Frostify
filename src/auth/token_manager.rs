@@ -1,6 +1,8 @@
-use crate::constants::CREDENTIAL_SERVICE_NAME;
-use crate::{auth::oauth::SpotifyAuthResponse, constants::CREDENTIAL_USER_NAME};
-use crate::errors::AuthError;
+use crate::{
+    auth::oauth::SpotifyAuthResponse,
+    constants::{CREDENTIAL_SERVICE_NAME, CREDENTIAL_USER_NAME},
+    errors::AuthError,
+};
 use keyring::Entry;
 use log::debug;
 use serde::{Deserialize, Serialize};

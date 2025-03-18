@@ -1,4 +1,7 @@
-use crate::ui::{components::container::FlexContainerBuilder, layout::*};
+use crate::ui::{
+    components::{component_builder::ComponentBuilder, container::FlexContainerBuilder},
+    layout::*,
+};
 
 #[test]
 fn test_basic_fixed_flex_row_layout() {

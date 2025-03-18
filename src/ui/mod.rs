@@ -14,7 +14,10 @@ use crate::{
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use component::{BorderPosition, GradientColorStop};
-use components::{background::BackgroundBuilder, image::ImageBuilder, label::LabelBuilder};
+use components::{
+    background::BackgroundBuilder, component_builder::ComponentBuilder, image::ImageBuilder,
+    label::LabelBuilder,
+};
 use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent, Position};
 use tokio::sync::mpsc::UnboundedSender;
 

@@ -390,6 +390,25 @@ impl Layout {
         });
         layout
     }
+
+    // Make sure we have proper methods for calculating available space
+    // that factor in both margin and padding
+    pub fn get_available_width(&self, container_width: f32) -> f32 {
+        container_width - self.padding.left - self.padding.right
+    }
+
+    pub fn get_available_height(&self, container_height: f32) -> f32 {
+        container_height - self.padding.top - self.padding.bottom
+    }
+
+    // Ensure that position calculations include padding
+    pub fn get_content_x(&self, container_x: f32) -> f32 {
+        container_x + self.padding.left
+    }
+
+    pub fn get_content_y(&self, container_y: f32) -> f32 {
+        container_y + self.padding.top
+    }
 }
 
 // Implementation for Edges

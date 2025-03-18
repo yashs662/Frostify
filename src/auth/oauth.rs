@@ -1,3 +1,11 @@
+use crate::{
+    constants::{
+        FROSTIFY_LOGIN_ERROR_HTML, FROSTIFY_LOGIN_SUCCESS_HTML, SPOTIFY_ACCESS_SCOPES,
+        SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI,
+    },
+    errors::AuthError,
+    ui::asset::get_asset,
+};
 use base64::{Engine, engine::general_purpose, prelude::BASE64_URL_SAFE_NO_PAD};
 use log::debug;
 use rand::{Rng, distr::Alphanumeric};
@@ -8,15 +16,6 @@ use tokio::{
     net::TcpListener,
 };
 use url::Url;
-
-use crate::{
-    constants::{
-        FROSTIFY_LOGIN_ERROR_HTML, FROSTIFY_LOGIN_SUCCESS_HTML, SPOTIFY_ACCESS_SCOPES,
-        SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI,
-    },
-    errors::AuthError,
-    ui::asset::get_asset,
-};
 
 // Ensure this type can be cloned for passing between threads
 #[derive(Debug, Clone)]
