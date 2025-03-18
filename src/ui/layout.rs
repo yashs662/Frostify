@@ -1364,22 +1364,17 @@ impl LayoutContext {
     ) -> Option<(Uuid, EventType, Option<AppEvent>)> {
         let mut current_id = start_id;
 
-        loop {
-            if let Some(component) = self.components.get(&current_id) {
-                // Check if this component can handle the event
-                if self.is_component_interactive(component, event_type) {
-                    return self.create_event_result(component, event_type);
-                }
+        while let Some(component) = self.components.get(&current_id) {
+            // Check if this component can handle the event
+            if self.is_component_interactive(component, event_type) {
+                return self.create_event_result(component, event_type);
+            }
 
-                // Move up to parent
-                if let Some(parent_id) = component.get_parent_id() {
-                    current_id = parent_id;
-                } else {
-                    // Reached root component with no handler
-                    break;
-                }
+            // Move up to parent
+            if let Some(parent_id) = component.get_parent_id() {
+                current_id = parent_id;
             } else {
-                // Component not found (shouldn't happen)
+                // Reached root component with no handler
                 break;
             }
         }

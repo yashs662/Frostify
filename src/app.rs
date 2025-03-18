@@ -236,7 +236,7 @@ impl App<'_> {
             log::debug!("Affected component: {:?}", affected_component);
         }
 
-        if let Some((affected_component_id, event_type, app_event)) = affected_component {
+        if let Some((_affected_component_id, _event_type, app_event)) = affected_component {
             if app_event.is_some() {
                 if let Some(event_sender) = &self.event_sender {
                     event_sender.send(app_event.unwrap()).unwrap_or_else(|e| {
@@ -354,10 +354,6 @@ impl App<'_> {
             };
             window.set_cursor(cursor);
         }
-    }
-
-    fn is_in_resize_zone(&self, x: f64, y: f64) -> bool {
-        self.get_resize_direction(x, y).is_some()
     }
 }
 
