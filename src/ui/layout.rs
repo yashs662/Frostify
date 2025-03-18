@@ -1,14 +1,15 @@
 use crate::{
+    app::AppEvent,
     ui::{
         component::{Component, ComponentType},
         z_index_manager::ZIndexManager,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{debug, error, trace};
+use log::{error, trace};
 use std::collections::BTreeMap;
 use uuid::Uuid;
-use winit::event::{ElementState, MouseButton};
+use winit::event::MouseButton;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComponentOffset {
@@ -22,7 +23,7 @@ pub struct ComponentSize {
     pub height: f32,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ComponentPosition {
     pub x: f32,
     pub y: f32,
@@ -191,6 +192,7 @@ pub struct Layout {
 #[derive(Debug, Default)]
 pub struct LayoutContext {
     components: BTreeMap<Uuid, Component>,
+    root_component_ids: Vec<Uuid>,
     computed_bounds: BTreeMap<Uuid, Bounds>,
     viewport_size: ComponentSize,
     render_order: Vec<Uuid>,
@@ -243,9 +245,13 @@ impl BorderRadius {
 // Event types
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventType {
-    Click,
     Press,
     Release,
+    Drag,
+    ScrollUp,
+    ScrollDown,
+    Hover,
+    None,
 }
 
 // Event data
@@ -254,18 +260,9 @@ pub enum EventType {
 pub struct InputEvent {
     pub event_type: EventType,
     pub position: Option<ComponentPosition>,
-    pub button: MouseButton,
+    pub button: Option<MouseButton>,
     pub key: Option<String>,
     pub text: Option<String>,
-}
-
-impl From<ElementState> for EventType {
-    fn from(state: ElementState) -> Self {
-        match state {
-            ElementState::Pressed => EventType::Press,
-            ElementState::Released => EventType::Release,
-        }
-    }
 }
 
 // Implementation for Size
@@ -543,6 +540,7 @@ impl LayoutContext {
         self.computed_bounds.clear();
         self.render_order.clear();
         self.z_index_manager.clear();
+        self.root_component_ids.clear();
     }
 
     /// Used for testing purposes only
@@ -620,6 +618,7 @@ impl LayoutContext {
 
     pub fn add_component(&mut self, component: Component) {
         let component_id = component.id;
+        let is_root_component = component.get_parent_id().is_none();
         let mut children = Vec::new();
 
         // Extract children if needed
@@ -650,6 +649,9 @@ impl LayoutContext {
         // Add the parent component first
         self.debug_print_component_insertion(&component);
         self.components.insert(component_id, component);
+        if is_root_component {
+            self.root_component_ids.push(component_id);
+        }
 
         // Update the parent's children vector
         if let Some(parent) = self.components.get_mut(&component_id) {
@@ -701,16 +703,8 @@ impl LayoutContext {
         // Clear previous computed bounds
         self.computed_bounds.clear();
 
-        // Find root components (those without parents)
-        let root_components: Vec<Uuid> = self
-            .components
-            .values()
-            .filter(|c| c.get_parent_id().is_none())
-            .map(|c| c.id)
-            .collect();
-
         // Compute layout for each root component
-        for root_id in root_components {
+        for root_id in self.root_component_ids.clone() {
             self.compute_component_layout(&root_id, None);
         }
 
@@ -1317,84 +1311,80 @@ impl LayoutContext {
         }
     }
 
-    pub fn handle_event(&mut self, event: InputEvent) -> Vec<(Uuid, EventType)> {
-        let mut components_affected = Vec::new();
-
+    pub fn handle_event(
+        &mut self,
+        event: InputEvent,
+    ) -> Option<(Uuid, EventType, Option<AppEvent>)> {
         if let Some(position) = event.position {
-            // Find components at this position (from top to bottom)
-            let mut hit_components: Vec<(Uuid, i32)> = Vec::new();
-
-            for (id, bounds) in &self.computed_bounds {
-                if position.x >= bounds.position.x
-                    && position.x <= bounds.position.x + bounds.size.width
-                    && position.y >= bounds.position.y
-                    && position.y <= bounds.position.y + bounds.size.height
-                {
-                    if let Some(component) = self.get_component(id) {
-                        hit_components.push((*id, component.transform.z_index));
-                    }
-                }
-            }
-
-            // Sort by z-index (highest first)
-            hit_components.sort_by(|a, b| b.1.cmp(&a.1));
-
-            // Modify event processing to prioritize clickable components
-            let mut event_handled = false;
-
-            // First pass: handle clickable components
-            for (id, _) in &hit_components {
+            for id in self.render_order.iter().rev() {
                 if let Some(component) = self.components.get(id) {
-                    // If it's a click or press event, first check for clickable components
-                    if (event.event_type == EventType::Press
-                        || event.event_type == EventType::Click)
-                        && component.is_clickable()
-                    {
-                        if let Some(event_sender) = component.get_event_sender() {
-                            if let Some(click_event) = component.get_click_event() {
-                                if let Err(e) = event_sender.send(click_event.clone()) {
-                                    error!("Failed to send click event: {}", e);
-                                } else {
-                                    debug!(
-                                        "Click event handled by component: {}",
-                                        component.debug_name.as_deref().unwrap_or("unnamed")
-                                    );
-                                    event_handled = true;
-                                    components_affected.push((*id, event.event_type.clone()));
-                                    break; // Exit after handling click
-                                }
-                            }
+                    if component.is_visible() && component.is_hit(position) {
+                        // Try to handle event with the hit component
+                        if self.is_component_interactive(component, &event.event_type) {
+                            return self.create_event_result(component, &event.event_type);
                         }
-                    }
-                }
-            }
 
-            // Second pass: handle draggable components only if no click was handled
-            if !event_handled {
-                for (id, _) in hit_components {
-                    if let Some(component) = self.components.get(&id) {
-                        if event.event_type == EventType::Press && component.is_draggable() {
-                            if let Some(event_sender) = component.get_event_sender() {
-                                if let Some(drag_event) = component.get_drag_event() {
-                                    if let Err(e) = event_sender.send(drag_event.clone()) {
-                                        error!("Failed to send drag event: {}", e);
-                                    } else {
-                                        debug!(
-                                            "Drag event handled by component: {}",
-                                            component.debug_name.as_deref().unwrap_or("unnamed")
-                                        );
-                                        components_affected.push((id, event.event_type.clone()));
-                                        break; // Exit after handling drag
-                                    }
-                                }
-                            }
-                        }
+                        // If not handled, bubble up through parents
+                        return self.bubble_event_up(component.id, &event.event_type);
                     }
                 }
             }
         }
+        None
+    }
 
-        components_affected
+    // Helper method to check if component can handle this event type
+    fn is_component_interactive(&self, component: &Component, event_type: &EventType) -> bool {
+        match event_type {
+            EventType::Drag => component.is_draggable(),
+            EventType::Press | EventType::Release => component.is_clickable(),
+            _ => false,
+        }
+    }
+
+    // Helper method to create the appropriate event result
+    fn create_event_result(
+        &self,
+        component: &Component,
+        event_type: &EventType,
+    ) -> Option<(Uuid, EventType, Option<AppEvent>)> {
+        let return_event = match event_type {
+            EventType::Drag => component.get_drag_event().cloned(),
+            _ => component.get_click_event().cloned(),
+        };
+
+        Some((component.id, event_type.clone(), return_event))
+    }
+
+    // Bubble up through parent hierarchy to find handler
+    fn bubble_event_up(
+        &self,
+        start_id: Uuid,
+        event_type: &EventType,
+    ) -> Option<(Uuid, EventType, Option<AppEvent>)> {
+        let mut current_id = start_id;
+
+        loop {
+            if let Some(component) = self.components.get(&current_id) {
+                // Check if this component can handle the event
+                if self.is_component_interactive(component, event_type) {
+                    return self.create_event_result(component, event_type);
+                }
+
+                // Move up to parent
+                if let Some(parent_id) = component.get_parent_id() {
+                    current_id = parent_id;
+                } else {
+                    // Reached root component with no handler
+                    break;
+                }
+            } else {
+                // Component not found (shouldn't happen)
+                break;
+            }
+        }
+
+        None
     }
 }
 

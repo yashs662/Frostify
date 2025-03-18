@@ -4,7 +4,7 @@ use crate::{
     core::worker::{Worker, WorkerResponse},
     ui::{
         UiView, create_app_ui, create_login_ui,
-        layout::{self},
+        layout::{self, ComponentPosition, EventType},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -13,7 +13,7 @@ use std::{sync::Arc, time::Instant};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{ElementState, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
     platform::windows::WindowAttributesExtWindows,
     window::{CursorIcon, Icon, ResizeDirection, Theme, Window, WindowId},
@@ -42,6 +42,7 @@ pub struct App<'window> {
     layout_context: layout::LayoutContext,
     app_state: AppState,
     worker: Option<Worker>,
+    last_cursor_input: (Option<ElementState>, ComponentPosition),
 }
 
 #[derive(Default)]
@@ -176,39 +177,77 @@ impl App<'_> {
         event_loop: &ActiveEventLoop,
         x: f64,
         y: f64,
-        state: winit::event::ElementState,
-        button: winit::event::MouseButton,
+        state: Option<winit::event::ElementState>,
+        button: Option<winit::event::MouseButton>,
+        scroll_delta: Option<f32>,
     ) {
         // Convert physical coordinates to logical coordinates for UI interactions
-        if let Some(window) = &self.window {
-            let scale_factor = window.scale_factor();
-            let logical_x = x / scale_factor;
-            let logical_y = y / scale_factor;
+        let mouse_position = ComponentPosition {
+            x: x as f32,
+            y: y as f32,
+        };
+        let event_type = if button.is_some() {
+            if state == Some(ElementState::Pressed) {
+                EventType::Press
+            } else {
+                EventType::Release
+            }
+        } else if self.last_cursor_input.1 != mouse_position
+            && self.last_cursor_input.0 == Some(ElementState::Pressed)
+        {
+            EventType::Drag
+        } else if button.is_none() && state.is_none() {
+            if self.last_cursor_input.1 != mouse_position {
+                EventType::Hover
+            } else if let Some(scroll_delta) = scroll_delta {
+                if scroll_delta > 0.0 {
+                    EventType::ScrollUp
+                } else {
+                    EventType::ScrollDown
+                }
+            } else {
+                EventType::None
+            }
+        } else {
+            EventType::None
+        };
 
+        let input_event = layout::InputEvent {
+            event_type: event_type.clone(),
+            position: Some(mouse_position),
+            button,
+            key: None,
+            text: None,
+        };
+
+        self.last_cursor_input = (state, mouse_position);
+
+        let affected_component = self.layout_context.handle_event(input_event);
+        if event_type == EventType::Hover && affected_component.is_some() {
             log::debug!(
-                "Mouse input at ({}, {}), state: {:?}",
-                logical_x,
-                logical_y,
-                state
-            );
-
-            let input_event = layout::InputEvent {
-                event_type: layout::EventType::from(state),
-                position: Some(layout::ComponentPosition {
-                    x: logical_x as f32,
-                    y: logical_y as f32,
-                }),
+                "Mouse input at ({}, {}), state: {:?}, button: {:?}, scroll_delta: {:?}",
+                mouse_position.x,
+                mouse_position.y,
+                state,
                 button,
-                key: None,
-                text: None,
-            };
-
-            let affected_components = self.layout_context.handle_event(input_event);
-            log::debug!("Affected components: {:?}", affected_components);
-
-            // Always check for events regardless of affected components
-            self.try_handle_app_event(event_loop);
+                scroll_delta
+            );
+            log::debug!("Event type: {:?}", event_type);
+            log::debug!("Affected component: {:?}", affected_component);
         }
+
+        if let Some((affected_component_id, event_type, app_event)) = affected_component {
+            if app_event.is_some() {
+                if let Some(event_sender) = &self.event_sender {
+                    event_sender.send(app_event.unwrap()).unwrap_or_else(|e| {
+                        error!("Failed to send app event: {}", e);
+                    });
+                }
+            }
+        }
+
+        // Always check for events regardless of affected components
+        self.try_handle_app_event(event_loop);
     }
 
     fn check_worker_responses(&mut self) {
@@ -459,6 +498,10 @@ impl ApplicationHandler for App<'_> {
 
                     window.request_redraw();
                 }
+
+                if self.window.is_some() {
+                    self.handle_ui_event(event_loop, position.x, position.y, None, None, None);
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some((x, y)) = self.app_state.cursor_position {
@@ -478,8 +521,13 @@ impl ApplicationHandler for App<'_> {
                         }
                     }
 
-                    if !self.is_in_resize_zone(x, y) {
-                        self.handle_ui_event(event_loop, x, y, state, button);
+                    self.handle_ui_event(event_loop, x, y, Some(state), Some(button), None);
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                if let Some((x, y)) = self.app_state.cursor_position {
+                    if let MouseScrollDelta::LineDelta(_, scroll_y) = delta {
+                        self.handle_ui_event(event_loop, x, y, None, None, Some(scroll_y));
                     }
                 }
             }

@@ -22,7 +22,7 @@ use super::{
         core::{frosted_glass::FrostedGlassComponent, image::ImageMetadata},
         image::ScaleMode,
     },
-    layout::{BorderRadius, FlexValue},
+    layout::{BorderRadius, ComponentPosition, FlexValue},
 };
 
 /// Defines the position of the border relative to the component edges
@@ -57,6 +57,7 @@ pub struct Component {
     pub border_color: Color,
     pub border_position: BorderPosition,
     pub fit_to_size: bool,
+    pub computed_bounds: Bounds,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,7 +208,22 @@ impl Component {
             border_color: Color::Transparent,
             border_position: BorderPosition::default(),
             fit_to_size: false,
+            computed_bounds: Bounds::default(),
         }
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.layout.opacity > 0.0
+    }
+
+    pub fn is_hit(&self, position: ComponentPosition) -> bool {
+        let bounds = self.computed_bounds;
+        let x = position.x;
+        let y = position.y;
+        x >= bounds.position.x
+            && x <= bounds.position.x + bounds.size.width
+            && y >= bounds.position.y
+            && y <= bounds.position.y + bounds.size.height
     }
 
     pub fn get_parent_id(&self) -> Option<Uuid> {
@@ -313,6 +329,7 @@ impl Component {
         screen_size: ComponentSize,
     ) {
         self.screen_size = screen_size;
+        self.computed_bounds = bounds;
         if let Some(config) = &self.config {
             match config {
                 ComponentConfig::BackgroundColor(_) => {
@@ -330,11 +347,6 @@ impl Component {
                 ComponentConfig::FrostedGlass(_) => {
                     FrostedGlassComponent::set_position(self, wgpu_ctx, bounds);
                 }
-            }
-        } else {
-            // Container
-            if self.fit_to_size {
-                // calculate the containers size based on the children
             }
         }
     }
