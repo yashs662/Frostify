@@ -156,14 +156,58 @@ impl App<'_> {
                 }
             }
 
-            // Resize the viewport (even though we haven't actually resized the window)
-            // To ensure all components are correctly positioned, have correct textures, etc.
-            // Done 3 times as it allows for components calculate their size after layout (FlexValue::Fit)
-            // to ensure they are correctly positioned, this is cheap enough to do 3 times (usually 1-2 ms)
-            layout_context.resize_viewport(wgpu_ctx);
-            layout_context.resize_viewport(wgpu_ctx);
-            layout_context.resize_viewport(wgpu_ctx);
+            // Apply multiple viewport resizes to ensure correct positioning
+            App::apply_layout_updates(wgpu_ctx, layout_context);
             app_state.current_view = Some(view);
+        }
+    }
+
+    /// Helper method to apply multiple viewport resizes to ensure proper layout
+    fn apply_layout_updates(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
+        // Done 3 times to ensure components with FlexValue::Fit have their positions calculated correctly
+        for _ in 0..3 {
+            layout_context.resize_viewport(wgpu_ctx);
+        }
+    }
+
+    /// Handles UI events and returns whether any components were affected
+    fn handle_ui_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        x: f64,
+        y: f64,
+        state: winit::event::ElementState,
+        button: winit::event::MouseButton,
+    ) {
+        // Convert physical coordinates to logical coordinates for UI interactions
+        if let Some(window) = &self.window {
+            let scale_factor = window.scale_factor();
+            let logical_x = x / scale_factor;
+            let logical_y = y / scale_factor;
+
+            log::debug!(
+                "Mouse input at ({}, {}), state: {:?}",
+                logical_x,
+                logical_y,
+                state
+            );
+
+            let input_event = layout::InputEvent {
+                event_type: layout::EventType::from(state),
+                position: Some(layout::ComponentPosition {
+                    x: logical_x as f32,
+                    y: logical_y as f32,
+                }),
+                button,
+                key: None,
+                text: None,
+            };
+
+            let affected_components = self.layout_context.handle_event(input_event);
+            log::debug!("Affected components: {:?}", affected_components);
+
+            // Always check for events regardless of affected components
+            self.try_handle_app_event(event_loop);
         }
     }
 
@@ -173,7 +217,9 @@ impl App<'_> {
                 match response {
                     WorkerResponse::OAuthStarted { auth_url } => {
                         debug!("OAuth flow started, URL: {}", auth_url);
-                        webbrowser::open(&auth_url).unwrap();
+                        webbrowser::open(&auth_url).unwrap_or_else(|e| {
+                            error!("Failed to open browser: {}", e);
+                        });
                     }
                     WorkerResponse::OAuthComplete { auth_response } => {
                         info!("OAuth flow completed successfully");
@@ -433,36 +479,7 @@ impl ApplicationHandler for App<'_> {
                     }
 
                     if !self.is_in_resize_zone(x, y) {
-                        // Convert physical coordinates to logical coordinates for UI interactions
-                        if let Some(window) = &self.window {
-                            let scale_factor = window.scale_factor();
-                            let logical_x = x / scale_factor;
-                            let logical_y = y / scale_factor;
-
-                            log::debug!(
-                                "Mouse input at ({}, {}), state: {:?}",
-                                logical_x,
-                                logical_y,
-                                state
-                            );
-
-                            let input_event = layout::InputEvent {
-                                event_type: layout::EventType::from(state),
-                                position: Some(layout::ComponentPosition {
-                                    x: logical_x as f32,
-                                    y: logical_y as f32,
-                                }),
-                                button,
-                                key: None,
-                                text: None,
-                            };
-
-                            let affected_components = self.layout_context.handle_event(input_event);
-                            log::debug!("Affected components: {:?}", affected_components);
-
-                            // Always check for events regardless of affected components
-                            self.try_handle_app_event(event_loop);
-                        }
+                        self.handle_ui_event(event_loop, x, y, state, button);
                     }
                 }
             }

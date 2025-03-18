@@ -7,6 +7,7 @@ use crate::{
     },
     utils::create_unified_pipeline,
 };
+use log::debug;
 use std::sync::Arc;
 use wgpu::MemoryHints::Performance;
 use winit::window::Window;
@@ -129,59 +130,57 @@ impl<'window> WgpuCtx<'window> {
                 depth_or_array_layers: 1,
             };
 
-            // Create main render texture with explicit usage flags
-            let main_render_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Main Render Texture"),
-                size: texture_size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: self.surface_config.format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::COPY_SRC
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
+            // Create textures using dedicated methods
+            self.create_main_render_texture(texture_size);
+            self.create_frame_sample_texture(texture_size);
 
-            // Calculate appropriate mip levels for the frame sample texture
-            let mip_level_count = Self::calculate_mip_level_count(
-                self.surface_config.width,
-                self.surface_config.height,
-            );
-
-            // Create a texture for sampling with mipmap support
-            let frame_sample_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Frame Sample Texture"),
-                size: texture_size,
-                mip_level_count,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: self.surface_config.format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-
-            let main_render_view =
-                main_render_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-            let frame_sample_view =
-                frame_sample_texture.create_view(&wgpu::TextureViewDescriptor {
-                    base_mip_level: 0,
-                    mip_level_count: Some(mip_level_count), // Specify all mip levels explicitly
-                    ..Default::default()
-                });
-
-            self.main_render_texture = Some(main_render_texture);
-            self.main_render_view = Some(main_render_view);
-            self.frame_sample_texture = Some(frame_sample_texture);
-            self.frame_sample_view = Some(frame_sample_view);
+            // Reset the blit bind group since we have new texture views
+            self.blit_bind_group = None;
         }
     }
 
-    // Helper function to calculate the optimal number of mip levels for a texture
-    fn calculate_mip_level_count(width: u32, height: u32) -> u32 {
-        let max_dimension = width.max(height);
-        32 - max_dimension.leading_zeros()
+    // New method to create main render texture
+    fn create_main_render_texture(&mut self, texture_size: wgpu::Extent3d) {
+        // Create main render texture with explicit usage flags
+        let main_render_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Main Render Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.surface_config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let main_render_view =
+            main_render_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        self.main_render_texture = Some(main_render_texture);
+        self.main_render_view = Some(main_render_view);
+    }
+
+    // New method to create frame sample texture - simplified without mipmaps
+    fn create_frame_sample_texture(&mut self, texture_size: wgpu::Extent3d) {
+        // Create a texture for sampling with single mip level
+        let frame_sample_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Frame Sample Texture"),
+            size: texture_size,
+            mip_level_count: 1, // Single mip level is sufficient
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.surface_config.format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let frame_sample_view =
+            frame_sample_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        self.frame_sample_texture = Some(frame_sample_texture);
+        self.frame_sample_view = Some(frame_sample_view);
     }
 
     pub fn resize(&mut self, new_size: (u32, u32)) {
@@ -243,7 +242,7 @@ impl<'window> WgpuCtx<'window> {
 
         let render_groups = prepare_render_groups(layout_context);
 
-        for (idx, (render_group, (frosted_group, text_group))) in render_groups.iter().enumerate() {
+        for (idx, render_group) in render_groups.iter().enumerate() {
             // First render pass should clear the main render target
             let load_op = if idx == 0 {
                 wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
@@ -251,12 +250,14 @@ impl<'window> WgpuCtx<'window> {
                 wgpu::LoadOp::Load
             };
 
-            if *frosted_group {
+            if render_group.is_frosted_glass {
                 if idx != 0 {
                     self.capture_current_frame_texture(encoder);
                 }
 
-                for (frosted_idx, frosted_component) in render_group.iter().enumerate() {
+                for (frosted_idx, frosted_component) in
+                    render_group.component_ids.iter().enumerate()
+                {
                     if let Some(component) = layout_context.get_component_mut(frosted_component) {
                         if let Some(frame_sample_view) = &self.frame_sample_view {
                             FrostedGlassComponent::update_with_frame_texture(
@@ -294,7 +295,7 @@ impl<'window> WgpuCtx<'window> {
                             );
                         }
 
-                        if frosted_idx != render_group.len() - 1 {
+                        if frosted_idx != render_group.component_ids.len() - 1 {
                             self.capture_current_frame_texture(encoder);
                         }
                     }
@@ -315,18 +316,18 @@ impl<'window> WgpuCtx<'window> {
                     timestamp_writes: None,
                 });
 
-                if *text_group {
+                if render_group.is_text {
                     self.text_handler.render(
                         &self.device,
                         &self.queue,
                         &mut render_pass,
-                        render_group.clone(),
+                        render_group.component_ids.clone(),
                     );
                 } else {
                     layout_context.draw_group(
                         &mut render_pass,
                         &mut self.app_pipelines,
-                        render_group.clone(),
+                        render_group.component_ids.clone(),
                     );
                 }
             }
@@ -336,7 +337,7 @@ impl<'window> WgpuCtx<'window> {
         self.blit_to_surface(encoder, final_surface_view);
     }
 
-    // New helper method to properly capture the current frame and generate mipmaps
+    // Enhanced capture method - simplified without mipmap generation comment
     fn capture_current_frame_texture(&self, encoder: &mut wgpu::CommandEncoder) {
         if let (Some(main_texture), Some(sample_texture)) =
             (&self.main_render_texture, &self.frame_sample_texture)
@@ -347,7 +348,7 @@ impl<'window> WgpuCtx<'window> {
                 depth_or_array_layers: 1,
             };
 
-            // Copy from main render texture to frame sample texture (base mip level only)
+            // Copy from main render texture to frame sample texture
             encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: main_texture,
@@ -366,222 +367,255 @@ impl<'window> WgpuCtx<'window> {
         }
     }
 
-    // New helper method to blit the final texture to the surface
+    // Refactored blit_to_surface to use helper methods
     fn blit_to_surface(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         surface_view: &wgpu::TextureView,
     ) {
-        if let Some(main_render_view) = &self.main_render_view {
-            // Create a sampler for texture sampling
-            let sampler = if let Some(sampler) = &self.blit_sampler {
-                sampler
-            } else {
-                let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-                    label: Some("Blit Sampler"),
-                    address_mode_u: wgpu::AddressMode::ClampToEdge,
-                    address_mode_v: wgpu::AddressMode::ClampToEdge,
-                    address_mode_w: wgpu::AddressMode::ClampToEdge,
-                    mag_filter: wgpu::FilterMode::Linear,
-                    min_filter: wgpu::FilterMode::Linear,
-                    mipmap_filter: wgpu::FilterMode::Nearest,
-                    ..Default::default()
-                });
-                self.blit_sampler = Some(sampler);
-                self.blit_sampler.as_ref().unwrap()
-            };
+        if self.main_render_view.is_none() {
+            debug!("Main render view is missing, skipping blit to surface");
+            return;
+        }
 
-            // Create or get the bind group layout
-            let bind_group_layout = if let Some(layout) = &self.app_pipelines.blit_bind_group_layout
-            {
-                layout
-            } else {
-                let layout =
-                    self.device
-                        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                            entries: &[
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 0,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Texture {
-                                        multisampled: false,
-                                        view_dimension: wgpu::TextureViewDimension::D2,
-                                        sample_type: wgpu::TextureSampleType::Float {
-                                            filterable: true,
-                                        },
-                                    },
-                                    count: None,
-                                },
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 1,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Sampler(
-                                        wgpu::SamplerBindingType::Filtering,
-                                    ),
-                                    count: None,
-                                },
-                            ],
-                            label: Some("texture_bind_group_layout"),
-                        });
-                self.app_pipelines.blit_bind_group_layout = Some(layout);
-                self.app_pipelines.blit_bind_group_layout.as_ref().unwrap()
-            };
+        self.ensure_blit_sampler();
+        self.ensure_blit_bind_group_layout();
+        self.ensure_blit_pipeline();
+        self.ensure_blit_bind_group();
 
-            // Create or get the blit pipeline
-            let blit_pipeline = if let Some(pipeline) = &self.app_pipelines.blit_pipeline {
-                pipeline
-            } else {
-                // Create shader and pipeline as before
-                let shader = self
-                    .device
-                    .create_shader_module(wgpu::ShaderModuleDescriptor {
-                        label: Some("Blit Shader"),
-                        source: wgpu::ShaderSource::Wgsl(
-                            include_str!("../assets/shaders/blit.wgsl").into(),
-                        ),
-                    });
+        // Get references to the resources we need for the render pass
+        let blit_pipeline = self.app_pipelines.blit_pipeline.as_ref().unwrap();
+        let bind_group = self.blit_bind_group.as_ref().unwrap();
 
-                let pipeline_layout =
-                    self.device
-                        .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                            label: Some("Blit Pipeline Layout"),
-                            bind_group_layouts: &[bind_group_layout],
-                            push_constant_ranges: &[],
-                        });
+        // Start the render pass to render to the surface
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Final Surface Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: surface_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
 
-                let blit_pipeline =
-                    self.device
-                        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                            label: Some("Blit Pipeline"),
-                            layout: Some(&pipeline_layout),
-                            vertex: wgpu::VertexState {
-                                module: &shader,
-                                entry_point: Some("vs_main"),
-                                buffers: &[],
-                                compilation_options: Default::default(),
-                            },
-                            fragment: Some(wgpu::FragmentState {
-                                module: &shader,
-                                entry_point: Some("fs_main"),
-                                targets: &[Some(wgpu::ColorTargetState {
-                                    format: self.surface_config.format,
-                                    blend: Some(wgpu::BlendState::REPLACE),
-                                    write_mask: wgpu::ColorWrites::ALL,
-                                })],
-                                compilation_options: Default::default(),
-                            }),
-                            primitive: wgpu::PrimitiveState {
-                                topology: wgpu::PrimitiveTopology::TriangleList,
-                                strip_index_format: None,
-                                front_face: wgpu::FrontFace::Ccw,
-                                cull_mode: None,
-                                unclipped_depth: false,
-                                polygon_mode: wgpu::PolygonMode::Fill,
-                                conservative: false,
-                            },
-                            depth_stencil: None,
-                            multisample: wgpu::MultisampleState {
-                                count: 1,
-                                mask: !0,
-                                alpha_to_coverage_enabled: false,
-                            },
-                            multiview: None,
-                            cache: None,
-                        });
-                self.app_pipelines.blit_pipeline = Some(blit_pipeline);
-                self.app_pipelines.blit_pipeline.as_ref().unwrap()
-            };
+        render_pass.set_pipeline(blit_pipeline);
+        render_pass.set_bind_group(0, bind_group, &[]);
+        render_pass.draw(0..6, 0..1); // Draw two triangles (a quad)
+    }
 
-            // Create a bind group for texture sampling
-            let bind_group = if let Some(bind_group) = &self.blit_bind_group {
-                bind_group
-            } else {
-                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(main_render_view),
+    fn ensure_blit_sampler(&mut self) {
+        if self.blit_sampler.is_some() {
+            return;
+        }
+
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Blit Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        self.blit_sampler = Some(sampler);
+    }
+
+    fn ensure_blit_bind_group_layout(&mut self) {
+        if self.app_pipelines.blit_bind_group_layout.is_some() {
+            return;
+        }
+
+        let layout = self
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(sampler),
-                        },
-                    ],
-                    label: Some("texture_bind_group"),
-                });
-                self.blit_bind_group = Some(bind_group);
-                self.blit_bind_group.as_ref().unwrap()
-            };
-
-            // Start the render pass to render to the surface
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Final Surface Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: surface_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
+                        count: None,
                     },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            });
+        self.app_pipelines.blit_bind_group_layout = Some(layout);
+    }
+
+    fn ensure_blit_pipeline(&mut self) {
+        if self.app_pipelines.blit_pipeline.is_some() {
+            return;
+        }
+
+        let bind_group_layout = match &self.app_pipelines.blit_bind_group_layout {
+            Some(layout) => layout,
+            None => return,
+        };
+
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Blit Shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    include_str!("../assets/shaders/blit.wgsl").into(),
+                ),
             });
 
-            render_pass.set_pipeline(blit_pipeline);
-            render_pass.set_bind_group(0, bind_group, &[]);
-            render_pass.draw(0..6, 0..1); // Draw two triangles (a quad)
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Blit Pipeline Layout"),
+                bind_group_layouts: &[bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let blit_pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Blit Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: self.surface_config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+        self.app_pipelines.blit_pipeline = Some(blit_pipeline);
+    }
+
+    fn ensure_blit_bind_group(&mut self) {
+        if self.blit_bind_group.is_some() {
+            return;
         }
+
+        // Make sure we have all required resources
+        let texture_view = match &self.main_render_view {
+            Some(view) => view,
+            None => return,
+        };
+
+        let sampler = match &self.blit_sampler {
+            Some(sampler) => sampler,
+            None => return,
+        };
+
+        let bind_group_layout = match &self.app_pipelines.blit_bind_group_layout {
+            Some(layout) => layout,
+            None => return,
+        };
+
+        // Create the bind group
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+            label: Some("texture_bind_group"),
+        });
+        self.blit_bind_group = Some(bind_group);
     }
 }
 
-fn prepare_render_groups(
-    layout_context: &mut LayoutContext,
-) -> Vec<(Vec<uuid::Uuid>, (bool, bool))> {
+// Define a struct to represent a render group
+struct RenderGroup {
+    component_ids: Vec<uuid::Uuid>,
+    is_frosted_glass: bool,
+    is_text: bool,
+}
+
+fn prepare_render_groups(layout_context: &mut LayoutContext) -> Vec<RenderGroup> {
     let render_order = layout_context.get_render_order().clone();
 
-    // (Vec<Uuid>, is_frosted_glass, is_text)
-    let mut render_groups = Vec::new();
-    let mut sub_render_group = Vec::new();
-    let mut frosted_group = false;
-    let mut text_group = false;
+    let mut result = Vec::new();
+    let mut current_group = RenderGroup {
+        component_ids: Vec::new(),
+        is_frosted_glass: false,
+        is_text: false,
+    };
 
     for component_id in render_order {
-        if let Some(component) = layout_context.get_component(&component_id) {
-            if component.component_type == ComponentType::Container {
-                // Containers are not rendered directly, so we skip them
-                continue;
-            }
+        let Some(component) = layout_context.get_component(&component_id) else {
+            continue;
+        };
 
-            let is_frosted = component.is_frosted_component();
-            let is_text = component.is_text_component();
-
-            // If component type changes, push current group and start a new one
-            if (is_frosted && !frosted_group)
-                || (is_text && !text_group)
-                || (!is_frosted && !is_text && (frosted_group || text_group))
-            {
-                // Only push if we have components in the current group
-                if !sub_render_group.is_empty() {
-                    render_groups.push((sub_render_group, (frosted_group, text_group)));
-                    sub_render_group = Vec::new();
-                }
-
-                // Update flags for the new group
-                frosted_group = is_frosted;
-                text_group = is_text;
-            }
-
-            // Add component to current group
-            sub_render_group.push(component_id);
+        if component.component_type == ComponentType::Container {
+            continue;
         }
+
+        let is_frosted = component.is_frosted_component();
+        let is_text = component.is_text_component();
+
+        // Check if we need to start a new group
+        if (is_frosted != current_group.is_frosted_glass || is_text != current_group.is_text)
+            && !current_group.component_ids.is_empty()
+        {
+            result.push(current_group);
+            current_group = RenderGroup {
+                component_ids: Vec::new(),
+                is_frosted_glass: is_frosted,
+                is_text,
+            };
+        } else if current_group.component_ids.is_empty() {
+            current_group.is_frosted_glass = is_frosted;
+            current_group.is_text = is_text;
+        }
+
+        current_group.component_ids.push(component_id);
     }
 
-    // Don't forget to add the final group if it contains components
-    if !sub_render_group.is_empty() {
-        render_groups.push((sub_render_group, (frosted_group, text_group)));
+    if !current_group.component_ids.is_empty() {
+        result.push(current_group);
     }
-    render_groups
+
+    result
 }
