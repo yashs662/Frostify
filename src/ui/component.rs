@@ -463,6 +463,7 @@ impl Component {
     pub fn add_child(&mut self, child: Component) {
         let mut child = child;
         child.set_parent(self.id);
+        self.children_ids.push(child.id);
         if let Some(ComponentMetaData::ChildComponents(existing_children)) = self
             .metadata
             .iter_mut()

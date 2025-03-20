@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{error, trace};
+use log::{debug, error, trace};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
@@ -1327,6 +1327,50 @@ impl LayoutContext {
             for id in self.render_order.iter().rev() {
                 let mut need_to_bubble_up = false;
                 let mut component_id = None;
+                let siblings = if event.event_type == EventType::Hover {
+                    let curr_component = self.components.get(id);
+                    if curr_component.is_some() {
+                        let curr_component = curr_component.unwrap();
+                        let curr_comp_parent = curr_component.get_parent_id();
+                        if curr_comp_parent.is_some() {
+                            let curr_comp_parent = curr_comp_parent.unwrap();
+                            let parent = self.components.get(&curr_comp_parent);
+                            if parent.is_some() {
+                                let parent = parent.cloned().unwrap();
+                                parent
+                                    .children_ids
+                                    .iter()
+                                    .filter(|child_id| {
+                                        let child = self.components.get(child_id);
+                                        *child_id != id
+                                            && child.is_some()
+                                            && child.unwrap().is_visible()
+                                            && child.unwrap().is_hit(position)
+                                            && child.unwrap().is_hoverable()
+                                    })
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                            } else {
+                                vec![]
+                            }
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        debug!("Tried to handle hover event on non-existent component");
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                };
+
+                // if there are any siblings that need to be hovered, set hover to true
+                for sibling_id in siblings {
+                    if let Some(sibling) = self.components.get_mut(&sibling_id) {
+                        sibling.set_hover_state(true);
+                    }
+                }
+
                 if let Some(component) = self.components.get_mut(id) {
                     if component.is_visible() && component.is_hit(position) {
                         // Try to handle event with the hit component

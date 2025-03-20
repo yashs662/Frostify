@@ -303,7 +303,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
             ButtonBackground::Color(Color::Transparent),
             component::ComponentHoverEffects::BackgroundColor(
                 Color::Red.with_alpha(0.3),
-                Duration::from_millis(200),
+                Duration::from_millis(100),
             ),
         )
         .with_background(ButtonBackground::Image(ImageConfig {
