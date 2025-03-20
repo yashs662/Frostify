@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     app::AppEvent,
     ui::{
@@ -14,6 +16,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
+use colorgrad::Gradient;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -39,6 +42,11 @@ pub enum BorderPosition {
 }
 
 #[derive(Debug, Clone)]
+pub enum ComponentHoverEffects {
+    BackgroundColor(Color, Duration), // Color and duration in seconds
+}
+
+#[derive(Debug, Clone)]
 pub struct Component {
     pub id: Uuid,
     pub debug_name: Option<String>,
@@ -58,6 +66,11 @@ pub struct Component {
     pub border_position: BorderPosition,
     pub fit_to_size: bool,
     pub computed_bounds: Bounds,
+    pub hover_effects: Option<ComponentHoverEffects>,
+    animation_state: f32,
+    animation_going_forward: bool,
+    clean_config_copy: Option<ComponentConfig>,
+    is_hovered: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -209,6 +222,11 @@ impl Component {
             border_position: BorderPosition::default(),
             fit_to_size: false,
             computed_bounds: Bounds::default(),
+            hover_effects: None,
+            animation_state: 0.0,
+            animation_going_forward: true,
+            clean_config_copy: None,
+            is_hovered: false,
         }
     }
 
@@ -263,6 +281,23 @@ impl Component {
 
     pub fn set_z_index(&mut self, z_index: i32) {
         self.transform.z_index = z_index;
+    }
+
+    pub fn is_hoverable(&self) -> bool {
+        self.hover_effects.is_some()
+    }
+
+    pub fn set_hover_effects(&mut self, effects: ComponentHoverEffects) {
+        self.hover_effects = Some(effects);
+        self.clean_config_copy = self.config.clone();
+    }
+
+    pub fn set_hover_state(&mut self, is_hovered: bool) {
+        self.is_hovered = is_hovered;
+    }
+
+    pub fn is_hovered(&self) -> bool {
+        self.is_hovered
     }
 
     pub fn draw(&mut self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
@@ -347,6 +382,80 @@ impl Component {
                 ComponentConfig::FrostedGlass(_) => {
                     FrostedGlassComponent::set_position(self, wgpu_ctx, bounds);
                 }
+            }
+        }
+    }
+
+    pub fn needs_update(&self) -> bool {
+        (self.is_hovered && self.animation_state < 1.0)
+            || (!self.is_hovered && self.animation_state > 0.0)
+    }
+
+    pub fn update(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
+        let need_to_update = self.needs_update();
+        if !need_to_update {
+            return;
+        }
+
+        let mut should_be_updated = false;
+
+        let base_color =
+            if let Some(ComponentConfig::BackgroundColor(BackgroundColorConfig { color })) =
+                self.clean_config_copy
+            {
+                color
+            } else {
+                Color::Transparent
+            };
+
+        if let Some(ComponentHoverEffects::BackgroundColor(color, duration)) = &self.hover_effects {
+            // frame time is in milliseconds, convert to seconds for proper delta calculation
+            let delta = frame_time / duration.as_millis() as f32;
+
+            if self.is_hovered {
+                self.animation_state += delta;
+                if self.animation_state >= 1.0 {
+                    self.animation_state = 1.0;
+                }
+            } else {
+                self.animation_state -= delta;
+                if self.animation_state <= 0.0 {
+                    self.animation_state = 0.0;
+                }
+            }
+
+            // Clamp the animation state between 0.0 and 1.0
+            self.animation_state = self.animation_state.clamp(0.0, 1.0);
+
+            // Calculate the color based on the animation state
+            let colors = if self.animation_going_forward {
+                vec![base_color.to_colorgrad_color(), color.to_colorgrad_color()]
+            } else {
+                vec![color.to_colorgrad_color(), base_color.to_colorgrad_color()]
+            };
+
+            let gradient = colorgrad::GradientBuilder::new()
+                .colors(&colors)
+                .domain(&[0.0, 1.0])
+                .build::<colorgrad::LinearGradient>()
+                .unwrap();
+
+            let color = gradient.at(self.animation_state);
+            let color = Color::Custom([color.r, color.g, color.b, color.a]);
+
+            self.config = Some(ComponentConfig::BackgroundColor(BackgroundColorConfig {
+                color,
+            }));
+            should_be_updated = true;
+        }
+
+        if should_be_updated {
+            if let Some(buffer) = self.get_render_data_buffer() {
+                wgpu_ctx.queue.write_buffer(
+                    buffer,
+                    0,
+                    bytemuck::cast_slice(&[self.get_render_data(self.computed_bounds)]),
+                );
             }
         }
     }

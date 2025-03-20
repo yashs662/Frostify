@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     app::AppEvent,
     constants::WINDOW_CONTROL_BUTTON_SIZE,
@@ -297,10 +299,18 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
 
     // Close button
     let close_button = ButtonBuilder::new()
+        .with_background_with_hover_effects(
+            ButtonBackground::Color(Color::Transparent),
+            component::ComponentHoverEffects::BackgroundColor(
+                Color::Red.with_alpha(0.3),
+                Duration::from_millis(200),
+            ),
+        )
         .with_background(ButtonBackground::Image(ImageConfig {
             file_name: "close.png".to_string(),
             scale_mode: ScaleMode::default(),
         }))
+        .with_border_radius(BorderRadius::all(2.0))
         .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
         .with_debug_name("Close Button")
         .with_click_event(AppEvent::Close)

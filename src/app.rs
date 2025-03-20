@@ -43,6 +43,7 @@ pub struct App<'window> {
     app_state: AppState,
     worker: Option<Worker>,
     last_cursor_input: (Option<ElementState>, ComponentPosition),
+    frame_counter: FrameCounter,
 }
 
 #[derive(Default)]
@@ -53,6 +54,55 @@ pub struct AppState {
     last_draw_inst: Option<Instant>,
     is_checking_auth: bool,
     cursor_position: Option<(f64, f64)>,
+}
+
+struct FrameCounter {
+    // Instant of the last time we printed the frame time.
+    last_printed_instant: Instant,
+    // Number of frames since the last time we printed the frame time.
+    frame_count: u32,
+    frame_time: f32,
+    avg_fps: f32,
+    report_interval: f32,
+}
+
+impl Default for FrameCounter {
+    fn default() -> Self {
+        Self::new(1.0)
+    }
+}
+
+impl FrameCounter {
+    fn new(report_interval: f32) -> Self {
+        Self {
+            last_printed_instant: Instant::now(),
+            frame_count: 0,
+            frame_time: 0.0,
+            avg_fps: 0.0,
+            report_interval,
+        }
+    }
+
+    fn update(&mut self) {
+        self.frame_count += 1;
+        let new_instant = Instant::now();
+        let elapsed_secs = (new_instant - self.last_printed_instant).as_secs_f32();
+        if elapsed_secs > self.report_interval {
+            let elapsed_ms = elapsed_secs * 1000.0;
+            let frame_time = elapsed_ms / self.frame_count as f32;
+            let fps = self.frame_count as f32 / elapsed_secs;
+            log::info!("Frame time {:.2}ms ({:.1} FPS)", frame_time, fps);
+
+            self.last_printed_instant = new_instant;
+            self.frame_count = 0;
+            self.frame_time = frame_time;
+            self.avg_fps = fps;
+        }
+    }
+
+    fn get_frame_time(&self) -> f32 {
+        self.frame_time
+    }
 }
 
 struct ResizeState {
@@ -223,18 +273,6 @@ impl App<'_> {
         self.last_cursor_input = (state, mouse_position);
 
         let affected_component = self.layout_context.handle_event(input_event);
-        if event_type == EventType::Hover && affected_component.is_some() {
-            log::debug!(
-                "Mouse input at ({}, {}), state: {:?}, button: {:?}, scroll_delta: {:?}",
-                mouse_position.x,
-                mouse_position.y,
-                state,
-                button,
-                scroll_delta
-            );
-            log::debug!("Event type: {:?}", event_type);
-            log::debug!("Affected component: {:?}", affected_component);
-        }
 
         if let Some((_affected_component_id, _event_type, app_event)) = affected_component {
             if app_event.is_some() {
@@ -457,9 +495,10 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
+                    self.layout_context
+                        .update_components(wgpu_ctx, self.frame_counter.get_frame_time());
                     wgpu_ctx.draw(&mut self.layout_context);
                     wgpu_ctx.text_handler.trim_atlas();
-                    self.app_state.last_draw_inst = Some(Instant::now());
                 }
 
                 // request redraw after drawing - do this if we have any animations to continuously draw,
@@ -477,6 +516,7 @@ impl ApplicationHandler for App<'_> {
                     }
                     window.request_redraw();
                 }
+                self.frame_counter.update();
             }
             WindowEvent::CursorMoved { position, .. } => {
                 if let Some(window) = &self.window {

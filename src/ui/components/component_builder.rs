@@ -5,7 +5,7 @@ use crate::ui::layout::{Anchor, BorderRadius, Edges, FlexValue, Position};
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Common properties shared across component builders
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CommonBuilderProps {
     pub width: Option<FlexValue>,
     pub height: Option<FlexValue>,

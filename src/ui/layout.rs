@@ -560,6 +560,14 @@ impl LayoutContext {
         }
     }
 
+    pub fn update_components(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
+        for (_, component) in self.components.iter_mut() {
+            if component.needs_update() {
+                component.update(wgpu_ctx, frame_time);
+            }
+        }
+    }
+
     // Helper method to draw a single component by ID
     pub fn draw_single(
         &mut self,
@@ -1317,57 +1325,72 @@ impl LayoutContext {
     ) -> Option<(Uuid, EventType, Option<AppEvent>)> {
         if let Some(position) = event.position {
             for id in self.render_order.iter().rev() {
-                if let Some(component) = self.components.get(id) {
+                let mut need_to_bubble_up = false;
+                let mut component_id = None;
+                if let Some(component) = self.components.get_mut(id) {
                     if component.is_visible() && component.is_hit(position) {
                         // Try to handle event with the hit component
-                        if self.is_component_interactive(component, &event.event_type) {
-                            return self.create_event_result(component, &event.event_type);
+                        let is_interactive = match &event.event_type {
+                            EventType::Drag => component.is_draggable(),
+                            EventType::Press | EventType::Release => component.is_clickable(),
+                            EventType::Hover => component.is_hoverable(),
+                            _ => false,
+                        };
+                        if is_interactive {
+                            let return_event = match &event.event_type {
+                                EventType::Drag => component.get_drag_event().cloned(),
+                                EventType::Hover => {
+                                    component.set_hover_state(true);
+                                    None
+                                }
+                                _ => component.get_click_event().cloned(),
+                            };
+
+                            return Some((component.id, event.event_type, return_event));
                         }
 
-                        // If not handled, bubble up through parents
-                        return self.bubble_event_up(component.id, &event.event_type);
+                        need_to_bubble_up = true;
+                        component_id = Some(component.id);
+                    } else if component.is_hovered() {
+                        component.set_hover_state(false);
                     }
+                }
+
+                if need_to_bubble_up {
+                    return self.bubble_event_up(component_id.unwrap(), &event.event_type);
                 }
             }
         }
         None
     }
 
-    // Helper method to check if component can handle this event type
-    fn is_component_interactive(&self, component: &Component, event_type: &EventType) -> bool {
-        match event_type {
-            EventType::Drag => component.is_draggable(),
-            EventType::Press | EventType::Release => component.is_clickable(),
-            _ => false,
-        }
-    }
-
-    // Helper method to create the appropriate event result
-    fn create_event_result(
-        &self,
-        component: &Component,
-        event_type: &EventType,
-    ) -> Option<(Uuid, EventType, Option<AppEvent>)> {
-        let return_event = match event_type {
-            EventType::Drag => component.get_drag_event().cloned(),
-            _ => component.get_click_event().cloned(),
-        };
-
-        Some((component.id, event_type.clone(), return_event))
-    }
-
     // Bubble up through parent hierarchy to find handler
     fn bubble_event_up(
-        &self,
+        &mut self,
         start_id: Uuid,
         event_type: &EventType,
     ) -> Option<(Uuid, EventType, Option<AppEvent>)> {
         let mut current_id = start_id;
 
-        while let Some(component) = self.components.get(&current_id) {
+        while let Some(component) = self.components.get_mut(&current_id) {
             // Check if this component can handle the event
-            if self.is_component_interactive(component, event_type) {
-                return self.create_event_result(component, event_type);
+            let is_interactive = match &event_type {
+                EventType::Drag => component.is_draggable(),
+                EventType::Press | EventType::Release => component.is_clickable(),
+                EventType::Hover => component.is_hoverable(),
+                _ => false,
+            };
+            if is_interactive {
+                let return_event = match &event_type {
+                    EventType::Drag => component.get_drag_event().cloned(),
+                    EventType::Hover => {
+                        component.set_hover_state(true);
+                        None
+                    }
+                    _ => component.get_click_event().cloned(),
+                };
+
+                return Some((component.id, event_type.clone(), return_event));
             }
 
             // Move up to parent
