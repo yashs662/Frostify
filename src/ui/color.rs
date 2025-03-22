@@ -124,6 +124,18 @@ impl Color {
         ]
     }
 
+    pub fn lerp(&self, other: &Color, t: f32) -> Color {
+        //use colorgrad::Gradient;
+        let gradient = colorgrad::GradientBuilder::new()
+            .colors(&[self.to_colorgrad_color(), other.to_colorgrad_color()])
+            .domain(&[0.0, 1.0])
+            .build::<colorgrad::LinearGradient>()
+            .unwrap();
+
+        let color = gradient.at(t);
+        Color::Custom([color.r, color.g, color.b, color.a])
+    }
+
     pub fn to_glyphon_color(self) -> glyphon::Color {
         let [r, g, b, a] = self.to_rgb_0_255();
         glyphon::Color::rgba(r, g, b, a)

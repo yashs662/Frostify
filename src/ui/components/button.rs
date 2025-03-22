@@ -2,11 +2,11 @@ use crate::{
     ui::{
         color::Color,
         component::{
-            BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
-            ComponentHoverEffects, ComponentType, FrostedGlassConfig, GradientColorStop,
-            GradientType, ImageConfig, TextConfig,
+            AnimationWhen, BackgroundColorConfig, BackgroundGradientConfig, Component,
+            ComponentConfig, ComponentType, FrostedGlassConfig, GradientColorStop, GradientType,
+            ImageConfig, TextConfig,
         },
-        layout::{Anchor, Position},
+        layout::{Anchor, Edges, Position},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -16,12 +16,12 @@ use uuid::Uuid;
 use super::{
     component_builder::{CommonBuilderProps, ComponentBuilder},
     container::FlexContainerBuilder,
+    label::LabelBuilder,
 };
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub enum ButtonBackground {
-    None,
+pub enum ButtonSubComponent {
     Color(Color),
     Gradient {
         color_stops: Vec<GradientColorStop>,
@@ -30,31 +30,19 @@ pub enum ButtonBackground {
         center: Option<(f32, f32)>,
         radius: Option<f32>,
     },
-    Image(ImageConfig),
     FrostedGlass {
         tint_color: Color,
         blur_radius: f32,
         opacity: f32,
     },
+    Image(ImageConfig),
+    Text(TextConfig),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ButtonConfig {
-    pub backgrounds: Vec<(ButtonBackground, Option<ComponentHoverEffects>)>,
-    pub text: Option<String>,
-    pub text_color: Option<Color>,
-    pub font_size: Option<f32>,
-}
-
-impl Default for ButtonConfig {
-    fn default() -> Self {
-        Self {
-            backgrounds: Vec::new(),
-            text: None,
-            text_color: None,
-            font_size: Some(16.0),
-        }
-    }
+    pub sub_components: Vec<ButtonSubComponent>,
+    pub content_padding: Option<Edges>,
 }
 
 pub struct ButtonBuilder {
@@ -77,34 +65,13 @@ impl ButtonBuilder {
         }
     }
 
-    pub fn with_background(mut self, background: ButtonBackground) -> Self {
-        self.config.backgrounds.push((background, None));
+    pub fn with_sub_component(mut self, sub_component: ButtonSubComponent) -> Self {
+        self.config.sub_components.push(sub_component);
         self
     }
 
-    pub fn with_text(mut self, text: impl Into<String>) -> Self {
-        self.config.text = Some(text.into());
-        self
-    }
-
-    pub fn with_text_color(mut self, color: Color) -> Self {
-        self.config.text_color = Some(color);
-        self
-    }
-
-    pub fn with_font_size(mut self, size: f32) -> Self {
-        self.config.font_size = Some(size);
-        self
-    }
-
-    pub fn with_background_with_hover_effects(
-        mut self,
-        background: ButtonBackground,
-        hover_effects: ComponentHoverEffects,
-    ) -> Self {
-        self.config
-            .backgrounds
-            .push((background, Some(hover_effects)));
+    pub fn with_content_padding(mut self, padding: Edges) -> Self {
+        self.config.content_padding = Some(padding);
         self
     }
 
@@ -144,80 +111,135 @@ impl ButtonBuilder {
         if let Some(padding) = common_props.padding {
             container_builder = container_builder.with_padding(padding);
         }
+        if let Some(border_radius) = common_props.border_radius {
+            container_builder = container_builder.with_border_radius(border_radius);
+        }
 
-        let mut container = container_builder.build();
+        let mut container = container_builder.build(wgpu_ctx);
         container.flag_children_extraction();
 
+        let border_radius = common_props.border_radius;
+        let animation_config = common_props.animation;
+
+        // Create a content container if content padding is specified
+        let mut content_container = if self.config.content_padding.is_some() {
+            Some(
+                FlexContainerBuilder::new()
+                    .with_padding(self.config.content_padding.unwrap())
+                    .with_debug_name("Button Content Container")
+                    .with_position(Position::Fixed(Anchor::Center))
+                    .with_z_index(2)
+                    .build(wgpu_ctx),
+            )
+        } else {
+            None
+        };
+
         // Create background if specified
-        for (background, hover_effects) in config.backgrounds {
-            match background {
-                ButtonBackground::None => {}
-                ButtonBackground::Color(color) => {
-                    self.configure_color_background(wgpu_ctx, &mut container, color, hover_effects);
+        for sub_component in config.sub_components {
+            match sub_component {
+                ButtonSubComponent::Color(color) => {
+                    let mut bg = Component::new(Uuid::new_v4(), ComponentType::BackgroundColor);
+                    bg.transform.position_type = Position::Fixed(Anchor::Center);
+                    bg.set_debug_name("Button Background Color");
+                    bg.set_z_index(-2);
+
+                    if let Some(radius) = border_radius {
+                        bg.transform.border_radius = radius;
+                    }
+
+                    bg.configure(
+                        ComponentConfig::BackgroundColor(BackgroundColorConfig { color }),
+                        wgpu_ctx,
+                    );
+
+                    if let Some(anim_config) = &animation_config {
+                        bg.set_animation(anim_config.clone(), wgpu_ctx);
+                    }
+
+                    container.add_child_to_front(bg);
                 }
-                ButtonBackground::Gradient {
+                ButtonSubComponent::Gradient {
                     color_stops,
                     gradient_type,
                     angle,
                     center,
                     radius,
                 } => {
-                    self.configure_gradient_background(
+                    let mut bg = self.configure_gradient_background(
                         wgpu_ctx,
-                        &mut container,
                         color_stops,
                         gradient_type,
                         angle,
                         center,
                         radius,
-                        hover_effects,
                     );
+                    while let Some(animation) = &animation_config {
+                        bg.set_animation(animation.clone(), wgpu_ctx);
+                    }
+                    container.add_child(bg);
                 }
-                ButtonBackground::Image(img_config) => {
-                    self.configure_image_background(
-                        wgpu_ctx,
-                        &mut container,
-                        img_config,
-                        hover_effects,
-                    );
-                }
-                ButtonBackground::FrostedGlass {
+                ButtonSubComponent::FrostedGlass {
                     tint_color,
                     blur_radius,
                     opacity,
                 } => {
-                    self.configure_frosted_glass(
-                        wgpu_ctx,
-                        &mut container,
-                        tint_color,
-                        blur_radius,
-                        opacity,
-                        hover_effects,
-                    );
+                    let mut bg =
+                        self.configure_frosted_glass(wgpu_ctx, tint_color, blur_radius, opacity);
+                    while let Some(animation) = &animation_config {
+                        bg.set_animation(animation.clone(), wgpu_ctx);
+                    }
+                    container.add_child(bg);
+                }
+                ButtonSubComponent::Image(img_config) => {
+                    let img = self.configure_image_background(wgpu_ctx, img_config);
+                    if let Some(ref mut content) = content_container {
+                        content.add_child(img);
+                    } else {
+                        container.add_child(img);
+                    }
+                }
+                ButtonSubComponent::Text(text_config) => {
+                    let mut label = LabelBuilder::new(text_config.text)
+                        .with_debug_name("Button Label")
+                        .with_fixed_position(Anchor::Center)
+                        .with_color(text_config.color)
+                        .with_font_size(text_config.font_size)
+                        .with_line_height(text_config.line_height)
+                        .with_z_index(2) // Match image z-index
+                        .build(wgpu_ctx);
+
+                    if container.fit_to_size {
+                        label.set_fit_to_size(true);
+                    }
+
+                    if let Some(ref mut content) = content_container {
+                        content.add_child(label);
+                    } else {
+                        container.add_child(label);
+                    }
                 }
             }
         }
 
-        // Create text if specified
-        if let Some(text) = config.text {
-            let text_id = Uuid::new_v4();
-            let mut text_component = Component::new(text_id, ComponentType::Text);
-            text_component.transform.position_type = Position::Fixed(Anchor::Center);
-            text_component.set_debug_name("Button Text");
-            text_component.set_z_index(1);
-            text_component.configure(
-                ComponentConfig::Text(TextConfig {
-                    text,
-                    font_size: config.font_size.unwrap_or(16.0),
-                    color: config.text_color.unwrap_or(Color::Black),
-                    line_height: 1.0,
-                }),
-                wgpu_ctx,
-            );
-            if container.fit_to_size {
-                text_component.set_fit_to_size(true);
+        // Add the content container if it exists and has children
+        if let Some(content) = content_container {
+            if content.has_children() {
+                container.add_child(content);
             }
-            container.add_child(text_component);
+        }
+
+        // Make the container itself hoverable if it has hover animations
+        if let Some(anim_config) = animation_config {
+            if matches!(anim_config.when, AnimationWhen::Hover) {
+                container.set_z_index(-1);
+
+                if let Some(radius) = border_radius {
+                    container.transform.border_radius = radius;
+                }
+
+                container.set_animation(anim_config, wgpu_ctx);
+            }
         }
 
         if (container.get_click_event().is_some() || container.get_drag_event().is_some())
@@ -240,12 +262,10 @@ impl ButtonBuilder {
     fn configure_frosted_glass(
         &self,
         wgpu_ctx: &mut WgpuCtx<'_>,
-        container: &mut Component,
         tint_color: Color,
         blur_radius: f32,
         opacity: f32,
-        hover_effects: Option<ComponentHoverEffects>,
-    ) {
+    ) -> Component {
         let bg_id = Uuid::new_v4();
         let mut bg = Component::new(bg_id, ComponentType::FrostedGlass);
         bg.transform.position_type = Position::Fixed(Anchor::Center);
@@ -263,9 +283,6 @@ impl ButtonBuilder {
         if let Some(border_position) = self.common.border_position {
             bg.set_border_position(border_position);
         }
-        if let Some(hover_effects) = hover_effects {
-            bg.set_hover_effects(hover_effects);
-        }
         bg.configure(
             ComponentConfig::FrostedGlass(FrostedGlassConfig {
                 tint_color,
@@ -274,21 +291,19 @@ impl ButtonBuilder {
             }),
             wgpu_ctx,
         );
-        container.add_child(bg);
+        bg
     }
 
     fn configure_image_background(
         &self,
         wgpu_ctx: &mut WgpuCtx<'_>,
-        container: &mut Component,
         img_config: ImageConfig,
-        hover_effects: Option<ComponentHoverEffects>,
-    ) {
+    ) -> Component {
         let bg_id = Uuid::new_v4();
         let mut bg = Component::new(bg_id, ComponentType::Image);
         bg.transform.position_type = Position::Fixed(Anchor::Center);
-        bg.set_debug_name("Button Image Background");
-        bg.set_z_index(0);
+        bg.set_debug_name("Button Image");
+        bg.set_z_index(1); // Ensure image is in front
         if let Some(border_radius) = self.common.border_radius {
             bg.set_border_radius(border_radius);
         }
@@ -301,24 +316,19 @@ impl ButtonBuilder {
         if let Some(border_position) = self.common.border_position {
             bg.set_border_position(border_position);
         }
-        if let Some(hover_effects) = hover_effects {
-            bg.set_hover_effects(hover_effects);
-        }
         bg.configure(ComponentConfig::Image(img_config), wgpu_ctx);
-        container.add_child(bg);
+        bg
     }
 
     fn configure_gradient_background(
         &self,
         wgpu_ctx: &mut WgpuCtx<'_>,
-        container: &mut Component,
         color_stops: Vec<GradientColorStop>,
         gradient_type: GradientType,
         angle: f32,
         center: Option<(f32, f32)>,
         radius: Option<f32>,
-        hover_effects: Option<ComponentHoverEffects>,
-    ) {
+    ) -> Component {
         let bg_id = Uuid::new_v4();
         let mut bg = Component::new(bg_id, ComponentType::BackgroundGradient);
         bg.transform.position_type = Position::Fixed(Anchor::Center);
@@ -336,9 +346,6 @@ impl ButtonBuilder {
         if let Some(border_position) = self.common.border_position {
             bg.set_border_position(border_position);
         }
-        if let Some(hover_effects) = hover_effects {
-            bg.set_hover_effects(hover_effects);
-        }
         bg.configure(
             ComponentConfig::BackgroundGradient(BackgroundGradientConfig {
                 color_stops,
@@ -349,40 +356,6 @@ impl ButtonBuilder {
             }),
             wgpu_ctx,
         );
-        container.add_child(bg);
-    }
-
-    fn configure_color_background(
-        &self,
-        wgpu_ctx: &mut WgpuCtx<'_>,
-        container: &mut Component,
-        color: Color,
-        hover_effects: Option<ComponentHoverEffects>,
-    ) {
-        let bg_id = Uuid::new_v4();
-        let mut bg = Component::new(bg_id, ComponentType::BackgroundColor);
-        bg.transform.position_type = Position::Fixed(Anchor::Center);
-        bg.set_debug_name("Button Color Background");
-        bg.set_z_index(0);
-        if let Some(border_radius) = self.common.border_radius {
-            bg.set_border_radius(border_radius);
-        }
-        if let Some(border_width) = self.common.border_width {
-            bg.border_width = border_width;
-        }
-        if let Some(border_color) = self.common.border_color {
-            bg.border_color = border_color;
-        }
-        if let Some(border_position) = self.common.border_position {
-            bg.set_border_position(border_position);
-        }
-        if let Some(hover_effects) = hover_effects {
-            bg.set_hover_effects(hover_effects);
-        }
-        bg.configure(
-            ComponentConfig::BackgroundColor(BackgroundColorConfig { color }),
-            wgpu_ctx,
-        );
-        container.add_child(bg);
+        bg
     }
 }

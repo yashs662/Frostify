@@ -1,10 +1,9 @@
 use crate::{
     auth::oauth::SpotifyAuthResponse,
-    constants::WINDOW_RESIZE_BORDER_WIDTH,
+    constants::{BACKGROUND_FPS, WINDOW_RESIZE_BORDER_WIDTH},
     core::worker::{Worker, WorkerResponse},
     ui::{
-        UiView, create_app_ui, create_login_ui,
-        layout::{self, ComponentPosition, EventType},
+        create_app_ui, create_login_ui, layout::{self, ComponentPosition, EventType}, UiView
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -51,15 +50,13 @@ pub struct AppState {
     resize_state: Option<ResizeState>,
     auth_state: Option<SpotifyAuthResponse>,
     current_view: Option<UiView>,
-    last_draw_inst: Option<Instant>,
     is_checking_auth: bool,
     cursor_position: Option<(f64, f64)>,
 }
 
 struct FrameCounter {
-    // Instant of the last time we printed the frame time.
     last_printed_instant: Instant,
-    // Number of frames since the last time we printed the frame time.
+    last_draw_instant: Instant,
     frame_count: u32,
     frame_time: f32,
     avg_fps: f32,
@@ -76,6 +73,7 @@ impl FrameCounter {
     fn new(report_interval: f32) -> Self {
         Self {
             last_printed_instant: Instant::now(),
+            last_draw_instant: Instant::now(),
             frame_count: 0,
             frame_time: 0.0,
             avg_fps: 0.0,
@@ -97,6 +95,17 @@ impl FrameCounter {
             self.frame_count = 0;
             self.frame_time = frame_time;
             self.avg_fps = fps;
+        }
+        self.last_draw_instant = new_instant;
+    }
+
+    fn limit_fps(&self, target_fps: u32) {
+        let target_frame_time = 1000 / target_fps;
+        let elapsed = self.last_draw_instant.elapsed();
+        if elapsed.as_millis() < target_frame_time as u128 {
+            std::thread::sleep(std::time::Duration::from_millis(
+                (target_frame_time - elapsed.as_millis() as u32) as u64,
+            ));
         }
     }
 
@@ -505,14 +514,7 @@ impl ApplicationHandler for App<'_> {
                 // if not focused limit to 30fps else allow winit to do vsync
                 if let Some(window) = &self.window {
                     if !window.has_focus() {
-                        if let Some(last_draw_inst) = self.app_state.last_draw_inst {
-                            let elapsed = last_draw_inst.elapsed();
-                            if elapsed.as_millis() < (1000 / 30) {
-                                std::thread::sleep(std::time::Duration::from_millis(
-                                    ((1000 / 30) - elapsed.as_millis()) as u64,
-                                ));
-                            }
-                        }
+                        self.frame_counter.limit_fps(BACKGROUND_FPS);
                     }
                     window.request_redraw();
                 }

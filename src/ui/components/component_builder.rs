@@ -1,7 +1,8 @@
 use crate::app::AppEvent;
 use crate::ui::color::Color;
-use crate::ui::component::{BorderPosition, Component};
+use crate::ui::component::{AnimationConfig, BorderPosition, Component};
 use crate::ui::layout::{Anchor, BorderRadius, Edges, FlexValue, Position};
+use crate::wgpu_ctx::WgpuCtx;
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Common properties shared across component builders
@@ -22,6 +23,7 @@ pub struct CommonBuilderProps {
     pub event_sender: Option<UnboundedSender<AppEvent>>,
     pub click_event: Option<AppEvent>,
     pub drag_event: Option<AppEvent>,
+    pub animation: Option<AnimationConfig>,
 }
 
 /// Trait for component builders that share common properties
@@ -122,7 +124,12 @@ pub trait ComponentBuilder: Sized {
         self
     }
 
-    fn apply_common_props(&mut self, component: &mut Component) {
+    fn with_animation(mut self, animation: AnimationConfig) -> Self {
+        self.common_props().animation = Some(animation);
+        self
+    }
+
+    fn apply_common_props(&mut self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
         let props = self.common_props();
 
         if let Some(debug_name) = props.debug_name.clone() {
@@ -183,6 +190,10 @@ pub trait ComponentBuilder: Sized {
 
         if let Some(drag_event) = props.drag_event.clone() {
             component.set_drag_event(drag_event);
+        }
+
+        if let Some(animation) = props.animation.clone() {
+            component.set_animation(animation, wgpu_ctx);
         }
     }
 }

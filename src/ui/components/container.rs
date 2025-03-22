@@ -1,6 +1,9 @@
-use crate::ui::{
-    component::{Component, ComponentType},
-    layout::{AlignItems, FlexDirection, FlexWrap, JustifyContent},
+use crate::{
+    ui::{
+        component::{Component, ComponentType},
+        layout::{AlignItems, FlexDirection, FlexWrap, JustifyContent},
+    },
+    wgpu_ctx::WgpuCtx,
 };
 use uuid::Uuid;
 
@@ -59,11 +62,11 @@ impl FlexContainerBuilder {
         self
     }
 
-    pub fn build(mut self) -> Component {
+    pub fn build(mut self, wgpu_ctx: &mut WgpuCtx) -> Component {
         let container_id = Uuid::new_v4();
         let mut container = Component::new(container_id, ComponentType::Container);
 
-        self.apply_common_props(&mut container);
+        self.apply_common_props(&mut container, wgpu_ctx);
 
         container.layout.direction = self.direction;
         container.layout.wrap = self.wrap;

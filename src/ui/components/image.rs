@@ -58,7 +58,7 @@ impl ImageBuilder {
         let id = Uuid::new_v4();
         let mut component = Component::new(id, ComponentType::Image);
 
-        self.apply_common_props(&mut component);
+        self.apply_common_props(&mut component, wgpu_ctx);
 
         component.configure(
             ComponentConfig::Image(ImageConfig {

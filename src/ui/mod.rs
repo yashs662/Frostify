@@ -2,23 +2,18 @@ use std::time::Duration;
 
 use crate::{
     app::AppEvent,
-    constants::WINDOW_CONTROL_BUTTON_SIZE,
     ui::{
         color::Color,
         component::{Component, ComponentConfig, ComponentMetaData, ImageConfig},
-        components::{
-            button::{ButtonBackground, ButtonBuilder},
-            container::FlexContainerBuilder,
-            image::ScaleMode,
-        },
+        components::{button::ButtonBuilder, container::FlexContainerBuilder, image::ScaleMode},
         layout::{Anchor, FlexValue},
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use component::{BorderPosition, GradientColorStop};
+use component::{AnimationConfig, AnimationWhen, BorderPosition, GradientColorStop, TextConfig};
 use components::{
-    background::BackgroundBuilder, component_builder::ComponentBuilder, image::ImageBuilder,
-    label::LabelBuilder,
+    background::BackgroundBuilder, button::ButtonSubComponent, component_builder::ComponentBuilder,
+    image::ImageBuilder, label::LabelBuilder,
 };
 use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent, Position};
 use tokio::sync::mpsc::UnboundedSender;
@@ -67,7 +62,7 @@ pub fn create_login_ui(
     let mut main_container = FlexContainerBuilder::new()
         .with_debug_name("Main Container")
         .with_direction(FlexDirection::Column)
-        .build();
+        .build(wgpu_ctx);
 
     // Background
     let background = BackgroundBuilder::with_linear_gradient(
@@ -97,15 +92,16 @@ pub fn create_login_ui(
         .with_direction(FlexDirection::Column)
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::Center)
-        .build();
+        .build(wgpu_ctx);
 
     // Welcome label
     let welcome_label = ButtonBuilder::new()
-        .with_text("Welcome to Frostify")
-        .with_font_size(24.0)
-        .with_size(FlexValue::Fit, FlexValue::Fixed(40.0))
-        .with_text_color(Color::White)
-        .with_background(ButtonBackground::None)
+        .with_sub_component(ButtonSubComponent::Text(TextConfig {
+            text: "Welcome to Frostify".to_string(),
+            font_size: 24.0,
+            color: Color::White,
+            line_height: 1.0,
+        }))
         .with_debug_name("Welcome Label")
         .build(wgpu_ctx);
 
@@ -118,14 +114,17 @@ pub fn create_login_ui(
 
     // Login button
     let login_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::FrostedGlass {
+        .with_sub_component(ButtonSubComponent::FrostedGlass {
             tint_color: Color::Black,
             blur_radius: 5.0,
             opacity: 1.0,
         })
-        .with_text("Login with Spotify")
-        .with_font_size(16.0)
-        .with_text_color(Color::White)
+        .with_sub_component(ButtonSubComponent::Text(TextConfig {
+            text: "Login with Spotify".to_string(),
+            font_size: 16.0,
+            color: Color::White,
+            line_height: 1.0,
+        }))
         .with_border_radius(BorderRadius::all(5.0))
         .with_border(1.0, Color::White)
         .with_margin(Edges::all(10.0))
@@ -154,7 +153,7 @@ pub fn create_app_ui(
         .with_debug_name("Main Container")
         .with_direction(FlexDirection::Column)
         .with_size(FlexValue::Fill, FlexValue::Fill)
-        .build();
+        .build(wgpu_ctx);
 
     // Background
     let background = ImageBuilder::new("album_art.png")
@@ -176,14 +175,14 @@ pub fn create_app_ui(
         .with_debug_name("App Container")
         .with_size(FlexValue::Fill, FlexValue::Fill)
         .with_direction(FlexDirection::Row)
-        .build();
+        .build(wgpu_ctx);
 
     let mut library_container = FlexContainerBuilder::new()
         .with_debug_name("Library Container")
         .with_size(FlexValue::Fixed(80.0), FlexValue::Fill)
         .with_margin(Edges::left(10.0))
         .with_direction(FlexDirection::Column)
-        .build();
+        .build(wgpu_ctx);
 
     let library_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
         .with_debug_name("Library Background")
@@ -198,7 +197,7 @@ pub fn create_app_ui(
         .with_debug_name("Main Area Container")
         .with_margin(Edges::horizontal(10.0))
         .with_direction(FlexDirection::Column)
-        .build();
+        .build(wgpu_ctx);
 
     let main_area_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
         .with_debug_name("Main Area Background")
@@ -214,7 +213,7 @@ pub fn create_app_ui(
         .with_size(FlexValue::Fixed(350.0), FlexValue::Fill)
         .with_margin(Edges::right(10.0))
         .with_direction(FlexDirection::Column)
-        .build();
+        .build(wgpu_ctx);
 
     let now_playing_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
         .with_debug_name("Now Playing Background")
@@ -251,7 +250,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::End)
         .with_padding(Edges::all(10.0))
-        .build();
+        .build(wgpu_ctx);
 
     let nav_bar_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
         .with_debug_name("Nav Bar Background")
@@ -269,17 +268,28 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::SpaceBetween)
         .with_width(FlexValue::Fixed(128.0))
-        .with_margin(Edges::right(10.0))
+        .with_margin(Edges::all(5.0))
         .with_parent(nav_bar_container.id)
-        .build();
+        .build(wgpu_ctx);
 
     // Minimize button
     let minimize_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image(ImageConfig {
+        .with_sub_component(ButtonSubComponent::Image(ImageConfig {
             file_name: "minimize.png".to_string(),
-            scale_mode: ScaleMode::default(),
+            scale_mode: ScaleMode::Contain,
         }))
-        .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(100),
+            easing: component::EasingFunction::EaseOut,
+            animation_type: component::AnimationType::Color {
+                from: Color::Transparent,
+                to: Color::Gray,
+            },
+            when: AnimationWhen::Hover,
+        })
+        .with_border_radius(BorderRadius::all(2.0))
+        .set_fit_to_size()
+        .with_content_padding(Edges::all(2.0))
         .with_debug_name("Minimize Button")
         .with_click_event(AppEvent::Minimize)
         .with_event_sender(event_tx.clone())
@@ -287,11 +297,22 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
 
     // Maximize button
     let maximize_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image(ImageConfig {
+        .with_sub_component(ButtonSubComponent::Image(ImageConfig {
             file_name: "maximize.png".to_string(),
-            scale_mode: ScaleMode::default(),
+            scale_mode: ScaleMode::Contain,
         }))
-        .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(100),
+            easing: component::EasingFunction::EaseOut,
+            animation_type: component::AnimationType::Color {
+                from: Color::Transparent,
+                to: Color::Gray,
+            },
+            when: AnimationWhen::Hover,
+        })
+        .with_border_radius(BorderRadius::all(2.0))
+        .set_fit_to_size()
+        .with_content_padding(Edges::all(2.0))
         .with_debug_name("Maximize Button")
         .with_click_event(AppEvent::Maximize)
         .with_event_sender(event_tx.clone())
@@ -299,19 +320,22 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
 
     // Close button
     let close_button = ButtonBuilder::new()
-        .with_background_with_hover_effects(
-            ButtonBackground::Color(Color::Transparent),
-            component::ComponentHoverEffects::BackgroundColor(
-                Color::Red.with_alpha(0.3),
-                Duration::from_millis(100),
-            ),
-        )
-        .with_background(ButtonBackground::Image(ImageConfig {
+        .with_sub_component(ButtonSubComponent::Image(ImageConfig {
             file_name: "close.png".to_string(),
-            scale_mode: ScaleMode::default(),
+            scale_mode: ScaleMode::Contain,
         }))
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(100),
+            easing: component::EasingFunction::EaseOut,
+            animation_type: component::AnimationType::Color {
+                from: Color::Transparent,
+                to: Color::Red,
+            },
+            when: AnimationWhen::Hover,
+        })
         .with_border_radius(BorderRadius::all(2.0))
-        .with_size(WINDOW_CONTROL_BUTTON_SIZE, WINDOW_CONTROL_BUTTON_SIZE)
+        .set_fit_to_size()
+        .with_content_padding(Edges::all(2.0))
         .with_debug_name("Close Button")
         .with_click_event(AppEvent::Close)
         .with_event_sender(event_tx.clone())
@@ -338,7 +362,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::SpaceBetween)
         .with_padding(Edges::all(10.0))
-        .build();
+        .build(wgpu_ctx);
 
     // Create frosted glass background with an outside border
     let player_container_background =
@@ -371,7 +395,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         .with_direction(FlexDirection::Row)
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::Start)
-        .build();
+        .build(wgpu_ctx);
 
     song_info_container.add_child(current_song_album_art);
     song_info_container.add_child(current_song_info);
@@ -383,7 +407,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         .with_direction(FlexDirection::Column)
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::Center)
-        .build();
+        .build(wgpu_ctx);
 
     let mut player_controls_sub_container = FlexContainerBuilder::new()
         .with_debug_name("Player Controls Sub Container")
@@ -392,12 +416,12 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         .with_justify_content(JustifyContent::Center)
         .with_padding(Edges::horizontal(20.0))
         .with_margin(Edges::top(10.0))
-        .build();
+        .build(wgpu_ctx);
 
     let player_control_btns_size = 20.0;
 
     let shuffle_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image(ImageConfig {
+        .with_sub_component(ButtonSubComponent::Image(ImageConfig {
             file_name: "shuffle.png".to_string(),
             scale_mode: ScaleMode::default(),
         }))
@@ -409,7 +433,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         .build(wgpu_ctx);
 
     let previous_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image(ImageConfig {
+        .with_sub_component(ButtonSubComponent::Image(ImageConfig {
             file_name: "skip-back.png".to_string(),
             scale_mode: ScaleMode::default(),
         }))
@@ -421,7 +445,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         .build(wgpu_ctx);
 
     let play_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image(ImageConfig {
+        .with_sub_component(ButtonSubComponent::Image(ImageConfig {
             file_name: "play.png".to_string(),
             scale_mode: ScaleMode::default(),
         }))
@@ -433,7 +457,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         .build(wgpu_ctx);
 
     let next_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image(ImageConfig {
+        .with_sub_component(ButtonSubComponent::Image(ImageConfig {
             file_name: "skip-forward.png".to_string(),
             scale_mode: ScaleMode::default(),
         }))
@@ -445,7 +469,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         .build(wgpu_ctx);
 
     let repeat_button = ButtonBuilder::new()
-        .with_background(ButtonBackground::Image(ImageConfig {
+        .with_sub_component(ButtonSubComponent::Image(ImageConfig {
             file_name: "repeat.png".to_string(),
             scale_mode: ScaleMode::default(),
         }))
@@ -499,7 +523,7 @@ fn create_border_demo(wgpu_ctx: &mut WgpuCtx) -> Component {
         .with_justify_content(JustifyContent::SpaceEvenly)
         .with_align_items(AlignItems::Center)
         .with_padding(Edges::all(20.0))
-        .build();
+        .build(wgpu_ctx);
 
     // Inside border example
     let inside_border = BackgroundBuilder::with_color(Color::White)

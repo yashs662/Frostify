@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{debug, error, trace};
+use log::{error, trace};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
@@ -642,7 +642,10 @@ impl LayoutContext {
         }
 
         // Keep track of the children IDs in the parent's children vector
-        let child_ids: Vec<Uuid> = children.iter().map(|child| child.id).collect();
+        let child_ids = children
+            .iter()
+            .map(|child| (child.id, child.component_type))
+            .collect();
 
         // Register the component with the z-index manager
         self.z_index_manager
@@ -924,7 +927,7 @@ impl LayoutContext {
         let parent = self.get_component(parent_id).unwrap().clone();
         let layout = &parent.layout;
 
-        if parent.get_all_children().is_empty() || !layout.visible {
+        if parent.get_all_children_ids().is_empty() || !layout.visible {
             return;
         }
 
@@ -950,7 +953,7 @@ impl LayoutContext {
 
         let self_components = self.components.clone();
         let mut children: Vec<(Uuid, &Component)> = parent
-            .get_all_children()
+            .get_all_children_ids()
             .iter()
             .filter_map(|id| self_components.get(id).map(|component| (*id, component)))
             .collect();
@@ -1324,84 +1327,55 @@ impl LayoutContext {
         event: InputEvent,
     ) -> Option<(Uuid, EventType, Option<AppEvent>)> {
         if let Some(position) = event.position {
-            for id in self.render_order.iter().rev() {
-                let mut need_to_bubble_up = false;
-                let mut component_id = None;
-                let siblings = if event.event_type == EventType::Hover {
-                    let curr_component = self.components.get(id);
-                    if curr_component.is_some() {
-                        let curr_component = curr_component.unwrap();
-                        let curr_comp_parent = curr_component.get_parent_id();
-                        if curr_comp_parent.is_some() {
-                            let curr_comp_parent = curr_comp_parent.unwrap();
-                            let parent = self.components.get(&curr_comp_parent);
-                            if parent.is_some() {
-                                let parent = parent.cloned().unwrap();
-                                parent
-                                    .children_ids
-                                    .iter()
-                                    .filter(|child_id| {
-                                        let child = self.components.get(child_id);
-                                        *child_id != id
-                                            && child.is_some()
-                                            && child.unwrap().is_visible()
-                                            && child.unwrap().is_hit(position)
-                                            && child.unwrap().is_hoverable()
-                                    })
-                                    .cloned()
-                                    .collect::<Vec<_>>()
-                            } else {
-                                vec![]
-                            }
-                        } else {
-                            vec![]
-                        }
-                    } else {
-                        debug!("Tried to handle hover event on non-existent component");
-                        vec![]
-                    }
-                } else {
-                    vec![]
-                };
-
-                // if there are any siblings that need to be hovered, set hover to true
-                for sibling_id in siblings {
-                    if let Some(sibling) = self.components.get_mut(&sibling_id) {
-                        sibling.set_hover_state(true);
-                    }
-                }
-
-                if let Some(component) = self.components.get_mut(id) {
-                    if component.is_visible() && component.is_hit(position) {
-                        // Try to handle event with the hit component
-                        let is_interactive = match &event.event_type {
-                            EventType::Drag => component.is_draggable(),
-                            EventType::Press | EventType::Release => component.is_clickable(),
-                            EventType::Hover => component.is_hoverable(),
-                            _ => false,
-                        };
-                        if is_interactive {
-                            let return_event = match &event.event_type {
-                                EventType::Drag => component.get_drag_event().cloned(),
-                                EventType::Hover => {
-                                    component.set_hover_state(true);
-                                    None
-                                }
-                                _ => component.get_click_event().cloned(),
-                            };
-
-                            return Some((component.id, event.event_type, return_event));
-                        }
-
-                        need_to_bubble_up = true;
-                        component_id = Some(component.id);
-                    } else if component.is_hovered() {
+            // For hover events, we need to track components that were previously hovered
+            // but are no longer under the cursor
+            if event.event_type == EventType::Hover {
+                // Reset hover state for all components first
+                for (_, component) in self.components.iter_mut() {
+                    if component.is_hovered() {
                         component.set_hover_state(false);
                     }
                 }
 
-                if need_to_bubble_up {
-                    return self.bubble_event_up(component_id.unwrap(), &event.event_type);
+                // Find all hoverable components under the cursor and set their state
+                for id in self.render_order.iter().rev() {
+                    if let Some(component) = self.components.get_mut(id) {
+                        if component.is_visible()
+                            && component.is_hoverable()
+                            && component.is_hit(position)
+                        {
+                            component.set_hover_state(true);
+                        }
+                    }
+                }
+            }
+
+            // Handle click/drag events
+            for id in self.render_order.iter().rev() {
+                if matches!(
+                    event.event_type,
+                    EventType::Press | EventType::Release | EventType::Drag
+                ) {
+                    if let Some(component) = self.components.get(id) {
+                        if component.is_visible() && component.is_hit(position) {
+                            let is_interactive = match &event.event_type {
+                                EventType::Drag => component.is_draggable(),
+                                EventType::Press | EventType::Release => component.is_clickable(),
+                                _ => false,
+                            };
+
+                            if is_interactive {
+                                let return_event = match &event.event_type {
+                                    EventType::Drag => component.get_drag_event().cloned(),
+                                    _ => component.get_click_event().cloned(),
+                                };
+                                return Some((component.id, event.event_type, return_event));
+                            }
+
+                            // Bubble up events if needed
+                            return self.bubble_event_up(*id, &event.event_type);
+                        }
+                    }
                 }
             }
         }

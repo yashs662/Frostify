@@ -16,7 +16,6 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use colorgrad::Gradient;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -25,7 +24,7 @@ use super::{
         core::{frosted_glass::FrostedGlassComponent, image::ImageMetadata},
         image::ScaleMode,
     },
-    layout::{BorderRadius, ComponentPosition, FlexValue},
+    layout::{Anchor, BorderRadius, ComponentPosition, FlexValue},
 };
 
 /// Defines the position of the border relative to the component edges
@@ -42,8 +41,133 @@ pub enum BorderPosition {
 }
 
 #[derive(Debug, Clone)]
-pub enum ComponentHoverEffects {
-    BackgroundColor(Color, Duration), // Color and duration in seconds
+pub struct AnimationConfig {
+    pub duration: Duration,
+    pub easing: EasingFunction,
+    pub animation_type: AnimationType,
+    pub when: AnimationWhen,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub enum AnimationWhen {
+    Hover,
+    OnClick,
+    Forever,
+}
+
+#[derive(Debug, Clone)]
+pub enum AnimationType {
+    Color { from: Color, to: Color },
+    Opacity { from: f32, to: f32 },
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+pub enum EasingFunction {
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+}
+
+impl EasingFunction {
+    pub fn compute(&self, t: f32) -> f32 {
+        match self {
+            EasingFunction::Linear => t,
+            EasingFunction::EaseIn => t * t,
+            EasingFunction::EaseOut => -(t * (t - 2.0)),
+            EasingFunction::EaseInOut => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    -1.0 + (4.0 * t) - (4.0 * t * t)
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Animation {
+    pub config: AnimationConfig,
+    pub progress: f32,
+    pub is_running: bool,
+}
+
+impl Animation {
+    pub fn new(config: AnimationConfig) -> Self {
+        Self {
+            config,
+            progress: 0.0,
+            is_running: false,
+        }
+    }
+
+    fn update(&mut self, delta_time: f32, forward: bool) -> f32 {
+        if !self.is_running {
+            return if forward { 1.0 } else { 0.0 };
+        }
+
+        let delta = delta_time / self.config.duration.as_secs_f32();
+        self.progress = if forward {
+            (self.progress + delta).min(1.0)
+        } else {
+            (self.progress - delta).max(0.0)
+        };
+
+        self.config.easing.compute(self.progress)
+    }
+
+    fn configure_component(&self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
+        match self.config.animation_type {
+            AnimationType::Color { from, to: _ } => {
+                // Find existing background color component or create new one
+                let bg_id = if let Some((id, _)) = component
+                    .children_ids
+                    .iter()
+                    .find(|(_, t)| matches!(t, ComponentType::BackgroundColor))
+                {
+                    *id
+                } else {
+                    let bg_id = Uuid::new_v4();
+                    let mut bg = Component::new(bg_id, ComponentType::BackgroundColor);
+                    bg.transform.position_type = Position::Fixed(Anchor::Center);
+                    bg.set_debug_name("Animated Color Background");
+                    bg.set_z_index(0);
+                    bg.configure(
+                        ComponentConfig::BackgroundColor(BackgroundColorConfig { color: from }),
+                        wgpu_ctx,
+                    );
+                    component.add_child_to_front(bg);
+                    bg_id
+                };
+
+                // Add animation to the background component
+                if let Some(ComponentMetaData::ChildComponents(children)) = component
+                    .metadata
+                    .iter_mut()
+                    .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
+                {
+                    if let Some(bg_component) = children.iter_mut().find(|c| c.id == bg_id) {
+                        bg_component.animations.push(self.clone());
+                    }
+                }
+            }
+            AnimationType::Opacity { from: _, to: _ } => {
+                // Add opacity animation to all children
+                if let Some(ComponentMetaData::ChildComponents(children)) = component
+                    .metadata
+                    .iter_mut()
+                    .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
+                {
+                    for child in children {
+                        child.animations.push(self.clone());
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +177,7 @@ pub struct Component {
     pub component_type: ComponentType,
     pub transform: ComponentTransform,
     pub layout: Layout,
-    pub children_ids: Vec<Uuid>,
+    pub children_ids: Vec<(Uuid, ComponentType)>,
     parent_id: Option<Uuid>,
     pub metadata: Vec<ComponentMetaData>,
     pub config: Option<ComponentConfig>,
@@ -66,14 +190,12 @@ pub struct Component {
     pub border_position: BorderPosition,
     pub fit_to_size: bool,
     pub computed_bounds: Bounds,
-    pub hover_effects: Option<ComponentHoverEffects>,
-    animation_state: f32,
-    animation_going_forward: bool,
-    clean_config_copy: Option<ComponentConfig>,
+    pub animations: Vec<Animation>,
     is_hovered: bool,
+    clean_config_copy: Option<ComponentConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum ComponentType {
     Container,
     Text,
@@ -222,12 +344,14 @@ impl Component {
             border_position: BorderPosition::default(),
             fit_to_size: false,
             computed_bounds: Bounds::default(),
-            hover_effects: None,
-            animation_state: 0.0,
-            animation_going_forward: true,
-            clean_config_copy: None,
             is_hovered: false,
+            clean_config_copy: None,
+            animations: Vec::new(),
         }
+    }
+
+    pub fn has_children(&self) -> bool {
+        !self.children_ids.is_empty()
     }
 
     pub fn is_visible(&self) -> bool {
@@ -275,8 +399,8 @@ impl Component {
         self.fit_to_size = fit_to_size;
     }
 
-    pub fn get_all_children(&self) -> Vec<Uuid> {
-        self.children_ids.clone()
+    pub fn get_all_children_ids(&self) -> Vec<Uuid> {
+        self.children_ids.iter().map(|(id, _)| *id).collect()
     }
 
     pub fn set_z_index(&mut self, z_index: i32) {
@@ -284,16 +408,53 @@ impl Component {
     }
 
     pub fn is_hoverable(&self) -> bool {
-        self.hover_effects.is_some()
+        self.animations
+            .iter()
+            .any(|animation| matches!(animation.config.when, AnimationWhen::Hover))
     }
 
-    pub fn set_hover_effects(&mut self, effects: ComponentHoverEffects) {
-        self.hover_effects = Some(effects);
-        self.clean_config_copy = self.config.clone();
+    pub fn set_animation(&mut self, animation: AnimationConfig, wgpu_ctx: &mut WgpuCtx) {
+        if self.clean_config_copy.is_none() {
+            self.clean_config_copy = self.config.clone();
+        }
+        let animation = Animation::new(animation);
+
+        // Save current border radius before animation configuration
+        let current_border_radius = self.transform.border_radius;
+
+        if self.component_type == ComponentType::Container {
+            animation.configure_component(self, wgpu_ctx);
+
+            // Ensure all background components created by animation have the same border radius
+            if let Some(ComponentMetaData::ChildComponents(children)) = self
+                .metadata
+                .iter_mut()
+                .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
+            {
+                for child in children {
+                    if matches!(child.component_type, ComponentType::BackgroundColor) {
+                        child.transform.border_radius = current_border_radius;
+                        // Update the render data with new border radius
+                        if let Some(buffer) = child.get_render_data_buffer() {
+                            wgpu_ctx.queue.write_buffer(
+                                buffer,
+                                0,
+                                bytemuck::cast_slice(&[
+                                    child.get_render_data(child.computed_bounds)
+                                ]),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        self.animations.push(animation);
     }
 
     pub fn set_hover_state(&mut self, is_hovered: bool) {
-        self.is_hovered = is_hovered;
+        if self.is_hovered != is_hovered {
+            self.is_hovered = is_hovered;
+        }
     }
 
     pub fn is_hovered(&self) -> bool {
@@ -387,69 +548,52 @@ impl Component {
     }
 
     pub fn needs_update(&self) -> bool {
-        (self.is_hovered && self.animation_state < 1.0)
-            || (!self.is_hovered && self.animation_state > 0.0)
+        self.animations.iter().any(|animation| {
+            matches!(
+                animation.config.when,
+                AnimationWhen::Hover | AnimationWhen::Forever
+            )
+        })
     }
 
     pub fn update(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
-        let need_to_update = self.needs_update();
-        if !need_to_update {
-            return;
-        }
+        let mut should_update = false;
+        let mut needs_reconfigure = false;
+        let mut new_config = None;
 
-        let mut should_be_updated = false;
+        for animation in &mut self.animations {
+            animation.is_running = true;
+            let progress = animation.update(frame_time, self.is_hovered);
 
-        let base_color =
-            if let Some(ComponentConfig::BackgroundColor(BackgroundColorConfig { color })) =
-                self.clean_config_copy
-            {
-                color
-            } else {
-                Color::Transparent
-            };
-
-        if let Some(ComponentHoverEffects::BackgroundColor(color, duration)) = &self.hover_effects {
-            // frame time is in milliseconds, convert to seconds for proper delta calculation
-            let delta = frame_time / duration.as_millis() as f32;
-
-            if self.is_hovered {
-                self.animation_state += delta;
-                if self.animation_state >= 1.0 {
-                    self.animation_state = 1.0;
+            match &animation.config.animation_type {
+                AnimationType::Color { from, to } => {
+                    let color = from.lerp(to, progress);
+                    if let Some(ComponentConfig::BackgroundColor(config)) = &mut self.config {
+                        config.color = color;
+                        should_update = true;
+                    } else {
+                        // If we don't have a background color config yet, create one
+                        new_config =
+                            Some(ComponentConfig::BackgroundColor(BackgroundColorConfig {
+                                color: from.lerp(to, progress),
+                            }));
+                        needs_reconfigure = true;
+                    }
                 }
-            } else {
-                self.animation_state -= delta;
-                if self.animation_state <= 0.0 {
-                    self.animation_state = 0.0;
+                AnimationType::Opacity { from, to } => {
+                    let opacity = from + (to - from) * progress;
+                    self.layout.opacity = opacity;
+                    should_update = true;
                 }
             }
-
-            // Clamp the animation state between 0.0 and 1.0
-            self.animation_state = self.animation_state.clamp(0.0, 1.0);
-
-            // Calculate the color based on the animation state
-            let colors = if self.animation_going_forward {
-                vec![base_color.to_colorgrad_color(), color.to_colorgrad_color()]
-            } else {
-                vec![color.to_colorgrad_color(), base_color.to_colorgrad_color()]
-            };
-
-            let gradient = colorgrad::GradientBuilder::new()
-                .colors(&colors)
-                .domain(&[0.0, 1.0])
-                .build::<colorgrad::LinearGradient>()
-                .unwrap();
-
-            let color = gradient.at(self.animation_state);
-            let color = Color::Custom([color.r, color.g, color.b, color.a]);
-
-            self.config = Some(ComponentConfig::BackgroundColor(BackgroundColorConfig {
-                color,
-            }));
-            should_be_updated = true;
         }
 
-        if should_be_updated {
+        // Handle configuration update after animation loop
+        if needs_reconfigure {
+            if let Some(config) = new_config {
+                self.configure(config, wgpu_ctx);
+            }
+        } else if should_update {
             if let Some(buffer) = self.get_render_data_buffer() {
                 wgpu_ctx.queue.write_buffer(
                     buffer,
@@ -463,13 +607,31 @@ impl Component {
     pub fn add_child(&mut self, child: Component) {
         let mut child = child;
         child.set_parent(self.id);
-        self.children_ids.push(child.id);
+        self.children_ids.push((child.id, child.component_type));
         if let Some(ComponentMetaData::ChildComponents(existing_children)) = self
             .metadata
             .iter_mut()
             .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
         {
             existing_children.push(child);
+        } else {
+            self.metadata
+                .push(ComponentMetaData::ChildComponents(vec![child]));
+        }
+        self.flag_children_extraction();
+    }
+
+    pub fn add_child_to_front(&mut self, child: Component) {
+        let mut child = child;
+        child.set_parent(self.id);
+        self.children_ids
+            .insert(0, (child.id, child.component_type));
+        if let Some(ComponentMetaData::ChildComponents(existing_children)) = self
+            .metadata
+            .iter_mut()
+            .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
+        {
+            existing_children.insert(0, child);
         } else {
             self.metadata
                 .push(ComponentMetaData::ChildComponents(vec![child]));

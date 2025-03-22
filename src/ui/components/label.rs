@@ -61,7 +61,7 @@ impl LabelBuilder {
         let mut component = Component::new(id, ComponentType::Text);
 
         // Apply common configurations
-        self.apply_common_props(&mut component);
+        self.apply_common_props(&mut component, wgpu_ctx);
 
         // Set a default debug name if not specified
         if component.debug_name.is_none() {
