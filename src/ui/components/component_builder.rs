@@ -1,5 +1,5 @@
 use crate::{
-    app::{self, AppEvent},
+    app::{AppEvent},
     ui::{
         animation::AnimationConfig,
         color::Color,
