@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{error, trace};
+use log::{debug, error, trace};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
@@ -675,6 +675,68 @@ impl LayoutContext {
         }
     }
 
+    pub fn synchronize_sliders(&mut self, wgpu_ctx: &mut WgpuCtx) {
+        // Get all the information we need in advance
+        let mut slider_updates = Vec::new();
+        
+        for (component_id, component) in &self.components {
+            if let Some(slider_data) = component.get_slider_data() {
+                let bounds = self.computed_bounds.get(component_id).cloned();
+                if let Some(bounds) = bounds {
+                    slider_updates.push((
+                        *component_id,
+                        slider_data.value,
+                        slider_data.min,
+                        slider_data.max,
+                        slider_data.track_id,
+                        slider_data.thumb_id,
+                        bounds.size.width,
+                    ));
+                }
+            }
+        }
+        
+        // Process each slider update without borrow conflicts
+        for (component_id, value, min, max, track_id, thumb_id, slider_width) in slider_updates {
+            if max <= min {
+                continue; // Skip invalid sliders
+            }
+            
+            let clamped_value = value.clamp(min, max);
+            let normalized_value = (clamped_value - min) / (max - min);
+            let fill_width = slider_width * normalized_value;
+            
+            // Update the slider data in the component
+            if let Some(component) = self.components.get_mut(&component_id) {
+                if let Some(slider_data) = component.get_slider_data_mut() {
+                    slider_data.value = clamped_value;
+                }
+            }
+            
+            // Update the track component
+            if let Some(fill) = self.components.get_mut(&track_id) {
+                fill.transform.size.width = FlexValue::Fixed(fill_width);
+                fill.set_position(wgpu_ctx, fill.computed_bounds, self.viewport_size);
+            }
+            
+            // Update the thumb component
+            if let Some(thumb) = self.components.get_mut(&thumb_id) {
+                let thumb_width = match &thumb.transform.size.width {
+                    FlexValue::Fixed(width) => *width,
+                    _ => 10.0, // Default width
+                };
+                
+                let max_thumb_offset = slider_width - thumb_width;
+                // I dont know why we have to divide by 2.0 here, but it is required to
+                // properly place the thumb at the start of the fill track
+                let thumb_offset = normalized_value * max_thumb_offset / 2.0;
+                
+                thumb.transform.offset.x = thumb_offset;
+                thumb.set_position(wgpu_ctx, thumb.computed_bounds, self.viewport_size);
+            }
+        }
+    }
+
     pub fn get_component(&self, id: &Uuid) -> Option<&Component> {
         self.components.get(id)
     }
@@ -780,12 +842,20 @@ impl LayoutContext {
             _ => available_space.size.height, // Default to parent height
         };
 
-        // Maintain position relative to parent's content area
+        // Base position (without offset)
+        let position = ComponentPosition {
+            x: available_space.position.x,
+            y: available_space.position.y,
+        };
+
+        // Apply offset if needed
+        let final_position = ComponentPosition {
+            x: position.x + component.transform.offset.x,
+            y: position.y + component.transform.offset.y,
+        };
+
         Bounds {
-            position: ComponentPosition {
-                x: available_space.position.x,
-                y: available_space.position.y,
-            },
+            position: final_position,
             size: ComponentSize { width, height },
         }
     }
@@ -811,48 +881,54 @@ impl LayoutContext {
             .height
             .resolve(parent_bounds.size.height, self.viewport_size.height);
 
-        // Calculate position based on anchor
+        // Calculate position based on anchor - without applying offset yet
         let position = match anchor {
             Anchor::TopLeft => ComponentPosition {
-                x: parent_bounds.position.x + offset.x,
-                y: parent_bounds.position.y + offset.y,
+                x: parent_bounds.position.x,
+                y: parent_bounds.position.y,
             },
             Anchor::Top => ComponentPosition {
-                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0 + offset.x,
-                y: parent_bounds.position.y + offset.y,
+                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0,
+                y: parent_bounds.position.y,
             },
             Anchor::TopRight => ComponentPosition {
-                x: parent_bounds.position.x + parent_bounds.size.width - width - offset.x,
-                y: parent_bounds.position.y + offset.y,
+                x: parent_bounds.position.x + parent_bounds.size.width - width,
+                y: parent_bounds.position.y,
             },
             Anchor::Left => ComponentPosition {
-                x: parent_bounds.position.x + offset.x,
-                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0 + offset.y,
+                x: parent_bounds.position.x,
+                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0,
             },
             Anchor::Center => ComponentPosition {
-                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0 + offset.x,
-                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0 + offset.y,
+                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0,
+                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0,
             },
             Anchor::Right => ComponentPosition {
-                x: parent_bounds.position.x + parent_bounds.size.width - width - offset.x,
-                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0 + offset.y,
+                x: parent_bounds.position.x + parent_bounds.size.width - width,
+                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0,
             },
             Anchor::BottomLeft => ComponentPosition {
-                x: parent_bounds.position.x + offset.x,
-                y: parent_bounds.position.y + parent_bounds.size.height - height - offset.y,
+                x: parent_bounds.position.x,
+                y: parent_bounds.position.y + parent_bounds.size.height - height,
             },
             Anchor::Bottom => ComponentPosition {
-                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0 + offset.x,
-                y: parent_bounds.position.y + parent_bounds.size.height - height - offset.y,
+                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0,
+                y: parent_bounds.position.y + parent_bounds.size.height - height,
             },
             Anchor::BottomRight => ComponentPosition {
-                x: parent_bounds.position.x + parent_bounds.size.width - width - offset.x,
-                y: parent_bounds.position.y + parent_bounds.size.height - height - offset.y,
+                x: parent_bounds.position.x + parent_bounds.size.width - width,
+                y: parent_bounds.position.y + parent_bounds.size.height - height,
             },
         };
 
+        // Apply offset after anchor positioning
+        let final_position = ComponentPosition {
+            x: position.x + offset.x,
+            y: position.y + offset.y,
+        };
+
         Bounds {
-            position,
+            position: final_position,
             size: ComponentSize { width, height },
         }
     }
@@ -1241,6 +1317,7 @@ impl LayoutContext {
             match &child.transform.size.width {
                 FlexValue::Fixed(w) => *w,
                 FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
+                FlexValue::Fraction(frac) => main_axis_available * frac,
                 FlexValue::Auto => {
                     if num_flex_items == 0 && num_auto_sized > 0 {
                         space_per_flex_unit
@@ -1248,12 +1325,17 @@ impl LayoutContext {
                         main_axis_available
                     }
                 }
-                _ => main_axis_available,
+                _ => child
+                    .transform
+                    .size
+                    .width
+                    .resolve(main_axis_available, self.viewport_size.width),
             }
         } else {
             match &child.transform.size.height {
                 FlexValue::Fixed(h) => *h,
                 FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
+                FlexValue::Fraction(frac) => main_axis_available * frac,
                 FlexValue::Auto => {
                     if num_flex_items == 0 && num_auto_sized > 0 {
                         space_per_flex_unit
@@ -1261,21 +1343,35 @@ impl LayoutContext {
                         main_axis_available
                     }
                 }
-                _ => main_axis_available,
+                _ => child
+                    .transform
+                    .size
+                    .height
+                    .resolve(main_axis_available, self.viewport_size.height),
             }
         };
 
         let cross_size = if is_row {
             match &child.transform.size.height {
                 FlexValue::Fixed(h) => *h,
+                FlexValue::Fraction(frac) => cross_axis_available * frac,
                 FlexValue::Fill | FlexValue::Auto => cross_axis_available,
-                _ => cross_axis_available,
+                _ => child
+                    .transform
+                    .size
+                    .height
+                    .resolve(cross_axis_available, self.viewport_size.height),
             }
         } else {
             match &child.transform.size.width {
                 FlexValue::Fixed(w) => *w,
+                FlexValue::Fraction(frac) => cross_axis_available * frac,
                 FlexValue::Fill | FlexValue::Auto => cross_axis_available,
-                _ => cross_axis_available,
+                _ => child
+                    .transform
+                    .size
+                    .width
+                    .resolve(cross_axis_available, self.viewport_size.width),
             }
         };
 

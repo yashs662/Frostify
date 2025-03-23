@@ -65,7 +65,7 @@ impl FlexContainerBuilder {
         let container_id = Uuid::new_v4();
         let mut container = Component::new(container_id, ComponentType::Container);
 
-        self.apply_common_props(&mut container, wgpu_ctx);
+        self.apply_common_props_for_leaf(&mut container, wgpu_ctx);
 
         container.layout.direction = self.direction;
         container.layout.wrap = self.wrap;

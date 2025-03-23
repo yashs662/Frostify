@@ -100,7 +100,7 @@ impl BackgroundBuilder {
         let id = Uuid::new_v4();
         let mut component = Component::new(id, component_type);
 
-        self.apply_common_props(&mut component, wgpu_ctx);
+        self.apply_common_props_for_leaf(&mut component, wgpu_ctx);
 
         match self.background_type {
             BackgroundType::Color(color) => {
