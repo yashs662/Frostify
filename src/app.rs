@@ -3,7 +3,8 @@ use crate::{
     constants::{BACKGROUND_FPS, WINDOW_RESIZE_BORDER_WIDTH},
     core::worker::{Worker, WorkerResponse},
     ui::{
-        create_app_ui, create_login_ui, layout::{self, ComponentPosition, EventType}, UiView
+        UiView, create_app_ui, create_login_ui,
+        layout::{self, ComponentPosition, EventType},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -84,16 +85,16 @@ impl FrameCounter {
     fn update(&mut self) {
         self.frame_count += 1;
         let new_instant = Instant::now();
+        let frame_delta = (new_instant - self.last_draw_instant).as_secs_f32();
+        self.frame_time = frame_delta;
+
         let elapsed_secs = (new_instant - self.last_printed_instant).as_secs_f32();
         if elapsed_secs > self.report_interval {
-            let elapsed_ms = elapsed_secs * 1000.0;
-            let frame_time = elapsed_ms / self.frame_count as f32;
             let fps = self.frame_count as f32 / elapsed_secs;
-            log::info!("Frame time {:.2}ms ({:.1} FPS)", frame_time, fps);
+            log::info!("Frame time {:.2}ms ({:.1} FPS)", frame_delta * 1000.0, fps);
 
             self.last_printed_instant = new_instant;
             self.frame_count = 0;
-            self.frame_time = frame_time;
             self.avg_fps = fps;
         }
         self.last_draw_instant = new_instant;

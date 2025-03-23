@@ -1,10 +1,11 @@
 use crate::{
-    ui::component::{Component, ComponentConfig, ComponentType, ImageConfig},
+    ui::{
+        component::{Component, ComponentConfig, ComponentType, ImageConfig},
+        components::component_builder::{CommonBuilderProps, ComponentBuilder},
+    },
     wgpu_ctx::WgpuCtx,
 };
 use uuid::Uuid;
-
-use super::component_builder::{CommonBuilderProps, ComponentBuilder};
 
 /// Builder for creating and configuring image components
 pub struct ImageBuilder {

@@ -14,21 +14,21 @@ fn test_basic_fixed_flex_row_layout() {
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create second child with fixed size
     let child2 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child2_id = child2.id;
 
     // Set children on parent
@@ -77,21 +77,21 @@ fn test_basic_fixed_flex_column_layout() {
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create second child with fixed size
     let child2 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child2_id = child2.id;
 
     // Set children on parent
@@ -140,21 +140,21 @@ fn test_basic_fill_flex_row_layout() {
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create second child with fill size
     let child2 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build();
+        .build_for_test();
     let child2_id = child2.id;
 
     // Set children on parent
@@ -203,21 +203,21 @@ fn test_basic_fill_flex_column_layout() {
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create second child with fill size
     let child2 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build();
+        .build_for_test();
     let child2_id = child2.id;
 
     // Set children on parent
@@ -267,21 +267,21 @@ fn test_basic_fill_flex_row_layout_with_padding() {
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
         .with_padding(Edges::horizontal(10.0))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create second child with fill size
     let child2 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build();
+        .build_for_test();
     let child2_id = child2.id;
 
     // Set children on parent
@@ -331,21 +331,21 @@ fn test_basic_fill_flex_column_layout_with_padding() {
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
         .with_padding(Edges::vertical(10.0))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create second child with fill size
     let child2 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build();
+        .build_for_test();
     let child2_id = child2.id;
 
     // Set children on parent
@@ -394,14 +394,14 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create nested container with fixed size
@@ -409,21 +409,21 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
         .with_width(FlexValue::Fixed(200.0))
         .with_height(FlexValue::Fixed(200.0))
         .with_direction(FlexDirection::Row)
-        .build();
+        .build_for_test();
     let nested_parent_id = nested_parent.id;
 
     // Create nested child with fixed size
     let nested_child_1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(25.0))
         .with_height(FlexValue::Fixed(25.0))
-        .build();
+        .build_for_test();
     let nested_child_1_id = nested_child_1.id;
 
     // Create nested child with fill size
     let nested_child_2 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build();
+        .build_for_test();
     let nested_child_2_id = nested_child_2.id;
 
     // Set children on parents
@@ -486,14 +486,14 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fixed(100.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create nested container with fill size
@@ -501,21 +501,21 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
         .with_direction(FlexDirection::Row)
-        .build();
+        .build_for_test();
     let nested_parent_id = nested_parent.id;
 
     // Create nested child with fixed size
     let nested_child_1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(25.0))
         .with_height(FlexValue::Fixed(25.0))
-        .build();
+        .build_for_test();
     let nested_child_1_id = nested_child_1.id;
 
     // Create nested child with fill size
     let nested_child_2 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build();
+        .build_for_test();
     let nested_child_2_id = nested_child_2.id;
 
     // Set children on parent
@@ -578,13 +578,13 @@ fn test_navbar_app_layout() {
         .with_height(FlexValue::Fill)
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Parent container background
     let background = FlexContainerBuilder::new()
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build();
+        .build_for_test();
     let background_id = background.id;
 
     // Nav bar container
@@ -594,7 +594,7 @@ fn test_navbar_app_layout() {
         .with_direction(FlexDirection::Row)
         .with_align_items(AlignItems::Center)
         .with_padding(Edges::all(10.0))
-        .build();
+        .build_for_test();
     let nav_bar_id = nav_bar.id;
 
     // Nav bar buttons with fixed size
@@ -604,21 +604,21 @@ fn test_navbar_app_layout() {
     let minimize_icon = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(button_size))
         .with_height(FlexValue::Fixed(button_size))
-        .build();
+        .build_for_test();
     let minimize_icon_id = minimize_icon.id;
 
     // Expand button
     let expand_icon = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(button_size))
         .with_height(FlexValue::Fixed(button_size))
-        .build();
+        .build_for_test();
     let expand_icon_id = expand_icon.id;
 
     // Close button
     let close_icon = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(button_size))
         .with_height(FlexValue::Fixed(button_size))
-        .build();
+        .build_for_test();
     let close_icon_id = close_icon.id;
 
     // Content container
@@ -626,21 +626,21 @@ fn test_navbar_app_layout() {
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
         .with_direction(FlexDirection::Row)
-        .build();
+        .build_for_test();
     let content_container_id = content_container.id;
 
     // Text with fixed size
     let text = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(200.0))
         .with_height(FlexValue::Fixed(50.0))
-        .build();
+        .build_for_test();
     let text_id = text.id;
 
     // Content image
     let image = FlexContainerBuilder::new()
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build();
+        .build_for_test();
     let image_id = image.id;
 
     // Add children to the content container
@@ -743,7 +743,7 @@ fn test_margin_and_padding_layout() {
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
         .with_padding(Edges::all(10.0))
-        .build();
+        .build_for_test();
     let parent_id = parent.id;
 
     // Create first child with fixed size
@@ -751,7 +751,7 @@ fn test_margin_and_padding_layout() {
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
         .with_margin(Edges::all(10.0))
-        .build();
+        .build_for_test();
     let child1_id = child1.id;
 
     // Create second child with fill size
@@ -759,7 +759,7 @@ fn test_margin_and_padding_layout() {
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
         .with_margin(Edges::all(20.0))
-        .build();
+        .build_for_test();
     let child2_id = child2.id;
 
     // Set children on parent

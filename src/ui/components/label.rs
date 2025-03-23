@@ -2,12 +2,11 @@ use crate::{
     ui::{
         color::Color,
         component::{Component, ComponentConfig, ComponentType, TextConfig},
+        components::component_builder::{CommonBuilderProps, ComponentBuilder},
     },
     wgpu_ctx::WgpuCtx,
 };
 use uuid::Uuid;
-
-use super::component_builder::{CommonBuilderProps, ComponentBuilder};
 
 /// Builder for creating and configuring text label components
 pub struct LabelBuilder {

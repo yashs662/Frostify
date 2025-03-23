@@ -1,8 +1,13 @@
-use crate::app::AppEvent;
-use crate::ui::color::Color;
-use crate::ui::component::{AnimationConfig, BorderPosition, Component};
-use crate::ui::layout::{Anchor, BorderRadius, Edges, FlexValue, Position};
-use crate::wgpu_ctx::WgpuCtx;
+use crate::{
+    app::{self, AppEvent},
+    ui::{
+        animation::AnimationConfig,
+        color::Color,
+        component::{BorderPosition, Component},
+        layout::{Anchor, BorderRadius, Edges, FlexValue, Position},
+    },
+    wgpu_ctx::WgpuCtx,
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Common properties shared across component builders
@@ -129,7 +134,7 @@ pub trait ComponentBuilder: Sized {
         self
     }
 
-    fn apply_common_props(&mut self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
+    fn apply_common_props_for_testing(&mut self, component: &mut Component) {
         let props = self.common_props();
 
         if let Some(debug_name) = props.debug_name.clone() {
@@ -191,7 +196,16 @@ pub trait ComponentBuilder: Sized {
         if let Some(drag_event) = props.drag_event.clone() {
             component.set_drag_event(drag_event);
         }
+    
+        // Animation is not applied here, as it requires Wgpu context which is not available in tests
 
+    }
+
+    fn apply_common_props(&mut self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
+        // apply all from test
+        self.apply_common_props_for_testing(component);
+        
+        let props = self.common_props();
         if let Some(animation) = props.animation.clone() {
             component.set_animation(animation, wgpu_ctx);
         }

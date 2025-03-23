@@ -1,6 +1,5 @@
-use colorgrad::Gradient;
-
 use crate::ui::component::{BackgroundGradientConfig, GradientType};
+use colorgrad::Gradient;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]

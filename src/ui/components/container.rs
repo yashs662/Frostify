@@ -1,13 +1,12 @@
 use crate::{
     ui::{
         component::{Component, ComponentType},
+        components::component_builder::{CommonBuilderProps, ComponentBuilder},
         layout::{AlignItems, FlexDirection, FlexWrap, JustifyContent},
     },
     wgpu_ctx::WgpuCtx,
 };
 use uuid::Uuid;
-
-use super::component_builder::{CommonBuilderProps, ComponentBuilder};
 
 pub struct FlexContainerBuilder {
     common: CommonBuilderProps,
@@ -67,6 +66,26 @@ impl FlexContainerBuilder {
         let mut container = Component::new(container_id, ComponentType::Container);
 
         self.apply_common_props(&mut container, wgpu_ctx);
+
+        container.layout.direction = self.direction;
+        container.layout.wrap = self.wrap;
+        container.layout.justify_content = self.justify_content;
+        container.layout.align_items = self.align_items;
+
+        if let Some(parent_id) = self.parent_id {
+            container.set_parent(parent_id);
+        }
+
+        container
+    }
+
+    /// Only for testing purposes
+    /// This function is used to create a component without needing a WgpuCtx - Skipping any Animation data
+    pub fn build_for_test(mut self) -> Component {
+        let container_id = Uuid::new_v4();
+        let mut container = Component::new(container_id, ComponentType::Container);
+
+        self.apply_common_props_for_testing(&mut container);
 
         container.layout.direction = self.direction;
         container.layout.wrap = self.wrap;

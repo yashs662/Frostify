@@ -1,23 +1,33 @@
-use std::time::Duration;
-
 use crate::{
     app::AppEvent,
     ui::{
+        animation::{
+            AnimationConfig, AnimationDirection, AnimationType, AnimationWhen, EasingFunction,
+        },
         color::Color,
-        component::{Component, ComponentConfig, ComponentMetaData, ImageConfig},
-        components::{button::ButtonBuilder, container::FlexContainerBuilder, image::ScaleMode},
-        layout::{Anchor, FlexValue},
+        component::{
+            BorderPosition, Component, ComponentConfig, ComponentMetaData, GradientColorStop,
+            ImageConfig, TextConfig,
+        },
+        components::{
+            background::BackgroundBuilder,
+            button::{ButtonBuilder, ButtonSubComponent},
+            component_builder::ComponentBuilder,
+            container::FlexContainerBuilder,
+            image::{ImageBuilder, ScaleMode},
+            label::LabelBuilder,
+        },
+        layout::{
+            AlignItems, Anchor, BorderRadius, Bounds, Edges, FlexDirection, FlexValue,
+            JustifyContent, Position,
+        },
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use component::{AnimationConfig, AnimationWhen, BorderPosition, GradientColorStop, TextConfig};
-use components::{
-    background::BackgroundBuilder, button::ButtonSubComponent, component_builder::ComponentBuilder,
-    image::ImageBuilder, label::LabelBuilder,
-};
-use layout::{AlignItems, BorderRadius, Bounds, Edges, FlexDirection, JustifyContent, Position};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
+pub mod animation;
 pub mod asset;
 pub mod color;
 pub mod component;
@@ -280,10 +290,11 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
         }))
         .with_animation(AnimationConfig {
             duration: Duration::from_millis(100),
-            easing: component::EasingFunction::EaseOut,
-            animation_type: component::AnimationType::Color {
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Color {
                 from: Color::Transparent,
-                to: Color::Gray,
+                to: Color::DarkGray,
             },
             when: AnimationWhen::Hover,
         })
@@ -303,10 +314,11 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
         }))
         .with_animation(AnimationConfig {
             duration: Duration::from_millis(100),
-            easing: component::EasingFunction::EaseOut,
-            animation_type: component::AnimationType::Color {
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Color {
                 from: Color::Transparent,
-                to: Color::Gray,
+                to: Color::DarkGray,
             },
             when: AnimationWhen::Hover,
         })
@@ -325,9 +337,10 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
             scale_mode: ScaleMode::Contain,
         }))
         .with_animation(AnimationConfig {
-            duration: Duration::from_millis(100),
-            easing: component::EasingFunction::EaseOut,
-            animation_type: component::AnimationType::Color {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Color {
                 from: Color::Transparent,
                 to: Color::Red,
             },

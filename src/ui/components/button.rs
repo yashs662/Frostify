@@ -1,10 +1,16 @@
 use crate::{
     ui::{
+        animation::AnimationWhen,
         color::Color,
         component::{
-            AnimationWhen, BackgroundColorConfig, BackgroundGradientConfig, Component,
-            ComponentConfig, ComponentType, FrostedGlassConfig, GradientColorStop, GradientType,
-            ImageConfig, TextConfig,
+            BackgroundColorConfig, BackgroundGradientConfig, Component, ComponentConfig,
+            ComponentType, FrostedGlassConfig, GradientColorStop, GradientType, ImageConfig,
+            TextConfig,
+        },
+        components::{
+            component_builder::{CommonBuilderProps, ComponentBuilder},
+            container::FlexContainerBuilder,
+            label::LabelBuilder,
         },
         layout::{Anchor, Edges, Position},
     },
@@ -12,12 +18,6 @@ use crate::{
 };
 use log::error;
 use uuid::Uuid;
-
-use super::{
-    component_builder::{CommonBuilderProps, ComponentBuilder},
-    container::FlexContainerBuilder,
-    label::LabelBuilder,
-};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]

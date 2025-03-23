@@ -1,31 +1,27 @@
-use std::time::Duration;
-
 use crate::{
     app::AppEvent,
     ui::{
         Configurable, Positionable, Renderable,
+        animation::{Animation, AnimationConfig, AnimationType, AnimationWhen},
         color::Color,
-        components::core::{
-            background_color::BackgroundColorComponent,
-            background_gradient::BackgroundGradientComponent, image::ImageComponent,
-            text::TextComponent,
+        components::{
+            core::{
+                background_color::BackgroundColorComponent,
+                background_gradient::BackgroundGradientComponent,
+                frosted_glass::FrostedGlassComponent, image::ImageComponent, image::ImageMetadata,
+                text::TextComponent,
+            },
+            image::ScaleMode,
         },
         layout::{
-            Bounds, ComponentOffset, ComponentSize, ComponentTransform, Layout, Position, Size,
+            BorderRadius, Bounds, ComponentOffset, ComponentPosition, ComponentSize,
+            ComponentTransform, FlexValue, Layout, Position, Size,
         },
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
-
-use super::{
-    components::{
-        core::{frosted_glass::FrostedGlassComponent, image::ImageMetadata},
-        image::ScaleMode,
-    },
-    layout::{Anchor, BorderRadius, ComponentPosition, FlexValue},
-};
 
 /// Defines the position of the border relative to the component edges
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -38,136 +34,6 @@ pub enum BorderPosition {
     /// Border drawn outside the component's bounds
     #[default]
     Outside,
-}
-
-#[derive(Debug, Clone)]
-pub struct AnimationConfig {
-    pub duration: Duration,
-    pub easing: EasingFunction,
-    pub animation_type: AnimationType,
-    pub when: AnimationWhen,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub enum AnimationWhen {
-    Hover,
-    OnClick,
-    Forever,
-}
-
-#[derive(Debug, Clone)]
-pub enum AnimationType {
-    Color { from: Color, to: Color },
-    Opacity { from: f32, to: f32 },
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub enum EasingFunction {
-    Linear,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
-}
-
-impl EasingFunction {
-    pub fn compute(&self, t: f32) -> f32 {
-        match self {
-            EasingFunction::Linear => t,
-            EasingFunction::EaseIn => t * t,
-            EasingFunction::EaseOut => -(t * (t - 2.0)),
-            EasingFunction::EaseInOut => {
-                if t < 0.5 {
-                    2.0 * t * t
-                } else {
-                    -1.0 + (4.0 * t) - (4.0 * t * t)
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Animation {
-    pub config: AnimationConfig,
-    pub progress: f32,
-    pub is_running: bool,
-}
-
-impl Animation {
-    pub fn new(config: AnimationConfig) -> Self {
-        Self {
-            config,
-            progress: 0.0,
-            is_running: false,
-        }
-    }
-
-    fn update(&mut self, delta_time: f32, forward: bool) -> f32 {
-        if !self.is_running {
-            return if forward { 1.0 } else { 0.0 };
-        }
-
-        let delta = delta_time / self.config.duration.as_secs_f32();
-        self.progress = if forward {
-            (self.progress + delta).min(1.0)
-        } else {
-            (self.progress - delta).max(0.0)
-        };
-
-        self.config.easing.compute(self.progress)
-    }
-
-    fn configure_component(&self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
-        match self.config.animation_type {
-            AnimationType::Color { from, to: _ } => {
-                // Find existing background color component or create new one
-                let bg_id = if let Some((id, _)) = component
-                    .children_ids
-                    .iter()
-                    .find(|(_, t)| matches!(t, ComponentType::BackgroundColor))
-                {
-                    *id
-                } else {
-                    let bg_id = Uuid::new_v4();
-                    let mut bg = Component::new(bg_id, ComponentType::BackgroundColor);
-                    bg.transform.position_type = Position::Fixed(Anchor::Center);
-                    bg.set_debug_name("Animated Color Background");
-                    bg.set_z_index(0);
-                    bg.configure(
-                        ComponentConfig::BackgroundColor(BackgroundColorConfig { color: from }),
-                        wgpu_ctx,
-                    );
-                    component.add_child_to_front(bg);
-                    bg_id
-                };
-
-                // Add animation to the background component
-                if let Some(ComponentMetaData::ChildComponents(children)) = component
-                    .metadata
-                    .iter_mut()
-                    .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
-                {
-                    if let Some(bg_component) = children.iter_mut().find(|c| c.id == bg_id) {
-                        bg_component.animations.push(self.clone());
-                    }
-                }
-            }
-            AnimationType::Opacity { from: _, to: _ } => {
-                // Add opacity animation to all children
-                if let Some(ComponentMetaData::ChildComponents(children)) = component
-                    .metadata
-                    .iter_mut()
-                    .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
-                {
-                    for child in children {
-                        child.animations.push(self.clone());
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -452,9 +318,7 @@ impl Component {
     }
 
     pub fn set_hover_state(&mut self, is_hovered: bool) {
-        if self.is_hovered != is_hovered {
-            self.is_hovered = is_hovered;
-        }
+        self.is_hovered = is_hovered;
     }
 
     pub fn is_hovered(&self) -> bool {
@@ -562,28 +426,31 @@ impl Component {
         let mut new_config = None;
 
         for animation in &mut self.animations {
-            animation.is_running = true;
-            let progress = animation.update(frame_time, self.is_hovered);
+            match animation.config.when {
+                AnimationWhen::Hover => {
+                    animation.is_running = true;
+                    let progress = animation.update(frame_time, self.is_hovered);
 
-            match &animation.config.animation_type {
-                AnimationType::Color { from, to } => {
-                    let color = from.lerp(to, progress);
-                    if let Some(ComponentConfig::BackgroundColor(config)) = &mut self.config {
-                        config.color = color;
-                        should_update = true;
-                    } else {
-                        // If we don't have a background color config yet, create one
-                        new_config =
-                            Some(ComponentConfig::BackgroundColor(BackgroundColorConfig {
-                                color: from.lerp(to, progress),
-                            }));
-                        needs_reconfigure = true;
+                    match &animation.config.animation_type {
+                        AnimationType::Color { from, to } => {
+                            let color = from.lerp(to, progress);
+
+                            if let Some(ComponentConfig::BackgroundColor(config)) = &mut self.config
+                            {
+                                config.color = color;
+                                should_update = true;
+                            } else {
+                                new_config =
+                                    Some(ComponentConfig::BackgroundColor(BackgroundColorConfig {
+                                        color,
+                                    }));
+                                needs_reconfigure = true;
+                            }
+                        }
                     }
                 }
-                AnimationType::Opacity { from, to } => {
-                    let opacity = from + (to - from) * progress;
-                    self.layout.opacity = opacity;
-                    should_update = true;
+                _ => {
+                    animation.is_running = false;
                 }
             }
         }

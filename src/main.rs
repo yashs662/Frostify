@@ -4,7 +4,7 @@
 )]
 
 use crate::{app::App, ui::asset};
-use colored::*;
+use colored::Colorize;
 use env_logger::Builder;
 use log::LevelFilter;
 use std::io::Write;
