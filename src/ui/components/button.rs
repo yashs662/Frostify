@@ -80,40 +80,11 @@ impl ButtonBuilder {
         let common_props = self.common.clone();
         let config = self.config.clone();
 
-        // Transfer common properties to container builder
-        if let Some(width) = common_props.width {
-            container_builder = container_builder.with_width(width);
-        }
-        if let Some(height) = common_props.height {
-            container_builder = container_builder.with_height(height);
-        }
-        if let Some(name) = common_props.debug_name {
-            container_builder = container_builder.with_debug_name(name);
-        }
-        if let Some(event) = common_props.click_event {
-            container_builder = container_builder.with_click_event(event);
-        }
-        if let Some(event_sender) = common_props.event_sender {
-            container_builder = container_builder.with_event_sender(event_sender);
-        }
-        if let Some(z_index) = common_props.z_index {
-            container_builder = container_builder.with_z_index(z_index);
-        }
-        if let Some(margin) = common_props.margin {
-            container_builder = container_builder.with_margin(margin);
-        }
-        if common_props.fit_to_size {
-            container_builder = container_builder.set_fit_to_size();
-        }
-        if let Some(position) = common_props.position {
-            container_builder = container_builder.with_position(position);
-        }
-        if let Some(padding) = common_props.padding {
-            container_builder = container_builder.with_padding(padding);
-        }
-        if let Some(border_radius) = common_props.border_radius {
-            container_builder = container_builder.with_border_radius(border_radius);
-        }
+        // Use fully qualified path to call the trait method
+        <FlexContainerBuilder as ComponentBuilder>::apply_common_properties(
+            &mut container_builder,
+            &common_props,
+        );
 
         let mut container = container_builder.build(wgpu_ctx);
         container.flag_children_extraction();

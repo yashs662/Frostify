@@ -780,12 +780,20 @@ impl LayoutContext {
             _ => available_space.size.height, // Default to parent height
         };
 
-        // Maintain position relative to parent's content area
+        // Base position (without offset)
+        let position = ComponentPosition {
+            x: available_space.position.x,
+            y: available_space.position.y,
+        };
+
+        // Apply offset if needed
+        let final_position = ComponentPosition {
+            x: position.x + component.transform.offset.x,
+            y: position.y + component.transform.offset.y,
+        };
+
         Bounds {
-            position: ComponentPosition {
-                x: available_space.position.x,
-                y: available_space.position.y,
-            },
+            position: final_position,
             size: ComponentSize { width, height },
         }
     }
@@ -811,48 +819,54 @@ impl LayoutContext {
             .height
             .resolve(parent_bounds.size.height, self.viewport_size.height);
 
-        // Calculate position based on anchor
+        // Calculate position based on anchor - without applying offset yet
         let position = match anchor {
             Anchor::TopLeft => ComponentPosition {
-                x: parent_bounds.position.x + offset.x,
-                y: parent_bounds.position.y + offset.y,
+                x: parent_bounds.position.x,
+                y: parent_bounds.position.y,
             },
             Anchor::Top => ComponentPosition {
-                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0 + offset.x,
-                y: parent_bounds.position.y + offset.y,
+                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0,
+                y: parent_bounds.position.y,
             },
             Anchor::TopRight => ComponentPosition {
-                x: parent_bounds.position.x + parent_bounds.size.width - width - offset.x,
-                y: parent_bounds.position.y + offset.y,
+                x: parent_bounds.position.x + parent_bounds.size.width - width,
+                y: parent_bounds.position.y,
             },
             Anchor::Left => ComponentPosition {
-                x: parent_bounds.position.x + offset.x,
-                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0 + offset.y,
+                x: parent_bounds.position.x,
+                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0,
             },
             Anchor::Center => ComponentPosition {
-                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0 + offset.x,
-                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0 + offset.y,
+                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0,
+                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0,
             },
             Anchor::Right => ComponentPosition {
-                x: parent_bounds.position.x + parent_bounds.size.width - width - offset.x,
-                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0 + offset.y,
+                x: parent_bounds.position.x + parent_bounds.size.width - width,
+                y: parent_bounds.position.y + (parent_bounds.size.height - height) / 2.0,
             },
             Anchor::BottomLeft => ComponentPosition {
-                x: parent_bounds.position.x + offset.x,
-                y: parent_bounds.position.y + parent_bounds.size.height - height - offset.y,
+                x: parent_bounds.position.x,
+                y: parent_bounds.position.y + parent_bounds.size.height - height,
             },
             Anchor::Bottom => ComponentPosition {
-                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0 + offset.x,
-                y: parent_bounds.position.y + parent_bounds.size.height - height - offset.y,
+                x: parent_bounds.position.x + (parent_bounds.size.width - width) / 2.0,
+                y: parent_bounds.position.y + parent_bounds.size.height - height,
             },
             Anchor::BottomRight => ComponentPosition {
-                x: parent_bounds.position.x + parent_bounds.size.width - width - offset.x,
-                y: parent_bounds.position.y + parent_bounds.size.height - height - offset.y,
+                x: parent_bounds.position.x + parent_bounds.size.width - width,
+                y: parent_bounds.position.y + parent_bounds.size.height - height,
             },
         };
 
+        // Apply offset after anchor positioning
+        let final_position = ComponentPosition {
+            x: position.x + offset.x,
+            y: position.y + offset.y,
+        };
+
         Bounds {
-            position,
+            position: final_position,
             size: ComponentSize { width, height },
         }
     }
@@ -1241,6 +1255,7 @@ impl LayoutContext {
             match &child.transform.size.width {
                 FlexValue::Fixed(w) => *w,
                 FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
+                FlexValue::Fraction(frac) => main_axis_available * frac,
                 FlexValue::Auto => {
                     if num_flex_items == 0 && num_auto_sized > 0 {
                         space_per_flex_unit
@@ -1248,12 +1263,17 @@ impl LayoutContext {
                         main_axis_available
                     }
                 }
-                _ => main_axis_available,
+                _ => child
+                    .transform
+                    .size
+                    .width
+                    .resolve(main_axis_available, self.viewport_size.width),
             }
         } else {
             match &child.transform.size.height {
                 FlexValue::Fixed(h) => *h,
                 FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
+                FlexValue::Fraction(frac) => main_axis_available * frac,
                 FlexValue::Auto => {
                     if num_flex_items == 0 && num_auto_sized > 0 {
                         space_per_flex_unit
@@ -1261,21 +1281,35 @@ impl LayoutContext {
                         main_axis_available
                     }
                 }
-                _ => main_axis_available,
+                _ => child
+                    .transform
+                    .size
+                    .height
+                    .resolve(main_axis_available, self.viewport_size.height),
             }
         };
 
         let cross_size = if is_row {
             match &child.transform.size.height {
                 FlexValue::Fixed(h) => *h,
+                FlexValue::Fraction(frac) => cross_axis_available * frac,
                 FlexValue::Fill | FlexValue::Auto => cross_axis_available,
-                _ => cross_axis_available,
+                _ => child
+                    .transform
+                    .size
+                    .height
+                    .resolve(cross_axis_available, self.viewport_size.height),
             }
         } else {
             match &child.transform.size.width {
                 FlexValue::Fixed(w) => *w,
+                FlexValue::Fraction(frac) => cross_axis_available * frac,
                 FlexValue::Fill | FlexValue::Auto => cross_axis_available,
-                _ => cross_axis_available,
+                _ => child
+                    .transform
+                    .size
+                    .width
+                    .resolve(cross_axis_available, self.viewport_size.width),
             }
         };
 

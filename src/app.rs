@@ -465,12 +465,12 @@ impl ApplicationHandler for App<'_> {
                 self.app_state.is_checking_auth = true;
                 worker.try_load_tokens();
             }
-            
+
             // Draw the first frame before making the window visible
             if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
                 self.layout_context.update_components(wgpu_ctx, 0.0);
                 wgpu_ctx.draw(&mut self.layout_context);
-                
+
                 // Now that we've drawn the first frame, make the window visible
                 if let Some(window) = &self.window {
                     window.set_visible(true);

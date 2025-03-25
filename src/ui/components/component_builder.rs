@@ -1,10 +1,10 @@
 use crate::{
-    app::{AppEvent},
+    app::AppEvent,
     ui::{
         animation::AnimationConfig,
         color::Color,
         component::{BorderPosition, Component},
-        layout::{Anchor, BorderRadius, Edges, FlexValue, Position},
+        layout::{Anchor, BorderRadius, ComponentOffset, Edges, FlexValue, Position},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -16,6 +16,7 @@ pub struct CommonBuilderProps {
     pub width: Option<FlexValue>,
     pub height: Option<FlexValue>,
     pub position: Option<Position>,
+    pub offset: Option<ComponentOffset>,
     pub margin: Option<Edges>,
     pub padding: Option<Edges>,
     pub z_index: Option<i32>,
@@ -53,6 +54,11 @@ pub trait ComponentBuilder: Sized {
 
     fn with_position(mut self, position: Position) -> Self {
         self.common_props().position = Some(position);
+        self
+    }
+
+    fn with_offset(mut self, offset: ComponentOffset) -> Self {
+        self.common_props().offset = Some(offset);
         self
     }
 
@@ -153,6 +159,10 @@ pub trait ComponentBuilder: Sized {
             component.transform.position_type = position;
         }
 
+        if let Some(offset) = props.offset {
+            component.transform.offset = offset;
+        }
+
         if let Some(z_index) = props.z_index {
             component.set_z_index(z_index);
         }
@@ -196,18 +206,61 @@ pub trait ComponentBuilder: Sized {
         if let Some(drag_event) = props.drag_event.clone() {
             component.set_drag_event(drag_event);
         }
-    
-        // Animation is not applied here, as it requires Wgpu context which is not available in tests
 
+        // Animation is not applied here, as it requires Wgpu context which is not available in tests
     }
 
-    fn apply_common_props(&mut self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
+    /// This is only to be used for leaf components like image, background, etc.
+    fn apply_common_props_for_leaf(&mut self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
         // apply all from test
         self.apply_common_props_for_testing(component);
-        
+
         let props = self.common_props();
         if let Some(animation) = props.animation.clone() {
             component.set_animation(animation, wgpu_ctx);
+        }
+    }
+
+    // This function is used to apply common properties to component builders
+    fn apply_common_properties<T: ComponentBuilder>(
+        container_builder: &mut T,
+        common_props: &CommonBuilderProps,
+    ) {
+        if let Some(width) = &common_props.width {
+            container_builder.common_props().width = Some(width.clone());
+        }
+        if let Some(height) = &common_props.height {
+            container_builder.common_props().height = Some(height.clone());
+        }
+        if let Some(name) = &common_props.debug_name {
+            container_builder.common_props().debug_name = Some(name.clone());
+        }
+        if let Some(event) = &common_props.click_event {
+            container_builder.common_props().click_event = Some(event.clone());
+        }
+        if let Some(event_sender) = &common_props.event_sender {
+            container_builder.common_props().event_sender = Some(event_sender.clone());
+        }
+        if let Some(z_index) = common_props.z_index {
+            container_builder.common_props().z_index = Some(z_index);
+        }
+        if let Some(margin) = common_props.margin {
+            container_builder.common_props().margin = Some(margin);
+        }
+        if common_props.fit_to_size {
+            container_builder.common_props().fit_to_size = true;
+        }
+        if let Some(position) = common_props.position {
+            container_builder.common_props().position = Some(position);
+        }
+        if let Some(offset) = common_props.offset {
+            container_builder.common_props().offset = Some(offset);
+        }
+        if let Some(padding) = common_props.padding {
+            container_builder.common_props().padding = Some(padding);
+        }
+        if let Some(border_radius) = common_props.border_radius {
+            container_builder.common_props().border_radius = Some(border_radius);
         }
     }
 }

@@ -275,25 +275,7 @@ fn calculate_tex_coords(pixel_coords: vec2<f32>) -> vec2<f32> {
 
 // Updated function to get anti-aliased color for borders
 fn get_border_color(pixel_coords: vec2<f32>, in_corner: bool, corner_dist: f32, inner_radius: f32, outer_radius: f32) -> vec4<f32> {
-    let aa_width = 1.0;
-    var color = component.border_color;
-    
-    if (in_corner) {
-        // For center borders, we need special handling for the corner transitions
-        if (component.border_position == 1u) {
-            // Extend inner radius slightly to ensure no gaps
-            let effective_inner = max(inner_radius - 0.5, 0.0);
-            let inner_aa = smoothstep(effective_inner - aa_width, effective_inner, corner_dist);
-            let outer_aa = smoothstep(outer_radius + 0.5, outer_radius + 0.5 - aa_width, corner_dist);
-            color.a *= inner_aa * outer_aa;
-        } else {
-            let inner_aa = smoothstep(inner_radius - aa_width, inner_radius, corner_dist);
-            let outer_aa = smoothstep(outer_radius, outer_radius - aa_width, corner_dist);
-            color.a *= inner_aa * outer_aa;
-        }
-    }
-    
-    return color;
+    return component.border_color;
 }
 
 // Function to get content color (regular color, texture, or frosted glass)
@@ -431,97 +413,6 @@ fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius
     return final_color;
 }
 
-// Apply anti-aliasing to edges
-fn apply_edge_aa(color: vec4<f32>, pixel_coords: vec2<f32>, corner_result: vec4<f32>, in_border: bool) -> vec4<f32> {
-    let aa_width = 1.0;
-    var result = color;
-    
-    // If we're in a corner, apply anti-aliasing to the rounded edges
-    if (corner_result.x > 0.5) {
-        let corner_dist = corner_result.y;
-        let inner_radius = corner_result.z;
-        let outer_radius = corner_result.w;
-        
-        if (in_border) {
-            // For center border case, ensure we don't create gaps
-            if (component.border_position == 1u) {
-                let effective_inner = max(inner_radius - 0.5, 0.0);
-                let inner_fade = smoothstep(effective_inner - aa_width, effective_inner, corner_dist);
-                let outer_fade = smoothstep(outer_radius + 0.5, outer_radius + 0.5 - aa_width, corner_dist);
-                result.a *= inner_fade * outer_fade;
-            } else {
-                let inner_fade = smoothstep(inner_radius - aa_width, inner_radius, corner_dist);
-                let outer_fade = smoothstep(outer_radius, outer_radius - aa_width, corner_dist);
-                result.a *= inner_fade * outer_fade;
-            }
-        } else {
-            // Apply AA to content edge when not in border
-            if (component.border_width <= 0.0) {
-                result.a *= smoothstep(inner_radius, inner_radius - aa_width, corner_dist);
-            } else {
-                // Additional check to improve content area anti-aliasing
-                if (component.border_position == 1u) {
-                    // For center border, use modified inner radius calculation
-                    let effective_inner = max(inner_radius - 0.5, 0.0);
-                    result.a *= smoothstep(effective_inner, effective_inner - aa_width, corner_dist);
-                } else {
-                    result.a *= smoothstep(inner_radius, inner_radius - aa_width, corner_dist);
-                }
-            }
-        }
-    } else {
-        // For straight edges, apply anti-aliasing
-        let content_min = component.position;
-        let content_max = component.position + component.size;
-        
-        // Calculate the inner content bounds based on border position
-        var inner_min = content_min;
-        var inner_max = content_max;
-        
-        if (component.border_position == 0u) {
-            inner_min += vec2<f32>(component.border_width);
-            inner_max -= vec2<f32>(component.border_width);
-        } else if (component.border_position == 1u) {
-            inner_min += vec2<f32>(component.border_width * 0.5);
-            inner_max -= vec2<f32>(component.border_width * 0.5);
-        }
-        
-        // Apply anti-aliasing to straight edges for borders
-        if (in_border) {
-            // For center borders, ensure continuous edges
-            if (component.border_position == 1u) {
-                // Distance to nearest inner edge
-                let dist_to_inner_edge_x = min(
-                    abs(pixel_coords.x - inner_min.x),
-                    abs(pixel_coords.x - inner_max.x)
-                );
-                let dist_to_inner_edge_y = min(
-                    abs(pixel_coords.y - inner_min.y),
-                    abs(pixel_coords.y - inner_max.y)
-                );
-                
-                // Distance to nearest outer edge
-                let dist_to_outer_edge_x = min(
-                    abs(pixel_coords.x - content_min.x),
-                    abs(pixel_coords.x - content_max.x)
-                );
-                let dist_to_outer_edge_y = min(
-                    abs(pixel_coords.y - content_min.y),
-                    abs(pixel_coords.y - content_max.y)
-                );
-                
-                // Apply anti-aliasing fade based on the nearest edge
-                let inner_fade = smoothstep(0.0, aa_width, min(dist_to_inner_edge_x, dist_to_inner_edge_y));
-                let outer_fade = smoothstep(0.0, aa_width, min(dist_to_outer_edge_x, dist_to_outer_edge_y));
-                
-                result.a *= inner_fade * outer_fade;
-            }
-        }
-    }
-    
-    return result;
-}
-
 // Convert screen UVs to pixel coordinates 
 fn uv_to_pixels(uv: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(
@@ -532,48 +423,34 @@ fn uv_to_pixels(uv: vec2<f32>) -> vec2<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Convert UV to pixel coordinates
     let pixel_coords = uv_to_pixels(in.uv);
-
-    // Calculate bounds based on border position
     let bounds = calculate_bounds();
     
-    // Check if we're outside the expanded visible bounds
     if (pixel_coords.x < bounds.x || pixel_coords.x > bounds.z || 
         pixel_coords.y < bounds.y || pixel_coords.y > bounds.w) {
         discard;
     }
 
-    // Check if in corner regions and get properties
     let corner_result = check_corner(pixel_coords);
     let in_corner = corner_result.x > 0.5;
     let corner_dist = corner_result.y;
     let inner_radius = corner_result.z;
     let outer_radius = corner_result.w;
     
-    // If in a corner, check for clipping
     if (in_corner && corner_dist > outer_radius) {
         discard;
     }
 
-    // Check if we're in the border area
     let in_border = check_border(pixel_coords, bounds, corner_result);
-    
-    // Calculate texture coordinates
     let tex_coords = calculate_tex_coords(pixel_coords);
     
     var final_color: vec4<f32>;
 
-    // Determine the final color based on whether we're in border or not
     if (in_border && component.border_width > 0.0) {
-        // Get border color with proper anti-aliasing
         final_color = get_border_color(pixel_coords, in_corner, corner_dist, inner_radius, outer_radius);
     } else {
         final_color = get_content_color(pixel_coords, tex_coords, in.color);
     }
-    
-    // Apply anti-aliasing
-    final_color = apply_edge_aa(final_color, pixel_coords, corner_result, in_border);
     
     return final_color;
 }

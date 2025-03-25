@@ -22,6 +22,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "smaa",
  "time",
  "tokio",
  "url",
@@ -1887,6 +1888,7 @@ dependencies = [
  "hexf-parse",
  "indexmap",
  "log",
+ "pp-rs",
  "rustc-hash 1.1.0",
  "spirv",
  "strum",
@@ -2565,6 +2567,15 @@ name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb458bb7f6e250e6eb79d5026badc10a3ebb8f9a15d1fff0f13d17c71f4d6dee"
+dependencies = [
+ "unicode-xid",
+]
 
 [[package]]
 name = "ppv-lite86"
@@ -3315,6 +3326,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbff4acf519f630b3a3ddcfaea6c06b42174d9a44bc70c620e9ed1649d58b82a"
 dependencies = [
  "version_check",
+]
+
+[[package]]
+name = "smaa"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc1941c0695b305fabe1129659558874a39d2f27e51a992d40d897a6a3947cea"
+dependencies = [
+ "wgpu",
 ]
 
 [[package]]
