@@ -91,7 +91,7 @@ impl<'window> WgpuCtx<'window> {
             window.inner_size().width,
             window.inner_size().height,
             surface_config.format,
-            SmaaMode::Smaa1X,
+            SmaaMode::Disabled,
         );
 
         WgpuCtx {

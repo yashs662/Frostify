@@ -23,8 +23,6 @@ use crate::{
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
-use super::{components::slider::SliderData, layout::LayoutContext};
-
 /// Defines the position of the border relative to the component edges
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[allow(dead_code)]
@@ -84,7 +82,6 @@ pub enum ComponentMetaData {
     ImageMetadata(ImageMetadata),
     Sampler(wgpu::Sampler),
     CanBeResizedTo(ComponentSize),
-    SliderData(SliderData),
 }
 
 #[derive(Debug, Clone)]
@@ -696,21 +693,5 @@ impl Component {
 
     pub fn set_border_position(&mut self, position: BorderPosition) {
         self.border_position = position;
-    }
-
-    pub fn get_slider_data(&self) -> Option<&SliderData> {
-        self.metadata.iter().find_map(|m| match m {
-            ComponentMetaData::SliderData(data) => Some(data),
-            _ => None,
-        })
-    }
-
-    pub fn get_slider_data_mut(&mut self) -> Option<&mut SliderData> {
-        for m in &mut self.metadata {
-            if let ComponentMetaData::SliderData(data) = m {
-                return Some(data);
-            }
-        }
-        None
     }
 }

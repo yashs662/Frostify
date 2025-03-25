@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{debug, error, trace};
+use log::{error, trace};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
@@ -672,68 +672,6 @@ impl LayoutContext {
         // Then recursively add all children
         for child in children {
             self.add_component(child);
-        }
-    }
-
-    pub fn synchronize_sliders(&mut self, wgpu_ctx: &mut WgpuCtx) {
-        // Get all the information we need in advance
-        let mut slider_updates = Vec::new();
-        
-        for (component_id, component) in &self.components {
-            if let Some(slider_data) = component.get_slider_data() {
-                let bounds = self.computed_bounds.get(component_id).cloned();
-                if let Some(bounds) = bounds {
-                    slider_updates.push((
-                        *component_id,
-                        slider_data.value,
-                        slider_data.min,
-                        slider_data.max,
-                        slider_data.track_id,
-                        slider_data.thumb_id,
-                        bounds.size.width,
-                    ));
-                }
-            }
-        }
-        
-        // Process each slider update without borrow conflicts
-        for (component_id, value, min, max, track_id, thumb_id, slider_width) in slider_updates {
-            if max <= min {
-                continue; // Skip invalid sliders
-            }
-            
-            let clamped_value = value.clamp(min, max);
-            let normalized_value = (clamped_value - min) / (max - min);
-            let fill_width = slider_width * normalized_value;
-            
-            // Update the slider data in the component
-            if let Some(component) = self.components.get_mut(&component_id) {
-                if let Some(slider_data) = component.get_slider_data_mut() {
-                    slider_data.value = clamped_value;
-                }
-            }
-            
-            // Update the track component
-            if let Some(fill) = self.components.get_mut(&track_id) {
-                fill.transform.size.width = FlexValue::Fixed(fill_width);
-                fill.set_position(wgpu_ctx, fill.computed_bounds, self.viewport_size);
-            }
-            
-            // Update the thumb component
-            if let Some(thumb) = self.components.get_mut(&thumb_id) {
-                let thumb_width = match &thumb.transform.size.width {
-                    FlexValue::Fixed(width) => *width,
-                    _ => 10.0, // Default width
-                };
-                
-                let max_thumb_offset = slider_width - thumb_width;
-                // I dont know why we have to divide by 2.0 here, but it is required to
-                // properly place the thumb at the start of the fill track
-                let thumb_offset = normalized_value * max_thumb_offset / 2.0;
-                
-                thumb.transform.offset.x = thumb_offset;
-                thumb.set_position(wgpu_ctx, thumb.computed_bounds, self.viewport_size);
-            }
         }
     }
 
