@@ -229,6 +229,8 @@ impl App<'_> {
         for _ in 0..3 {
             layout_context.resize_viewport(wgpu_ctx);
         }
+        // Synchronize all slider tracks and thumbs to ensure they are positioned correctly after initialization
+        layout_context.synchronize_sliders(wgpu_ctx);
     }
 
     /// Handles UI events and returns whether any components were affected

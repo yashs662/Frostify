@@ -25,6 +25,7 @@ use crate::{
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use std::time::Duration;
+use components::slider::SliderBuilder;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub mod animation;
@@ -502,11 +503,14 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
     player_controls_container.add_child(player_controls_sub_container);
 
     // placeholder background for the song slider
-    let song_progress_slider = BackgroundBuilder::with_color(Color::Gray.lighten(0.2))
-        .with_debug_name("Song Progress Slider Background")
-        .with_size(FlexValue::Fraction(0.6), FlexValue::Fixed(4.0))
-        .with_margin(Edges::bottom(20.0))
-        .with_border_radius(BorderRadius::all(2.0))
+    let song_progress_slider = SliderBuilder::new()
+        .with_debug_name("Song Progress Slider")
+        .with_margin(Edges::all(10.0))
+        .with_border_radius(BorderRadius::all(1.0))
+        .with_track_color(Color::DarkGray.lighten(0.2))
+        .with_thumb_color(Color::White)
+        .with_track_fractional_height(0.5)
+        .with_thumb_border_radius(BorderRadius::all(99.0))
         .build(wgpu_ctx);
 
     player_controls_container.add_child(song_progress_slider);
