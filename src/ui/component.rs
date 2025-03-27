@@ -61,6 +61,10 @@ pub struct Component {
     is_hovered: bool,
     clean_config_copy: Option<ComponentConfig>,
     needs_update: bool,
+    pub shadow_color: Color,
+    pub shadow_offset: (f32, f32),
+    pub shadow_blur: f32,
+    pub shadow_opacity: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -168,6 +172,11 @@ pub struct ComponentBufferData {
     pub corner_centers2: [f32; 4], // (bl_center.x, bl_center.y, br_center.x, br_center.y)
     pub corner_radii: [f32; 4], // (inner_tl_radius, inner_tr_radius, inner_bl_radius, inner_br_radius)
     pub corner_radii2: [f32; 4], // (outer_tl_radius, outer_tr_radius, outer_bl_radius, outer_br_radius)
+    // Shadow properties
+    pub shadow_color: [f32; 4],  // Shadow color with alpha
+    pub shadow_offset: [f32; 2], // Shadow offset (x, y)
+    pub shadow_blur: f32,        // Shadow blur radius
+    pub shadow_opacity: f32,     // Shadow opacity
 }
 
 impl ComponentConfig {
@@ -227,6 +236,10 @@ impl Component {
             clean_config_copy: None,
             animations: Vec::new(),
             needs_update: false,
+            shadow_color: Color::Transparent,
+            shadow_offset: (0.0, 0.0),
+            shadow_blur: 0.0,
+            shadow_opacity: 1.0,
         }
     }
 
@@ -832,6 +845,10 @@ impl Component {
                 outer_bl_radius,
                 outer_br_radius,
             ],
+            shadow_color: self.shadow_color.value(),
+            shadow_offset: [self.shadow_offset.0, self.shadow_offset.1],
+            shadow_blur: self.shadow_blur,
+            shadow_opacity: self.shadow_opacity,
         }
     }
 

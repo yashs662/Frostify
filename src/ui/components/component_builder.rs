@@ -30,6 +30,10 @@ pub struct CommonBuilderProps {
     pub click_event: Option<AppEvent>,
     pub drag_event: Option<AppEvent>,
     pub animation: Option<AnimationConfig>,
+    pub shadow_color: Option<Color>,
+    pub shadow_offset: Option<(f32, f32)>,
+    pub shadow_blur: Option<f32>,
+    pub shadow_opacity: Option<f32>,
 }
 
 /// Trait for component builders that share common properties
@@ -140,6 +144,14 @@ pub trait ComponentBuilder: Sized {
         self
     }
 
+    fn with_shadow(mut self, color: Color, offset: (f32, f32), blur: f32, opacity: f32) -> Self {
+        self.common_props().shadow_color = Some(color);
+        self.common_props().shadow_offset = Some(offset);
+        self.common_props().shadow_blur = Some(blur);
+        self.common_props().shadow_opacity = Some(opacity);
+        self
+    }
+
     fn apply_common_props_for_testing(&mut self, component: &mut Component) {
         let props = self.common_props();
 
@@ -205,6 +217,22 @@ pub trait ComponentBuilder: Sized {
 
         if let Some(drag_event) = props.drag_event.clone() {
             component.set_drag_event(drag_event);
+        }
+
+        if let Some(shadow_color) = props.shadow_color {
+            component.shadow_color = shadow_color;
+        }
+
+        if let Some(shadow_offset) = props.shadow_offset {
+            component.shadow_offset = shadow_offset;
+        }
+
+        if let Some(shadow_blur) = props.shadow_blur {
+            component.shadow_blur = shadow_blur;
+        }
+
+        if let Some(shadow_opacity) = props.shadow_opacity {
+            component.shadow_opacity = shadow_opacity;
         }
 
         // Animation is not applied here, as it requires Wgpu context which is not available in tests

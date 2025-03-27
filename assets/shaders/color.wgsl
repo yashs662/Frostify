@@ -24,6 +24,10 @@ struct ComponentUniform {
     corner_centers2: vec4<f32>, // (bl_center.x, bl_center.y, br_center.x, br_center.y)
     corner_radii: vec4<f32>,    // (inner_tl_radius, inner_tr_radius, inner_bl_radius, inner_br_radius)
     corner_radii2: vec4<f32>,   // (outer_tl_radius, outer_tr_radius, outer_bl_radius, outer_br_radius)
+    shadow_color: vec4<f32>,     // Shadow color
+    shadow_offset: vec2<f32>,    // Shadow offset
+    shadow_blur: f32,            // Shadow blur intensity
+    shadow_opacity: f32,         // Shadow opacity
 }
 
 @group(0) @binding(0)
@@ -301,36 +305,129 @@ fn uv_to_pixels(uv: vec2<f32>) -> vec2<f32> {
     );
 }
 
+// Better shadow calculation that properly handles pill shapes with large border radii
+fn simple_shadow(pixel_pos: vec2<f32>, shadow_pos: vec2<f32>, shadow_size: vec2<f32>, radius: vec4<f32>, blur: f32) -> f32 {
+    // For pill shape, we need to handle the case where border radius is equal to half the height
+    // Get the shape bounds
+    let shape_min = shadow_pos;
+    let shape_max = shadow_pos + shadow_size;
+    
+    // Adjust radius to not exceed half the shape size
+    let max_radius_x = shadow_size.x * 0.5;
+    let max_radius_y = shadow_size.y * 0.5;
+    let max_radius = min(max_radius_x, max_radius_y);
+    
+    let tl_radius = min(radius.x, max_radius);
+    let tr_radius = min(radius.y, max_radius);
+    let bl_radius = min(radius.z, max_radius);
+    let br_radius = min(radius.w, max_radius);
+    
+    // Get corner centers (where the actual rounded corners are centered)
+    let tl_center = vec2<f32>(shape_min.x + tl_radius, shape_min.y + tl_radius);
+    let tr_center = vec2<f32>(shape_max.x - tr_radius, shape_min.y + tr_radius);
+    let bl_center = vec2<f32>(shape_min.x + bl_radius, shape_max.y - bl_radius);
+    let br_center = vec2<f32>(shape_max.x - br_radius, shape_max.y - br_radius);
+    
+    // Distance to the shape (initialized to a high value)
+    var dist_to_shape = 100000.0;
+    
+    // Check distance to each corner
+    // Top-left corner
+    if (pixel_pos.x <= tl_center.x && pixel_pos.y <= tl_center.y) {
+        dist_to_shape = max(0.0, distance(pixel_pos, tl_center) - tl_radius);
+    }
+    // Top-right corner
+    else if (pixel_pos.x >= tr_center.x && pixel_pos.y <= tr_center.y) {
+        dist_to_shape = max(0.0, distance(pixel_pos, tr_center) - tr_radius);
+    }
+    // Bottom-left corner
+    else if (pixel_pos.x <= bl_center.x && pixel_pos.y >= bl_center.y) {
+        dist_to_shape = max(0.0, distance(pixel_pos, bl_center) - bl_radius);
+    }
+    // Bottom-right corner
+    else if (pixel_pos.x >= br_center.x && pixel_pos.y >= br_center.y) {
+        dist_to_shape = max(0.0, distance(pixel_pos, br_center) - br_radius);
+    }
+    // Left edge
+    else if (pixel_pos.x <= shape_min.x) {
+        dist_to_shape = shape_min.x - pixel_pos.x;
+    }
+    // Right edge
+    else if (pixel_pos.x >= shape_max.x) {
+        dist_to_shape = pixel_pos.x - shape_max.x;
+    }
+    // Top edge
+    else if (pixel_pos.y <= shape_min.y) {
+        dist_to_shape = shape_min.y - pixel_pos.y;
+    }
+    // Bottom edge
+    else if (pixel_pos.y >= shape_max.y) {
+        dist_to_shape = pixel_pos.y - shape_max.y;
+    }
+    // Inside the shape (no shadow)
+    else {
+        return 0.0;
+    }
+    
+    // Create softer falloff for the shadow
+    let falloff_factor = 1.2;
+    return smoothstep(blur * falloff_factor, 0.0, dist_to_shape);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let pixel_coords = uv_to_pixels(in.uv);
     
-    // Early discard if outside outer bounds
+    // ======== SHADOW CALCULATION ========
+    var shadow_color = vec4<f32>(0.0);
+    
+    if (component.shadow_blur > 0.0 && component.shadow_opacity > 0.0) {
+        // Create shadow at offset position
+        let shadow_position = component.position + component.shadow_offset;
+        let shadow_size = component.size;
+        
+        // Calculate shadow intensity using our simplified function
+        let shadow_intensity = simple_shadow(
+            pixel_coords,
+            shadow_position,
+            shadow_size,
+            component.border_radius,
+            component.shadow_blur
+        );
+        
+        shadow_color = vec4<f32>(
+            component.shadow_color.rgb,
+            component.shadow_color.a * shadow_intensity * component.shadow_opacity
+        );
+    }
+    
+    // ======== COMPONENT RENDERING ========
+    // Check if pixel is outside component bounds
     if (pixel_coords.x < component.outer_bounds.x || pixel_coords.x > component.outer_bounds.z || 
         pixel_coords.y < component.outer_bounds.y || pixel_coords.y > component.outer_bounds.w) {
-        discard;
+        // Only show shadow if outside component bounds
+        return shadow_color;
     }
 
+    // Check if in corner and outside radius
     let corner_result = check_corner(pixel_coords);
     let in_corner = corner_result.x > 0.5;
     let corner_dist_sq = corner_result.y;
-    let inner_radius_sq = corner_result.z * corner_result.z;
     let outer_radius_sq = corner_result.w * corner_result.w;
     
-    // Check if we're in a border area
-    let in_border = check_border(pixel_coords, corner_result);
-    
-    // If in corner, check if outside the outer radius
     if (in_corner && corner_dist_sq > outer_radius_sq) {
-        discard;
+        // Only show shadow if outside component bounds
+        return shadow_color;
     }
 
+    // Inside component - render normally
     let tex_coords = calculate_tex_coords(pixel_coords);
+    let in_border = check_border(pixel_coords, corner_result);
     
-    // Determine final color
     if (in_border) {
         return component.border_color;
     } else {
-        return get_content_color(pixel_coords, tex_coords, in.color);
+        let content_color = get_content_color(pixel_coords, tex_coords, in.color);
+        return content_color;
     }
 }

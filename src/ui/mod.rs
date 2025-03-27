@@ -383,8 +383,8 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
     let player_container_background =
         BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
             .with_debug_name("Player Container Background")
-            .with_border_radius(BorderRadius::all(5.0))
-            .with_border_full(1.0, Color::DarkGray.darken(0.05), BorderPosition::Inside)
+            .with_border_radius(BorderRadius::all(50.0))
+            .with_shadow(Color::Black, (0.0, 0.0), 10.0, 0.5)
             .with_fixed_position(Anchor::Center)
             .build(wgpu_ctx);
 
