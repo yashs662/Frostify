@@ -159,8 +159,8 @@ pub trait ComponentBuilder: Sized {
             component.transform.position_type = position;
         }
 
-        if let Some(offset) = props.offset {
-            component.transform.offset = offset;
+        if let Some(offset) = &props.offset {
+            component.transform.offset = offset.clone();
         }
 
         if let Some(z_index) = props.z_index {
@@ -253,8 +253,8 @@ pub trait ComponentBuilder: Sized {
         if let Some(position) = common_props.position {
             container_builder.common_props().position = Some(position);
         }
-        if let Some(offset) = common_props.offset {
-            container_builder.common_props().offset = Some(offset);
+        if let Some(offset) = &common_props.offset {
+            container_builder.common_props().offset = Some(offset.clone());
         }
         if let Some(padding) = common_props.padding {
             container_builder.common_props().padding = Some(padding);

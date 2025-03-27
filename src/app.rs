@@ -246,17 +246,20 @@ impl App<'_> {
             x: x as f32,
             y: y as f32,
         };
+
+        // Improved event detection logic
         let event_type = if button.is_some() {
+            // Mouse button events
             if state == Some(ElementState::Pressed) {
                 EventType::Press
             } else {
                 EventType::Release
             }
-        } else if self.last_cursor_input.1 != mouse_position
-            && self.last_cursor_input.0 == Some(ElementState::Pressed)
-        {
+        } else if self.last_cursor_input.0 == Some(ElementState::Pressed) {
+            // This is a drag event - mouse is moving while button is pressed
             EventType::Drag
         } else if button.is_none() && state.is_none() {
+            // No button events - either hover or scroll
             if self.last_cursor_input.1 != mouse_position {
                 EventType::Hover
             } else if let Some(scroll_delta) = scroll_delta {
@@ -280,7 +283,14 @@ impl App<'_> {
             text: None,
         };
 
-        self.last_cursor_input = (state, mouse_position);
+        // Update the last known input state
+        if button.is_some() {
+            // Only update button state for actual button events
+            self.last_cursor_input = (state, mouse_position);
+        } else {
+            // For non-button events, preserve the button state but update position
+            self.last_cursor_input.1 = mouse_position;
+        }
 
         let affected_component = self.layout_context.handle_event(input_event);
 

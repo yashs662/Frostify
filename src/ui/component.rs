@@ -12,6 +12,7 @@ use crate::{
                 text::TextComponent,
             },
             image::ScaleMode,
+            slider::{SliderData, SliderUpdateData},
         },
         layout::{
             BorderRadius, Bounds, ComponentOffset, ComponentPosition, ComponentSize,
@@ -20,6 +21,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
+use log::debug;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -59,6 +61,7 @@ pub struct Component {
     pub animations: Vec<Animation>,
     is_hovered: bool,
     clean_config_copy: Option<ComponentConfig>,
+    needs_update: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -82,6 +85,7 @@ pub enum ComponentMetaData {
     ImageMetadata(ImageMetadata),
     Sampler(wgpu::Sampler),
     CanBeResizedTo(ComponentSize),
+    SliderData(SliderData),
 }
 
 #[derive(Debug, Clone)]
@@ -191,7 +195,10 @@ impl Component {
             component_type,
             transform: ComponentTransform {
                 size: Size::fill(),
-                offset: ComponentOffset { x: 0.0, y: 0.0 },
+                offset: ComponentOffset {
+                    x: 0.0.into(),
+                    y: 0.0.into(),
+                },
                 position_type: Position::Flex,
                 z_index: 0,
                 border_radius: BorderRadius::zero(),
@@ -213,7 +220,12 @@ impl Component {
             is_hovered: false,
             clean_config_copy: None,
             animations: Vec::new(),
+            needs_update: false,
         }
+    }
+
+    pub fn flag_for_update(&mut self) {
+        self.needs_update = true;
     }
 
     pub fn has_children(&self) -> bool {
@@ -417,7 +429,7 @@ impl Component {
                 animation.config.when,
                 AnimationWhen::Hover | AnimationWhen::Forever
             )
-        })
+        }) || self.needs_update
     }
 
     pub fn update(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
@@ -426,31 +438,24 @@ impl Component {
         let mut new_config = None;
 
         for animation in &mut self.animations {
-            match animation.config.when {
-                AnimationWhen::Hover => {
-                    animation.is_running = true;
-                    let progress = animation.update(frame_time, self.is_hovered);
+            if let AnimationWhen::Hover = animation.config.when {
+                let progress = animation.update(frame_time, self.is_hovered);
 
-                    match &animation.config.animation_type {
-                        AnimationType::Color { from, to } => {
-                            let color = from.lerp(to, progress);
+                match &animation.config.animation_type {
+                    AnimationType::Color { from, to } => {
+                        let color = from.lerp(to, progress);
 
-                            if let Some(ComponentConfig::BackgroundColor(config)) = &mut self.config
-                            {
-                                config.color = color;
-                                should_update = true;
-                            } else {
-                                new_config =
-                                    Some(ComponentConfig::BackgroundColor(BackgroundColorConfig {
-                                        color,
-                                    }));
-                                needs_reconfigure = true;
-                            }
+                        if let Some(ComponentConfig::BackgroundColor(config)) = &mut self.config {
+                            config.color = color;
+                            should_update = true;
+                        } else {
+                            new_config =
+                                Some(ComponentConfig::BackgroundColor(BackgroundColorConfig {
+                                    color,
+                                }));
+                            needs_reconfigure = true;
                         }
                     }
-                }
-                _ => {
-                    animation.is_running = false;
                 }
             }
         }
@@ -583,6 +588,74 @@ impl Component {
         })
     }
 
+    pub fn set_slider_value(&mut self, cursor_position: f32) {
+        if let Some(ComponentMetaData::SliderData(data)) = self
+            .metadata
+            .iter_mut()
+            .find(|m| matches!(m, ComponentMetaData::SliderData(_)))
+        {
+            let bounds = self.computed_bounds;
+            let (min_x, max_x) = (bounds.position.x, bounds.position.x + bounds.size.width);
+
+            // Clamp the cursor position to the slider track bounds
+            let clamped_position = cursor_position.clamp(min_x, max_x);
+
+            // Calculate the percentage along the slider
+            let fill_percentage = (clamped_position - min_x) / (max_x - min_x);
+
+            // Calculate raw value based on min/max range
+            let raw_value = data.min + fill_percentage * (data.max - data.min);
+
+            // Apply stepping if step is non-zero
+            let new_value = if data.step > 0.0 {
+                let steps = ((raw_value - data.min) / data.step).round();
+                data.min + steps * data.step
+            } else {
+                raw_value
+            };
+
+            // Update the value and mark for update
+            if (new_value - data.value).abs() > f32::EPSILON {
+                debug!("Setting slider value to {}", new_value);
+                data.value = new_value;
+                self.flag_for_update();
+            }
+        }
+    }
+
+    pub fn prepare_slider_for_sync(&mut self) -> Option<SliderUpdateData> {
+        if !self.is_a_slider() {
+            return None;
+        }
+
+        let slider_data = self
+            .metadata
+            .iter()
+            .find_map(|m| match m {
+                ComponentMetaData::SliderData(data) => Some(data),
+                _ => None,
+            })
+            .unwrap();
+
+        // Calculate normalized percentage (0.0 to 1.0)
+        let fill_percentage =
+            (slider_data.value - slider_data.min) / (slider_data.max - slider_data.min);
+
+        // Reset the update flag since we're handling the update now
+        self.needs_update = false;
+
+        // Return a structured object with all needed data
+        let bounds = self.computed_bounds;
+
+        Some(SliderUpdateData {
+            track_start_x: bounds.position.x,
+            track_width: bounds.size.width,
+            thumb_id: slider_data.thumb_id,
+            track_fill_id: slider_data.track_background_id,
+            fill_percentage,
+        })
+    }
+
     pub fn set_click_event(&mut self, event: AppEvent) {
         self.metadata.push(ComponentMetaData::ClickEvent(event));
         if self.get_event_sender().is_some() {
@@ -620,6 +693,12 @@ impl Component {
 
     pub fn is_draggable(&self) -> bool {
         self.is_draggable
+    }
+
+    pub fn is_a_slider(&self) -> bool {
+        self.metadata
+            .iter()
+            .any(|m| matches!(m, ComponentMetaData::SliderData(_)))
     }
 
     pub fn get_render_data(&self, bounds: Bounds) -> ComponentBufferData {

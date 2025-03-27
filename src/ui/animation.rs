@@ -249,7 +249,6 @@ impl EasingFunction {
 pub struct Animation {
     pub config: AnimationConfig,
     pub progress: f32,
-    pub is_running: bool,
 }
 
 impl Animation {
@@ -257,7 +256,6 @@ impl Animation {
         Self {
             config,
             progress: 0.0,
-            is_running: false,
         }
     }
 

@@ -24,6 +24,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
+use components::slider::SliderBuilder;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -166,7 +167,7 @@ pub fn create_app_ui(
         .build(wgpu_ctx);
 
     // Background
-    let background = ImageBuilder::new("album_art.png")
+    let background = ImageBuilder::new("test.png")
         .with_scale_mode(ScaleMode::Cover)
         .with_debug_name("Background")
         .with_fixed_position(Anchor::Center)
@@ -502,12 +503,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
     player_controls_container.add_child(player_controls_sub_container);
 
     // placeholder background for the song slider
-    let song_progress_slider = BackgroundBuilder::with_color(Color::Gray.lighten(0.2))
-        .with_debug_name("Song Progress Slider Background")
-        .with_size(FlexValue::Fraction(0.6), FlexValue::Fixed(4.0))
-        .with_margin(Edges::bottom(20.0))
-        .with_border_radius(BorderRadius::all(2.0))
-        .build(wgpu_ctx);
+    let song_progress_slider = SliderBuilder::new().build(wgpu_ctx);
 
     player_controls_container.add_child(song_progress_slider);
 

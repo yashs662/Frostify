@@ -2,6 +2,7 @@ use crate::{
     app::AppEvent,
     ui::{
         component::{Component, ComponentType},
+        components::slider::SliderUpdateData,
         z_index_manager::ZIndexManager,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
@@ -11,10 +12,10 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ComponentOffset {
-    pub x: f32,
-    pub y: f32,
+    pub x: FlexValue,
+    pub y: FlexValue,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -561,9 +562,83 @@ impl LayoutContext {
     }
 
     pub fn update_components(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
+        let mut sliders_to_update = Vec::new();
         for (_, component) in self.components.iter_mut() {
             if component.needs_update() {
+                if component.is_a_slider() {
+                    sliders_to_update.push(component.prepare_slider_for_sync());
+                }
                 component.update(wgpu_ctx, frame_time);
+            }
+        }
+
+        let sliders_to_update = sliders_to_update
+            .into_iter()
+            .flatten()
+            .collect::<Vec<SliderUpdateData>>();
+
+        // Only recalculate layout if we don't have any sliders that need updating
+        // This avoids expensive layout calculation when just moving sliders
+        let requires_relayout = sliders_to_update.is_empty()
+            && self
+                .components
+                .values()
+                .any(|component| component.needs_update());
+
+        if !sliders_to_update.is_empty() {
+            self.update_slider_positions(wgpu_ctx, sliders_to_update);
+        } else if requires_relayout {
+            self.compute_layout();
+        }
+    }
+
+    // New dedicated method for updating slider positions using the structured data
+    fn update_slider_positions(
+        &mut self,
+        wgpu_ctx: &mut WgpuCtx,
+        slider_updates: Vec<SliderUpdateData>,
+    ) {
+        for slider_data in slider_updates {
+            // Update thumb position
+            if let Some(thumb) = self.components.get_mut(&slider_data.thumb_id) {
+                // Set the fraction for layout calculations
+                thumb.transform.offset.x = FlexValue::Fraction(slider_data.fill_percentage);
+
+                // Calculate the actual position for immediate visual update
+                let mut current_bounds = thumb.computed_bounds;
+                current_bounds.position.x = slider_data.track_start_x
+                    + (slider_data.track_width * slider_data.fill_percentage)
+                    - (current_bounds.size.width / 2.0);
+                thumb.computed_bounds = current_bounds;
+
+                // Update the GPU buffer with new position
+                if let Some(buffer) = thumb.get_render_data_buffer() {
+                    wgpu_ctx.queue.write_buffer(
+                        buffer,
+                        0,
+                        bytemuck::cast_slice(&[thumb.get_render_data(current_bounds)]),
+                    );
+                }
+            }
+
+            // Update track fill size
+            if let Some(track_fill) = self.components.get_mut(&slider_data.track_fill_id) {
+                // Set the fraction for layout calculations
+                track_fill.transform.size.width = FlexValue::Fraction(slider_data.fill_percentage);
+
+                // Calculate the actual width for immediate visual update
+                let mut current_bounds = track_fill.computed_bounds;
+                current_bounds.size.width = slider_data.track_width * slider_data.fill_percentage;
+                track_fill.computed_bounds = current_bounds;
+
+                // Update the GPU buffer with new size
+                if let Some(buffer) = track_fill.get_render_data_buffer() {
+                    wgpu_ctx.queue.write_buffer(
+                        buffer,
+                        0,
+                        bytemuck::cast_slice(&[track_fill.get_render_data(current_bounds)]),
+                    );
+                }
             }
         }
     }
@@ -787,9 +862,20 @@ impl LayoutContext {
         };
 
         // Apply offset if needed
+        let offset_x = component
+            .transform
+            .offset
+            .x
+            .resolve(available_space.size.width, self.viewport_size.width);
+        let offset_y = component
+            .transform
+            .offset
+            .y
+            .resolve(available_space.size.height, self.viewport_size.height);
+
         let final_position = ComponentPosition {
-            x: position.x + component.transform.offset.x,
-            y: position.y + component.transform.offset.y,
+            x: position.x + offset_x,
+            y: position.y + offset_y,
         };
 
         Bounds {
@@ -804,8 +890,6 @@ impl LayoutContext {
         parent_bounds: Bounds,
         anchor: Anchor,
     ) -> Bounds {
-        let offset = component.transform.offset;
-
         // Resolve component size
         let width = component
             .transform
@@ -860,9 +944,20 @@ impl LayoutContext {
         };
 
         // Apply offset after anchor positioning
+        let offset_x = component
+            .transform
+            .offset
+            .x
+            .resolve(parent_bounds.size.width, self.viewport_size.width);
+        let offset_y = component
+            .transform
+            .offset
+            .y
+            .resolve(parent_bounds.size.height, self.viewport_size.height);
+
         let final_position = ComponentPosition {
-            x: position.x + offset.x,
-            y: position.y + offset.y,
+            x: position.x + offset_x,
+            y: position.y + offset_y,
         };
 
         Bounds {
@@ -1356,6 +1451,26 @@ impl LayoutContext {
         }
     }
 
+    // New helper method to determine if a component is part of a slider
+    fn is_part_of_slider(&self, component_id: &Uuid) -> Option<Uuid> {
+        if let Some(component) = self.components.get(component_id) {
+            // If the component itself is a slider, return its ID
+            if component.is_a_slider() {
+                return Some(*component_id);
+            }
+            
+            // Check if this component has a parent that's a slider
+            if let Some(parent_id) = component.get_parent_id() {
+                if let Some(parent) = self.components.get(&parent_id) {
+                    if parent.is_a_slider() {
+                        return Some(parent_id);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn handle_event(
         &mut self,
         event: InputEvent,
@@ -1384,31 +1499,68 @@ impl LayoutContext {
                 }
             }
 
-            // Handle click/drag events
-            for id in self.render_order.iter().rev() {
-                if matches!(
-                    event.event_type,
-                    EventType::Press | EventType::Release | EventType::Drag
-                ) {
+            // Process clicking/dragging events
+            if matches!(
+                event.event_type,
+                EventType::Press | EventType::Release | EventType::Drag
+            ) {
+                // First, check if we're interacting with any component
+                let mut hit_component_id = None;
+                let mut hit_slider_id = None;
+                
+                // Check all components from top to bottom for hit testing
+                for id in self.render_order.iter().rev() {
                     if let Some(component) = self.components.get(id) {
                         if component.is_visible() && component.is_hit(position) {
-                            let is_interactive = match &event.event_type {
-                                EventType::Drag => component.is_draggable(),
-                                EventType::Press | EventType::Release => component.is_clickable(),
-                                _ => false,
-                            };
+                            hit_component_id = Some(*id);
+                            
+                            // If this component is part of a slider, record the slider ID
+                            if let Some(slider_id) = self.is_part_of_slider(id) {
+                                hit_slider_id = Some(slider_id);
+                            }
+                            
+                            break;
+                        }
+                    }
+                }
+                
+                // If we hit a slider or a slider part, update the slider value first
+                if let Some(slider_id) = hit_slider_id {
+                    if matches!(event.event_type, EventType::Press | EventType::Drag) {
+                        if let Some(slider) = self.components.get_mut(&slider_id) {
+                            slider.set_slider_value(position.x);
+                        }
+                    }
+                }
+                
+                // Then handle the normal component interaction
+                if let Some(id) = hit_component_id {
+                    if let Some(component) = self.components.get(&id) {
+                        // Check for regular event handling if interactive
+                        let is_interactive = match &event.event_type {
+                            EventType::Drag => component.is_draggable(),
+                            EventType::Press | EventType::Release => component.is_clickable(),
+                            _ => false,
+                        };
 
-                            if is_interactive {
+                        if is_interactive {
+                            if let Some(component) = self.components.get_mut(&id) {
                                 let return_event = match &event.event_type {
                                     EventType::Drag => component.get_drag_event().cloned(),
                                     _ => component.get_click_event().cloned(),
                                 };
                                 return Some((component.id, event.event_type, return_event));
                             }
-
-                            // Bubble up events if needed
-                            return self.bubble_event_up(*id, &event.event_type);
                         }
+
+                        // If we hit a slider part but it doesn't handle the event itself,
+                        // try to bubble up from the slider container
+                        if hit_slider_id.is_some() && hit_slider_id != Some(id) {
+                            return self.bubble_event_up(hit_slider_id.unwrap(), &event.event_type);
+                        }
+
+                        // Otherwise bubble up events normally
+                        return self.bubble_event_up(id, &event.event_type);
                     }
                 }
             }
@@ -1432,7 +1584,13 @@ impl LayoutContext {
                 EventType::Hover => component.is_hoverable(),
                 _ => false,
             };
-            if is_interactive {
+
+            // Special consideration for sliders
+            let is_slider = component.is_a_slider();
+
+            if is_interactive
+                || (is_slider && matches!(event_type, EventType::Drag | EventType::Press))
+            {
                 let return_event = match &event_type {
                     EventType::Drag => component.get_drag_event().cloned(),
                     EventType::Hover => {

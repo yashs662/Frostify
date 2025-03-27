@@ -876,7 +876,10 @@ fn test_offset_in_nested_container() {
     let child1 = FlexContainerBuilder::new()
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .with_offset(ComponentOffset { x: 20.0, y: 20.0 })
+        .with_offset(ComponentOffset {
+            x: FlexValue::Fixed(20.0),
+            y: FlexValue::Fixed(20.0),
+        })
         .build_for_test();
     let child1_id = child1.id;
 
@@ -900,4 +903,51 @@ fn test_offset_in_nested_container() {
     assert_eq!(child1_bounds.size.height, 100.0);
     assert_eq!(child1_bounds.position.x, 270.0);
     assert_eq!(child1_bounds.position.y, 270.0);
+}
+
+#[test]
+fn test_offset_in_nested_container_with_flex_value() {
+    let mut ctx = LayoutContext::default();
+    ctx.initialize(1000.0, 800.0);
+
+    // Create parent container with fixed size
+    let mut parent = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::Center))
+        .build_for_test();
+    let parent_id = parent.id;
+
+    // Create first child with fixed size
+    let child1 = FlexContainerBuilder::new()
+        .with_width(FlexValue::Fill)
+        .with_height(FlexValue::Fill)
+        .with_offset(ComponentOffset {
+            x: FlexValue::Fraction(0.5),
+            y: FlexValue::Fraction(0.5),
+        })
+        .build_for_test();
+    let child1_id = child1.id;
+
+    // Set children on parent
+    parent.add_child(child1);
+    // Add all components to context
+    ctx.add_component(parent);
+    // Force layout computation
+    ctx.compute_layout();
+    let computed_bounds = ctx.get_computed_bounds();
+    // Get computed bounds for all components
+    let parent_bounds = computed_bounds.get(&parent_id).unwrap();
+    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
+    // Test parent bounds
+    assert_eq!(parent_bounds.size.width, 500.0);
+    assert_eq!(parent_bounds.size.height, 300.0);
+    assert_eq!(parent_bounds.position.x, 250.0);
+    assert_eq!(parent_bounds.position.y, 250.0);
+    // Test child sizes
+    assert_eq!(child1_bounds.size.width, 500.0);
+    assert_eq!(child1_bounds.size.height, 300.0);
+    assert_eq!(child1_bounds.position.x, 500.0);
+    assert_eq!(child1_bounds.position.y, 400.0);
 }
