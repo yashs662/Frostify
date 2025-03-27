@@ -131,12 +131,16 @@ impl App<'_> {
                     AppEvent::Maximize => {
                         if let Some(window) = &self.window {
                             window.set_maximized(!window.is_maximized());
+                            // Reset hover states when window state changes
+                            self.layout_context.reset_all_hover_states();
                             return true;
                         }
                     }
                     AppEvent::Minimize => {
                         if let Some(window) = &self.window {
                             window.set_minimized(true);
+                            // Reset hover states when window state changes
+                            self.layout_context.reset_all_hover_states();
                             return true;
                         }
                     }

@@ -199,7 +199,7 @@ pub fn create_app_ui(
     let library_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
         .with_debug_name("Library Background")
         .with_border_radius(BorderRadius::all(5.0))
-        .with_border(1.0, Color::Black.lighten(0.01))
+        .with_border(1.0, Color::DarkGray.darken(0.05))
         .with_fixed_position(Anchor::Center)
         .build(wgpu_ctx);
 
@@ -214,7 +214,7 @@ pub fn create_app_ui(
     let main_area_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
         .with_debug_name("Main Area Background")
         .with_border_radius(BorderRadius::all(5.0))
-        .with_border(1.0, Color::Black.lighten(0.01))
+        .with_border(1.0, Color::DarkGray.darken(0.05))
         .with_fixed_position(Anchor::Center)
         .build(wgpu_ctx);
 
@@ -230,7 +230,7 @@ pub fn create_app_ui(
     let now_playing_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
         .with_debug_name("Now Playing Background")
         .with_border_radius(BorderRadius::all(5.0))
-        .with_border(1.0, Color::Black.lighten(0.01))
+        .with_border(1.0, Color::DarkGray.darken(0.05))
         .with_fixed_position(Anchor::Center)
         .build(wgpu_ctx);
 
@@ -267,7 +267,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
     let nav_bar_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
         .with_debug_name("Nav Bar Background")
         .with_border_radius(BorderRadius::all(5.0))
-        .with_border(1.0, Color::Black.lighten(0.01))
+        .with_border(1.0, Color::DarkGray.darken(0.05))
         .with_fixed_position(Anchor::Center)
         .with_drag_event(AppEvent::DragWindow)
         .with_event_sender(event_tx.clone())
@@ -300,7 +300,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
             },
             when: AnimationWhen::Hover,
         })
-        .with_border_radius(BorderRadius::all(10.0))
+        .with_border_radius(BorderRadius::all(4.0))
         .set_fit_to_size()
         .with_content_padding(Edges::all(2.0))
         .with_debug_name("Minimize Button")
@@ -324,7 +324,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
             },
             when: AnimationWhen::Hover,
         })
-        .with_border_radius(BorderRadius::all(10.0))
+        .with_border_radius(BorderRadius::all(4.0))
         .set_fit_to_size()
         .with_content_padding(Edges::all(2.0))
         .with_debug_name("Maximize Button")
@@ -348,7 +348,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
             },
             when: AnimationWhen::Hover,
         })
-        .with_border_radius(BorderRadius::all(10.0))
+        .with_border_radius(BorderRadius::all(4.0))
         .set_fit_to_size()
         .with_content_padding(Edges::all(2.0))
         .with_debug_name("Close Button")
@@ -384,7 +384,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
         BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
             .with_debug_name("Player Container Background")
             .with_border_radius(BorderRadius::all(5.0))
-            .with_border_full(1.0, Color::Black.lighten(0.01), BorderPosition::Inside)
+            .with_border_full(1.0, Color::DarkGray.darken(0.05), BorderPosition::Inside)
             .with_fixed_position(Anchor::Center)
             .build(wgpu_ctx);
 

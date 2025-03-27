@@ -156,11 +156,18 @@ pub struct ComponentBufferData {
     pub use_texture: u32,        // Flag: 0 for color, 1 for texture, 2 for frosted glass
     pub blur_radius: f32,        // Blur amount for frosted glass (0-10)
     pub opacity: f32,            // Overall opacity for frosted glass (0.0-1.0)
-    pub _padding: [f32; 3],
-    pub border_color: [f32; 4], // Border color
-    pub border_width: f32,      // Border thickness in pixels
-    pub border_position: u32,   // Border position: 0=inside, 1=center, 2=outside
-    pub _padding2: [f32; 2],
+    pub _padding1: [f32; 3],     // Padding for alignment
+    pub border_color: [f32; 4],  // Border color
+    pub border_width: f32,       // Border thickness in pixels
+    pub border_position: u32,    // Border position: 0=inside, 1=center, 2=outside
+    pub _padding2: [f32; 2],     // Padding for alignment
+    // Pre-computed values for optimization
+    pub inner_bounds: [f32; 4], // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
+    pub outer_bounds: [f32; 4], // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
+    pub corner_centers: [f32; 4], // (tl_center.x, tl_center.y, tr_center.x, tr_center.y)
+    pub corner_centers2: [f32; 4], // (bl_center.x, bl_center.y, br_center.x, br_center.y)
+    pub corner_radii: [f32; 4], // (inner_tl_radius, inner_tr_radius, inner_bl_radius, inner_br_radius)
+    pub corner_radii2: [f32; 4], // (outer_tl_radius, outer_tr_radius, outer_bl_radius, outer_br_radius)
 }
 
 impl ComponentConfig {
@@ -672,6 +679,129 @@ impl Component {
             BorderPosition::Outside => 2u32,
         };
 
+        // Pre-compute corner properties
+        let content_min = vec![bounds.position.x, bounds.position.y];
+        let content_max = vec![
+            bounds.position.x + bounds.size.width,
+            bounds.position.y + bounds.size.height,
+        ];
+
+        // Calculate max radius to prevent overlap
+        let max_radius_x = bounds.size.width * 0.5;
+        let max_radius_y = bounds.size.height * 0.5;
+        let max_radius = max_radius_x.min(max_radius_y);
+
+        // Clamp all radii to max
+        let tl_radius = border_radius[0].min(max_radius);
+        let tr_radius = border_radius[1].min(max_radius);
+        let bl_radius = border_radius[2].min(max_radius);
+        let br_radius = border_radius[3].min(max_radius);
+
+        // Calculate outer radii based on border position
+        let (
+            outer_tl_radius,
+            outer_tr_radius,
+            outer_bl_radius,
+            outer_br_radius,
+            inner_tl_radius,
+            inner_tr_radius,
+            inner_bl_radius,
+            inner_br_radius,
+        ) = if self.border_width > 0.0 {
+            match self.border_position {
+                BorderPosition::Inside => (
+                    tl_radius,
+                    tr_radius,
+                    bl_radius,
+                    br_radius,
+                    (tl_radius - self.border_width).max(0.0),
+                    (tr_radius - self.border_width).max(0.0),
+                    (bl_radius - self.border_width).max(0.0),
+                    (br_radius - self.border_width).max(0.0),
+                ),
+                BorderPosition::Center => {
+                    let half_border = self.border_width * 0.5;
+                    (
+                        tl_radius + half_border,
+                        tr_radius + half_border,
+                        bl_radius + half_border,
+                        br_radius + half_border,
+                        (tl_radius - half_border).max(0.0),
+                        (tr_radius - half_border).max(0.0),
+                        (bl_radius - half_border).max(0.0),
+                        (br_radius - half_border).max(0.0),
+                    )
+                }
+                BorderPosition::Outside => (
+                    tl_radius + self.border_width,
+                    tr_radius + self.border_width,
+                    bl_radius + self.border_width,
+                    br_radius + self.border_width,
+                    tl_radius,
+                    tr_radius,
+                    bl_radius,
+                    br_radius,
+                ),
+            }
+        } else {
+            (
+                tl_radius, tr_radius, bl_radius, br_radius, tl_radius, tr_radius, bl_radius,
+                br_radius,
+            )
+        };
+
+        // Calculate corner centers
+        let tl_center = [content_min[0] + tl_radius, content_min[1] + tl_radius];
+        let tr_center = [content_max[0] - tr_radius, content_min[1] + tr_radius];
+        let bl_center = [content_min[0] + bl_radius, content_max[1] - bl_radius];
+        let br_center = [content_max[0] - br_radius, content_max[1] - br_radius];
+
+        // Calculate inner and outer bounds
+        let (inner_min, inner_max, outer_min, outer_max) = if self.border_width > 0.0 {
+            match self.border_position {
+                BorderPosition::Inside => (
+                    vec![
+                        content_min[0] + self.border_width,
+                        content_min[1] + self.border_width,
+                    ],
+                    vec![
+                        content_max[0] - self.border_width,
+                        content_max[1] - self.border_width,
+                    ],
+                    content_min,
+                    content_max,
+                ),
+                BorderPosition::Center => {
+                    let half_border = self.border_width * 0.5;
+                    (
+                        vec![content_min[0] + half_border, content_min[1] + half_border],
+                        vec![content_max[0] - half_border, content_max[1] - half_border],
+                        vec![content_min[0] - half_border, content_min[1] - half_border],
+                        vec![content_max[0] + half_border, content_max[1] + half_border],
+                    )
+                }
+                BorderPosition::Outside => (
+                    content_min.clone(),
+                    content_max.clone(),
+                    vec![
+                        content_min[0] - self.border_width,
+                        content_min[1] - self.border_width,
+                    ],
+                    vec![
+                        content_max[0] + self.border_width,
+                        content_max[1] + self.border_width,
+                    ],
+                ),
+            }
+        } else {
+            (
+                content_min.clone(),
+                content_max.clone(),
+                content_min,
+                content_max,
+            )
+        };
+
         ComponentBufferData {
             color,
             position,
@@ -681,11 +811,27 @@ impl Component {
             use_texture,
             blur_radius,
             opacity,
-            _padding: [0.0; 3],
+            _padding1: [0.0; 3],
             border_color: self.border_color.value(),
             border_width: self.border_width,
             border_position: border_position_value,
             _padding2: [0.0; 2],
+            inner_bounds: [inner_min[0], inner_min[1], inner_max[0], inner_max[1]],
+            outer_bounds: [outer_min[0], outer_min[1], outer_max[0], outer_max[1]],
+            corner_centers: [tl_center[0], tl_center[1], tr_center[0], tr_center[1]],
+            corner_centers2: [bl_center[0], bl_center[1], br_center[0], br_center[1]],
+            corner_radii: [
+                inner_tl_radius,
+                inner_tr_radius,
+                inner_bl_radius,
+                inner_br_radius,
+            ],
+            corner_radii2: [
+                outer_tl_radius,
+                outer_tr_radius,
+                outer_bl_radius,
+                outer_br_radius,
+            ],
         }
     }
 

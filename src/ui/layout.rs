@@ -1592,6 +1592,14 @@ impl LayoutContext {
 
         None
     }
+
+    pub fn reset_all_hover_states(&mut self) {
+        for (_, component) in self.components.iter_mut() {
+            if component.is_hovered() {
+                component.set_hover_state(false);
+            }
+        }
+    }
 }
 
 // Implement From<f32> for FlexValue to allow for convenient conversions
