@@ -148,6 +148,7 @@ pub trait SliderBehavior {
     fn set_value(&mut self, value: f32);
     fn get_value(&self) -> f32;
     fn update_track_bounds(&mut self, bounds: Bounds);
+    fn refresh_slider(&mut self);
 }
 
 impl SliderBehavior for Component {
@@ -198,6 +199,20 @@ impl SliderBehavior for Component {
             data.track_bounds = Some(bounds);
         }
     }
+
+    fn refresh_slider(&mut self) {
+        // Get the current value and bounds, then mark the slider for update
+        if let Some(ComponentMetaData::SliderData(data)) = self
+            .metadata
+            .iter_mut()
+            .find(|m| matches!(m, ComponentMetaData::SliderData(_)))
+        {
+            if data.track_bounds.is_some() {
+                // Simply flag for update - the next component update cycle will recalculate positions
+                data.needs_update = true;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -214,7 +229,7 @@ impl Default for SliderBuilderConfig {
             value: 50.0,
             min: 0.0,
             max: 100.0,
-            step: 0.1,
+            step: 1.0,
         }
     }
 }
