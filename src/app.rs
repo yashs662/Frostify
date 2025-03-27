@@ -422,7 +422,7 @@ impl App<'_> {
 impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            let icon = load_icon(include_bytes!("../assets/frostify_icon.ico"));
+            let icon = load_icon(include_bytes!("../assets/frostify_logo.ico"));
             let mut win_attr = Window::default_attributes()
                 .with_title("Frostify")
                 .with_window_icon(Some(icon.clone()))

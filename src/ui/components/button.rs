@@ -145,7 +145,7 @@ impl ButtonBuilder {
                         center,
                         radius,
                     );
-                    while let Some(animation) = &animation_config {
+                    if let Some(animation) = &animation_config {
                         bg.set_animation(animation.clone(), wgpu_ctx);
                     }
                     container.add_child(bg);
@@ -157,7 +157,7 @@ impl ButtonBuilder {
                 } => {
                     let mut bg =
                         self.configure_frosted_glass(wgpu_ctx, tint_color, blur_radius, opacity);
-                    while let Some(animation) = &animation_config {
+                    if let Some(animation) = &animation_config {
                         bg.set_animation(animation.clone(), wgpu_ctx);
                     }
                     container.add_child(bg);

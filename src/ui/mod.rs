@@ -114,6 +114,8 @@ pub fn create_login_ui(
             color: Color::White,
             line_height: 1.0,
         }))
+        .with_size(FlexValue::Fill, FlexValue::Fixed(30.0))
+        .set_fit_to_size()
         .with_debug_name("Welcome Label")
         .build(wgpu_ctx);
 
@@ -121,6 +123,7 @@ pub fn create_login_ui(
     let logo = ImageBuilder::new("frostify_logo.png")
         .with_scale_mode(ScaleMode::Contain)
         .with_size(FlexValue::Fixed(100.0), FlexValue::Fixed(100.0))
+        .with_margin(Edges::vertical(10.0))
         .with_debug_name("Logo")
         .build(wgpu_ctx);
 
@@ -138,6 +141,26 @@ pub fn create_login_ui(
             line_height: 1.0,
         }))
         .with_border_radius(BorderRadius::all(5.0))
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::FrostedGlassTint {
+                from: Color::Black,
+                to: Color::Crimson,
+            },
+            when: AnimationWhen::Hover,
+        })
+        // .with_animation(AnimationConfig {
+        //     duration: Duration::from_millis(200),
+        //     easing: EasingFunction::EaseOutExpo,
+        //     direction: AnimationDirection::Alternate,
+        //     animation_type: AnimationType::Scale {
+        //         from: 1.0,
+        //         to: 1.05,
+        //     },
+        //     when: AnimationWhen::Hover,
+        // })
         .with_border(1.0, Color::White)
         .with_margin(Edges::all(10.0))
         .with_size(200.0, 50.0)
@@ -383,7 +406,8 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
     let player_container_background =
         BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
             .with_debug_name("Player Container Background")
-            .with_border_radius(BorderRadius::all(50.0))
+            .with_border_radius(BorderRadius::all(5.0))
+            .with_border(1.0, Color::DarkGray.darken(0.05))
             .with_shadow(Color::Black, (0.0, 0.0), 10.0, 0.5)
             .with_fixed_position(Anchor::Center)
             .build(wgpu_ctx);

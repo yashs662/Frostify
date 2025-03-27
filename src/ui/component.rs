@@ -475,6 +475,14 @@ impl Component {
                             needs_reconfigure = true;
                         }
                     }
+                    AnimationType::FrostedGlassTint { from, to } => {
+                        let tint_color = from.lerp(to, progress);
+
+                        if let Some(ComponentConfig::FrostedGlass(config)) = &mut self.config {
+                            config.tint_color = tint_color;
+                            should_update = true;
+                        }
+                    }
                 }
             }
         }

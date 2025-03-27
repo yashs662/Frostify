@@ -8,6 +8,7 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
+use log::{debug, error};
 use std::{f32::consts::PI, time::Duration};
 use uuid::Uuid;
 
@@ -40,6 +41,8 @@ pub enum AnimationWhen {
 #[derive(Debug, Clone)]
 pub enum AnimationType {
     Color { from: Color, to: Color },
+    FrostedGlassTint { from: Color, to: Color },
+    // Scale { from: f32, to: f32 },
 }
 
 #[allow(dead_code)]
@@ -313,6 +316,9 @@ impl Animation {
                 {
                     *id
                 } else {
+                    debug!(
+                        "Component Doesn't have a background color component, creating one for animated color"
+                    );
                     let bg_id = Uuid::new_v4();
                     let mut bg = Component::new(bg_id, ComponentType::BackgroundColor);
                     bg.transform.position_type = Position::Fixed(Anchor::Center);
@@ -335,6 +341,17 @@ impl Animation {
                     if let Some(bg_component) = children.iter_mut().find(|c| c.id == bg_id) {
                         bg_component.animations.push(self.clone());
                     }
+                }
+            }
+            AnimationType::FrostedGlassTint { from: _, to: _ } => {
+                if !component
+                    .children_ids
+                    .iter()
+                    .any(|(_, t)| matches!(t, ComponentType::FrostedGlass))
+                {
+                    error!(
+                        "added frosted glass tint animation but the component doesn't have a frosted glass tint component"
+                    );
                 }
             }
         }

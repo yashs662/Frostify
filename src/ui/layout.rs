@@ -1511,7 +1511,7 @@ impl LayoutContext {
                     if let Some(component) = self.components.get_mut(&id) {
                         let is_interactive = match &event.event_type {
                             EventType::Drag => component.is_draggable(),
-                            EventType::Press | EventType::Release => component.is_clickable(),
+                            EventType::Press => component.is_clickable(),
                             _ => false,
                         };
 
@@ -1587,7 +1587,7 @@ impl LayoutContext {
             // Check if this component can handle the event
             let is_interactive = match &event_type {
                 EventType::Drag => component.is_draggable(),
-                EventType::Press | EventType::Release => component.is_clickable(),
+                EventType::Press => component.is_clickable(),
                 EventType::Hover => component.is_hoverable(),
                 _ => false,
             };
