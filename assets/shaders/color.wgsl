@@ -17,17 +17,18 @@ struct ComponentUniform {
     border_width: f32,          // Border thickness in pixels
     border_position: u32,       // Border position: 0=inside, 1=center, 2=outside
     _padding2: vec2<f32>,       // Padding for alignment
-    // Pre-computed values for optimization
     inner_bounds: vec4<f32>,    // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
     outer_bounds: vec4<f32>,    // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
     corner_centers: vec4<f32>,  // (tl_center.x, tl_center.y, tr_center.x, tr_center.y)
     corner_centers2: vec4<f32>, // (bl_center.x, bl_center.y, br_center.x, br_center.y)
     corner_radii: vec4<f32>,    // (inner_tl_radius, inner_tr_radius, inner_bl_radius, inner_br_radius)
     corner_radii2: vec4<f32>,   // (outer_tl_radius, outer_tr_radius, outer_bl_radius, outer_br_radius)
-    shadow_color: vec4<f32>,     // Shadow color
-    shadow_offset: vec2<f32>,    // Shadow offset
-    shadow_blur: f32,            // Shadow blur intensity
-    shadow_opacity: f32,         // Shadow opacity
+    shadow_color: vec4<f32>,    // Shadow color
+    shadow_offset: vec2<f32>,   // Shadow offset
+    shadow_blur: f32,           // Shadow blur intensity
+    shadow_opacity: f32,        // Shadow opacity
+    clip_bounds: vec4<f32>,     // Clipping bounds (min_x, min_y, max_x, max_y)
+    clip_enabled: vec2<f32>,    // Whether clipping is enabled (x, y)
 }
 
 @group(0) @binding(0)
@@ -377,6 +378,12 @@ fn simple_shadow(pixel_pos: vec2<f32>, shadow_pos: vec2<f32>, shadow_size: vec2<
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let pixel_coords = uv_to_pixels(in.uv);
+    
+    // Check clipping bounds - discard if outside clip region when clipping is enabled
+    if ((component.clip_enabled.x > 0.5 && (pixel_coords.x < component.clip_bounds.x || pixel_coords.x > component.clip_bounds.z)) ||
+        (component.clip_enabled.y > 0.5 && (pixel_coords.y < component.clip_bounds.y || pixel_coords.y > component.clip_bounds.w))) {
+        discard;
+    }
     
     // ======== SHADOW CALCULATION ========
     var shadow_color = vec4<f32>(0.0);

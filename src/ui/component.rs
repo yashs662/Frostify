@@ -24,6 +24,8 @@ use crate::{
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
+use super::components::slider::SliderBehavior;
+
 /// Defines the position of the border relative to the component edges
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[allow(dead_code)]
@@ -65,6 +67,8 @@ pub struct Component {
     pub shadow_offset: (f32, f32),
     pub shadow_blur: f32,
     pub shadow_opacity: f32,
+    pub clip_bounds: Option<(Bounds, bool, bool)>, // (bounds, clip_x, clip_y)
+    pub clip_self: bool, // Whether this component should be clipped by its parent
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -146,7 +150,7 @@ pub struct TextConfig {
 pub struct FrostedGlassConfig {
     pub tint_color: Color,
     pub blur_radius: f32, // Blur intensity (0-10)
-    pub opacity: f32,     // Overall opacity (0.0-1.0)
+    pub opacity: f32,     // Overall opacity (0.0-1.0 range)
 }
 
 #[repr(C)]
@@ -177,6 +181,10 @@ pub struct ComponentBufferData {
     pub shadow_offset: [f32; 2], // Shadow offset (x, y)
     pub shadow_blur: f32,        // Shadow blur radius
     pub shadow_opacity: f32,     // Shadow opacity
+    // Clipping bounds
+    pub clip_bounds: [f32; 4],  // (min_x, min_y, max_x, max_y)
+    pub clip_enabled: [f32; 2], // (clip_x, clip_y) as 0.0 or 1.0
+    pub _padding3: [f32; 2],    // Padding for alignment
 }
 
 impl ComponentConfig {
@@ -240,11 +248,17 @@ impl Component {
             shadow_offset: (0.0, 0.0),
             shadow_blur: 0.0,
             shadow_opacity: 1.0,
+            clip_bounds: None,
+            clip_self: true, // Default to true - most components should be clipped
         }
     }
 
     pub fn clear_update_flag(&mut self) {
         self.needs_update = false;
+    }
+
+    pub fn flag_for_update(&mut self) {
+        self.needs_update = true;
     }
 
     pub fn has_children(&self) -> bool {
@@ -442,6 +456,13 @@ impl Component {
         }
     }
 
+    pub fn set_position_only_layout(&mut self, bounds: &Bounds) {
+        self.computed_bounds = *bounds;
+        if self.get_render_data_buffer().is_some() {
+            self.needs_update = true;
+        }
+    }
+
     pub fn needs_update(&self) -> bool {
         self.animations.iter().any(|animation| {
             matches!(
@@ -455,6 +476,11 @@ impl Component {
         let mut should_update = false;
         let mut needs_reconfigure = false;
         let mut new_config = None;
+
+        // Check if we've been marked for position update
+        if self.needs_update {
+            should_update = true;
+        }
 
         for animation in &mut self.animations {
             if let AnimationWhen::Hover = animation.config.when {
@@ -499,6 +525,8 @@ impl Component {
                     0,
                     bytemuck::cast_slice(&[self.get_render_data(self.computed_bounds)]),
                 );
+
+                self.needs_update = false;
             }
         }
     }
@@ -823,6 +851,28 @@ impl Component {
             )
         };
 
+        let (clip_bounds, clip_enabled) =
+            if let Some((clip_bounds, clip_x, clip_y)) = &self.clip_bounds {
+                (
+                    [
+                        clip_bounds.position.x,
+                        clip_bounds.position.y,
+                        clip_bounds.position.x + clip_bounds.size.width,
+                        clip_bounds.position.y + clip_bounds.size.height,
+                    ],
+                    [
+                        if *clip_x { 1.0 } else { 0.0 },
+                        if *clip_y { 1.0 } else { 0.0 },
+                    ],
+                )
+            } else {
+                // Default to full screen with no clipping
+                (
+                    [0.0, 0.0, self.screen_size.width, self.screen_size.height],
+                    [0.0, 0.0],
+                )
+            };
+
         ComponentBufferData {
             color,
             position,
@@ -857,6 +907,9 @@ impl Component {
             shadow_offset: [self.shadow_offset.0, self.shadow_offset.1],
             shadow_blur: self.shadow_blur,
             shadow_opacity: self.shadow_opacity,
+            clip_bounds,
+            clip_enabled,
+            _padding3: [0.0; 2],
         }
     }
 
@@ -881,5 +934,57 @@ impl Component {
 
     pub fn set_border_position(&mut self, position: BorderPosition) {
         self.border_position = position;
+    }
+
+    pub fn update_track_bounds(&mut self, bounds: Bounds) {
+        if let Some(slider_data) = self.get_slider_data_mut() {
+            slider_data.track_bounds = Some(bounds);
+        }
+    }
+
+    pub fn handle_scroll(&mut self, delta: f32) {
+        // For slider components
+        if self.is_a_slider() {
+            if let Some(slider_data) = self.get_slider_data_mut() {
+                let value_range = slider_data.max - slider_data.min;
+                let step = if slider_data.step == 0.0 {
+                    value_range * 0.01 * delta
+                } else {
+                    slider_data.step * delta
+                };
+
+                let current_value = slider_data.value;
+                let new_value = (current_value + step).clamp(slider_data.min, slider_data.max);
+
+                if new_value != current_value {
+                    slider_data.value = new_value;
+                    slider_data.needs_update = true; // Make sure to mark as needing update
+                    self.needs_update = true;
+                }
+            }
+        }
+    }
+
+    // Mutably get slider data - add this helper method
+    pub fn get_slider_data_mut(&mut self) -> Option<&mut SliderData> {
+        for metadata in &mut self.metadata {
+            if let ComponentMetaData::SliderData(data) = metadata {
+                return Some(data);
+            }
+        }
+        None
+    }
+
+    pub fn refresh_slider(&mut self) {
+        if self.is_a_slider() {
+            self.needs_update = true;
+        }
+    }
+
+    pub fn reset_drag_state(&mut self) {
+        if self.is_a_slider() {
+            <Self as SliderBehavior>::reset_drag_state(self);
+        }
+        self.needs_update = true;
     }
 }

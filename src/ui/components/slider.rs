@@ -145,10 +145,7 @@ impl CanProvideUpdates for Component {
 // New specialized trait for sliders
 pub trait SliderBehavior {
     fn set_value(&mut self, value: f32);
-    fn get_value(&self) -> f32;
-    fn update_track_bounds(&mut self, bounds: Bounds);
-    fn refresh_slider(&mut self);
-    fn handle_scroll(&mut self, scroll_delta: f32);
+    fn reset_drag_state(&mut self);
 }
 
 impl SliderBehavior for Component {
@@ -177,62 +174,17 @@ impl SliderBehavior for Component {
         }
     }
 
-    fn get_value(&self) -> f32 {
-        if let Some(ComponentMetaData::SliderData(data)) = self
-            .metadata
-            .iter()
-            .find(|m| matches!(m, ComponentMetaData::SliderData(_)))
-        {
-            data.value
-        } else {
-            0.0
-        }
-    }
-
-    fn update_track_bounds(&mut self, bounds: Bounds) {
+    fn reset_drag_state(&mut self) {
         if let Some(ComponentMetaData::SliderData(data)) = self
             .metadata
             .iter_mut()
             .find(|m| matches!(m, ComponentMetaData::SliderData(_)))
         {
-            data.track_bounds = Some(bounds);
-        }
-    }
+            // Simply mark the slider as not being dragged/grabbed
+            data.needs_update = false;
 
-    fn refresh_slider(&mut self) {
-        // Get the current value and bounds, then mark the slider for update
-        if let Some(ComponentMetaData::SliderData(data)) = self
-            .metadata
-            .iter_mut()
-            .find(|m| matches!(m, ComponentMetaData::SliderData(_)))
-        {
-            if data.track_bounds.is_some() {
-                // Simply flag for update - the next component update cycle will recalculate positions
-                data.needs_update = true;
-            }
-        }
-    }
-
-    fn handle_scroll(&mut self, scroll_delta: f32) {
-        if let Some(ComponentMetaData::SliderData(data)) = self
-            .metadata
-            .iter_mut()
-            .find(|m| matches!(m, ComponentMetaData::SliderData(_)))
-        {
-            // Calculate the step size based on the range and step
-            let range = data.max - data.min;
-            let step_size = if data.step > 0.0 {
-                data.step
-            } else {
-                range * 0.01 // Default to 1% of range if no step specified
-            };
-
-            // Calculate the new value based on scroll direction
-            let delta = step_size * scroll_delta.signum();
-            let new_value = data.value + delta;
-
-            // Update the value (this will handle clamping and stepping)
-            self.set_value(new_value);
+            // Force a refresh of the slider to ensure proper visual state
+            self.refresh_slider();
         }
     }
 }

@@ -34,6 +34,7 @@ pub struct CommonBuilderProps {
     pub shadow_offset: Option<(f32, f32)>,
     pub shadow_blur: Option<f32>,
     pub shadow_opacity: Option<f32>,
+    pub clip_self: Option<bool>, // Whether component should be clipped by its parent
 }
 
 /// Trait for component builders that share common properties
@@ -152,6 +153,16 @@ pub trait ComponentBuilder: Sized {
         self
     }
 
+    fn with_clipping(mut self, clip_self: bool) -> Self {
+        self.common_props().clip_self = Some(clip_self);
+        self
+    }
+
+    fn allow_overflow(mut self) -> Self {
+        self.common_props().clip_self = Some(false);
+        self
+    }
+
     fn apply_common_props_for_testing(&mut self, component: &mut Component) {
         let props = self.common_props();
 
@@ -235,6 +246,10 @@ pub trait ComponentBuilder: Sized {
             component.shadow_opacity = shadow_opacity;
         }
 
+        if let Some(clip_self) = props.clip_self {
+            component.clip_self = clip_self;
+        }
+
         // Animation is not applied here, as it requires Wgpu context which is not available in tests
     }
 
@@ -289,6 +304,9 @@ pub trait ComponentBuilder: Sized {
         }
         if let Some(border_radius) = common_props.border_radius {
             container_builder.common_props().border_radius = Some(border_radius);
+        }
+        if let Some(clip_self) = common_props.clip_self {
+            container_builder.common_props().clip_self = Some(clip_self);
         }
     }
 }

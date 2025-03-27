@@ -223,10 +223,45 @@ pub fn create_app_ui(
         .with_debug_name("Library Background")
         .with_border_radius(BorderRadius::all(5.0))
         .with_border(1.0, Color::DarkGray.darken(0.05))
+        .with_z_index(-1)
         .with_fixed_position(Anchor::Center)
         .build(wgpu_ctx);
 
     library_container.add_child(library_background);
+
+    let mut library_child_container = FlexContainerBuilder::new()
+        .with_debug_name("Library Child Container")
+        .with_direction(FlexDirection::Column)
+        .with_margin(Edges::all(5.0))
+        .with_vertical_scroll()
+        .build(wgpu_ctx);
+
+    for i in 0..15 {
+        let image_name = if i % 2 == 0 {
+            "album_art.png"
+        } else {
+            "test.png"
+        };
+        let mut image_builder = ImageBuilder::new(image_name)
+            .with_scale_mode(ScaleMode::Contain)
+            .with_debug_name(format!("Album Art {}", i))
+            .with_size(FlexValue::Fixed(70.0), FlexValue::Fixed(70.0))
+            .with_border_radius(BorderRadius::all(5.0))
+            .with_shadow(Color::Black, (0.0, 0.0), 4.0, 0.4)
+            .with_clipping(true);
+
+        if i == 0 {
+            image_builder = image_builder.with_margin(Edges::bottom(5.0))
+        } else if i == 14 {
+            image_builder = image_builder.with_margin(Edges::top(5.0))
+        } else {
+            image_builder = image_builder.with_margin(Edges::vertical(5.0));
+        }
+        let image = image_builder.build(wgpu_ctx);
+        library_child_container.add_child(image);
+    }
+
+    library_container.add_child(library_child_container);
 
     let mut main_area_container = FlexContainerBuilder::new()
         .with_debug_name("Main Area Container")

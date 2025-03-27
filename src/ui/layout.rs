@@ -188,6 +188,31 @@ pub struct Layout {
     // Visibility and display
     pub visible: bool,
     pub opacity: f32,
+
+    // Scrolling properties
+    pub is_scrollable: bool,
+    pub scroll_orientation: ScrollOrientation,
+    pub scroll_position: f32,
+    pub max_scroll: f32,
+
+    // Overflow properties
+    pub overflow_x: Overflow,
+    pub overflow_y: Overflow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScrollOrientation {
+    Vertical,
+    Horizontal,
+    Both,
+}
+
+// Add Overflow enum after ScrollOrientation
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Overflow {
+    Visible,
+    Hidden,
+    Scroll,
 }
 
 // LayoutContext to manage component relationships and computed layouts
@@ -325,6 +350,12 @@ impl Layout {
             border: Edges::zero(),
             visible: true,
             opacity: 1.0,
+            is_scrollable: false,
+            scroll_orientation: ScrollOrientation::Vertical,
+            scroll_position: 0.0,
+            max_scroll: 0.0,
+            overflow_x: Overflow::Visible,
+            overflow_y: Overflow::Visible,
         }
     }
 
@@ -407,6 +438,53 @@ impl Layout {
 
     pub fn get_content_y(&self, container_y: f32) -> f32 {
         container_y + self.padding.top
+    }
+
+    // Scrollable container helpers
+    pub fn scrollable_vertical() -> Self {
+        let mut layout = Self::flex_column();
+        layout.is_scrollable = true;
+        layout.scroll_orientation = ScrollOrientation::Vertical;
+        layout.overflow_y = Overflow::Scroll;
+        layout
+    }
+
+    pub fn scrollable_horizontal() -> Self {
+        let mut layout = Self::flex_row();
+        layout.is_scrollable = true;
+        layout.scroll_orientation = ScrollOrientation::Horizontal;
+        layout.overflow_x = Overflow::Scroll;
+        layout
+    }
+
+    pub fn update_scroll_position(&mut self, delta: f32) -> bool {
+        let old_position = self.scroll_position;
+        self.scroll_position = (self.scroll_position + delta).clamp(0.0, self.max_scroll);
+        old_position != self.scroll_position
+    }
+
+    // Add helper methods for overflow
+    pub fn with_overflow(&mut self, overflow: Overflow) -> &mut Self {
+        self.overflow_x = overflow;
+        self.overflow_y = overflow;
+        self
+    }
+
+    pub fn with_overflow_x(&mut self, overflow: Overflow) -> &mut Self {
+        self.overflow_x = overflow;
+        self
+    }
+
+    pub fn with_overflow_y(&mut self, overflow: Overflow) -> &mut Self {
+        self.overflow_y = overflow;
+        self
+    }
+
+    pub fn hidden_overflow() -> Self {
+        let mut layout = Self::new();
+        layout.overflow_x = Overflow::Hidden;
+        layout.overflow_y = Overflow::Hidden;
+        layout
     }
 }
 
@@ -798,6 +876,67 @@ impl LayoutContext {
         let bounds = self.calculate_bounds(&component, available_space);
         self.computed_bounds.insert(*component_id, bounds);
 
+        // Determine clip bounds based on parent's overflow settings
+        let clip_bounds = if let Some(parent_id) = &component.get_parent_id() {
+            if let Some(parent) = self.get_component(parent_id) {
+                // Use parent bounds as clip bounds when overflow is hidden
+                if parent.layout.overflow_x == Overflow::Hidden
+                    || parent.layout.overflow_y == Overflow::Hidden
+                {
+                    let parent_bounds = self
+                        .computed_bounds
+                        .get(parent_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let content_space = Bounds {
+                        position: ComponentPosition {
+                            x: parent_bounds.position.x
+                                + parent.layout.padding.left
+                                + parent.layout.border.left,
+                            y: parent_bounds.position.y
+                                + parent.layout.padding.top
+                                + parent.layout.border.top,
+                        },
+                        size: ComponentSize {
+                            width: parent_bounds.size.width
+                                - (parent.layout.padding.left
+                                    + parent.layout.padding.right
+                                    + parent.layout.border.left
+                                    + parent.layout.border.right),
+                            height: parent_bounds.size.height
+                                - (parent.layout.padding.top
+                                    + parent.layout.padding.bottom
+                                    + parent.layout.border.top
+                                    + parent.layout.border.bottom),
+                        },
+                    };
+
+                    // Store clip bounds with parent's overflow setting
+                    Some((
+                        content_space,
+                        parent.layout.overflow_x == Overflow::Hidden,
+                        parent.layout.overflow_y == Overflow::Hidden,
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Pass the clip bounds to the component only if it should be clipped
+        if let Some(component) = self.components.get_mut(component_id) {
+            if component.clip_self {
+                component.clip_bounds = clip_bounds;
+            } else {
+                // If this component doesn't clip itself, clear any clip bounds
+                component.clip_bounds = None;
+            }
+        }
+
         // If this is a container, layout its children
         if component.component_type == ComponentType::Container {
             self.layout_children(component_id, bounds);
@@ -1063,6 +1202,7 @@ impl LayoutContext {
         let mut num_auto_sized = 0;
         let mut num_flex_items = 0;
         let mut total_margins = 0.0;
+        let mut content_size = 0.0; // To calculate max scroll
 
         // Only consider flex children for space calculations
         for (_, child) in &flex_children {
@@ -1070,7 +1210,10 @@ impl LayoutContext {
             if is_row {
                 total_margins += child.layout.margin.left + child.layout.margin.right;
                 match &child.transform.size.width {
-                    FlexValue::Fixed(w) => total_fixed_size += w,
+                    FlexValue::Fixed(w) => {
+                        total_fixed_size += w;
+                        content_size += w + child.layout.margin.left + child.layout.margin.right;
+                    }
                     FlexValue::Fill => {
                         total_flex_grow += child.layout.flex_grow.max(1.0);
                         num_flex_items += 1;
@@ -1081,7 +1224,10 @@ impl LayoutContext {
             } else {
                 total_margins += child.layout.margin.top + child.layout.margin.bottom;
                 match &child.transform.size.height {
-                    FlexValue::Fixed(h) => total_fixed_size += h,
+                    FlexValue::Fixed(h) => {
+                        total_fixed_size += h;
+                        content_size += h + child.layout.margin.top + child.layout.margin.bottom;
+                    }
                     FlexValue::Fill => {
                         total_flex_grow += child.layout.flex_grow.max(1.0);
                         num_flex_items += 1;
@@ -1122,8 +1268,45 @@ impl LayoutContext {
         // Calculate spacing based on justify_content for flex items only
         let (start_pos, spacing_between) = self.calculate_spacing(spacing_data);
 
-        // Layout flex children
-        let mut current_main = start_pos;
+        // Update max scroll value if container is scrollable
+        if let Some(component) = self.components.get_mut(parent_id) {
+            if component.layout.is_scrollable {
+                // Calculate total content size
+                let additional_flex_space = space_per_flex_unit * total_flex_grow;
+                let total_content_size = if component.layout.is_scrollable {
+                    content_size
+                        + additional_flex_space
+                        + (spacing_between * (flex_children.len() as f32 - 1.0))
+                } else {
+                    0.0
+                };
+
+                // Calculate max scroll based on orientation
+                let container_size = if is_row {
+                    content_space.size.width
+                } else {
+                    content_space.size.height
+                };
+
+                let max_scroll = (total_content_size - container_size).max(0.0);
+                component.layout.max_scroll = max_scroll;
+            }
+        }
+
+        // Get scroll position for this container
+        let scroll_offset = if let Some(component) = self.components.get(parent_id) {
+            if component.layout.is_scrollable {
+                component.layout.scroll_position
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        // Layout flex children with scroll offset
+        let mut current_main = start_pos - scroll_offset;
+
         for (child_id, child) in flex_children {
             // Apply margins at the start of each item's positioning
             let margin_before = if is_row {
@@ -1453,32 +1636,116 @@ impl LayoutContext {
                 }
             }
 
-            // Handle scroll events for sliders
+            // Handle scroll events for sliders and scrollable containers
             if matches!(
                 event.event_type,
                 EventType::ScrollUp | EventType::ScrollDown
             ) {
-                // Find the topmost slider under the cursor
+                // First check for scrollable containers under the cursor
+                for id in self.render_order.iter().rev() {
+                    if let Some(component) = self.components.get_mut(id) {
+                        if component.is_visible()
+                            && component.is_hit(position)
+                            && component.layout.is_scrollable
+                        {
+                            // Convert scroll event to delta - FLIP THE DIRECTION
+                            let scroll_delta = match event.event_type {
+                                EventType::ScrollUp => -30.0,
+                                EventType::ScrollDown => 30.0,
+                                _ => 0.0,
+                            };
+
+                            // If this scroll orientation matches the event, handle it
+                            let scroll_applied = match component.layout.scroll_orientation {
+                                ScrollOrientation::Vertical => {
+                                    if matches!(
+                                        component.layout.direction,
+                                        FlexDirection::Column | FlexDirection::ColumnReverse
+                                    ) {
+                                        component.layout.update_scroll_position(scroll_delta)
+                                    } else {
+                                        false
+                                    }
+                                }
+                                ScrollOrientation::Horizontal => {
+                                    if matches!(
+                                        component.layout.direction,
+                                        FlexDirection::Row | FlexDirection::RowReverse
+                                    ) {
+                                        component.layout.update_scroll_position(scroll_delta)
+                                    } else {
+                                        false
+                                    }
+                                }
+                                ScrollOrientation::Both => {
+                                    component.layout.update_scroll_position(scroll_delta)
+                                }
+                            };
+
+                            // If scroll position was changed, recalculate layout
+                            if scroll_applied {
+                                // Store needed values from the immutable borrow
+                                let container_id = *id;
+
+                                // Now safe to do mutable operations
+                                self.compute_layout();
+
+                                // Only update positions for components that are children of the scrolled container
+                                // or the container itself
+                                let mut affected_ids = vec![container_id];
+                                self.get_all_descendants(container_id, &mut affected_ids);
+
+                                for id in affected_ids {
+                                    if let (Some(component), Some(bounds)) = (
+                                        self.components.get_mut(&id),
+                                        self.computed_bounds.get(&id),
+                                    ) {
+                                        component.set_position_only_layout(bounds);
+                                    }
+                                }
+
+                                return None; // Consume the scroll event
+                            }
+                        }
+                    }
+                }
+
+                // If no scrollable container consumed the event, check for sliders
+                let mut slider_id_to_update = None;
+
+                // First pass: identify which slider needs updating (without mutable borrow)
                 for id in self.render_order.iter().rev() {
                     if let Some(component) = self.components.get(id) {
                         if component.is_visible()
                             && component.is_hit(position)
                             && component.is_a_slider()
                         {
-                            // Convert scroll event to delta
-                            let scroll_delta = match event.event_type {
-                                EventType::ScrollUp => 1.0,
-                                EventType::ScrollDown => -1.0,
-                                _ => 0.0,
-                            };
-
-                            // Handle the scroll event
-                            if let Some(slider) = self.components.get_mut(id) {
-                                slider.handle_scroll(scroll_delta);
-                            }
-                            return None; // Consume the scroll event
+                            slider_id_to_update = Some(*id);
+                            break;
                         }
                     }
+                }
+
+                // Second pass: update the identified slider with a clean mutable borrow
+                if let Some(id) = slider_id_to_update {
+                    // Convert scroll event to delta
+                    let scroll_delta = match event.event_type {
+                        EventType::ScrollUp => -1.0,  // Flipped
+                        EventType::ScrollDown => 1.0, // Flipped
+                        _ => 0.0,
+                    };
+
+                    // Now we can safely get a mutable reference and update
+                    if let Some(slider) = self.components.get_mut(&id) {
+                        slider.handle_scroll(scroll_delta);
+
+                        // Make sure this triggers a proper update
+                        if let Some(slider_data) = slider.get_slider_data_mut() {
+                            slider_data.needs_update = true;
+                        }
+                    }
+
+                    return None; // Consume the scroll event
                 }
             }
 
@@ -1628,6 +1895,95 @@ impl LayoutContext {
                 component.set_hover_state(false);
             }
         }
+    }
+
+    pub fn reset_all_drag_states(&mut self, wgpu_ctx: &mut WgpuCtx) {
+        for (_, component) in self.components.iter_mut() {
+            // Reset drag state for sliders
+            if component.is_a_slider() {
+                component.reset_drag_state();
+            }
+
+            // Reset hover states as well
+            if component.is_hovered() {
+                component.set_hover_state(false);
+            }
+
+            // Only update rendering if the component actually needs it
+            if component.needs_update() {
+                if let Some(buffer) = component.get_render_data_buffer() {
+                    wgpu_ctx.queue.write_buffer(
+                        buffer,
+                        0,
+                        bytemuck::cast_slice(&[
+                            component.get_render_data(component.computed_bounds)
+                        ]),
+                    );
+                }
+            }
+        }
+    }
+
+    // Add this helper method to get all descendants of a container
+    fn get_all_descendants(&self, parent_id: Uuid, result: &mut Vec<Uuid>) {
+        if let Some(parent) = self.components.get(&parent_id) {
+            for (child_id, _) in &parent.children_ids {
+                result.push(*child_id);
+                self.get_all_descendants(*child_id, result);
+            }
+        }
+    }
+
+    pub fn refresh_all_sliders(&mut self) {
+        // First collect all the update information without keeping multiple mutable borrows
+        let mut slider_updates = Vec::new();
+
+        for (_id, component) in self.components.iter_mut() {
+            if component.is_a_slider() {
+                // Update track bounds to make sure we have the latest bounds
+                component.update_track_bounds(component.computed_bounds);
+
+                // Get slider data and prepare update info
+                if let Some(slider_data) = component.get_slider_data_mut() {
+                    // Calculate normalized value for visual positioning
+                    let normalized_value =
+                        (slider_data.value - slider_data.min) / (slider_data.max - slider_data.min);
+
+                    // Mark for update
+                    slider_data.needs_update = true;
+
+                    // Save the IDs and normalized value for the second pass
+                    if let Some(track_bounds) = slider_data.track_bounds {
+                        slider_updates.push((
+                            slider_data.thumb_id,
+                            slider_data.track_fill_id,
+                            normalized_value,
+                            track_bounds,
+                        ));
+                    }
+                }
+
+                // Force a refresh of the slider's visual components
+                component.refresh_slider();
+            }
+        }
+
+        // Now apply the updates in a separate pass to avoid multiple mutable borrows
+        for (thumb_id, track_fill_id, normalized_value, _) in slider_updates {
+            // Update the thumb position
+            if let Some(thumb) = self.components.get_mut(&thumb_id) {
+                thumb.transform.offset.x = FlexValue::Fraction(normalized_value);
+                thumb.flag_for_update();
+            }
+
+            // Update the track fill width
+            if let Some(track_fill) = self.components.get_mut(&track_fill_id) {
+                track_fill.transform.size.width = FlexValue::Fraction(normalized_value);
+                track_fill.flag_for_update();
+            }
+        }
+
+        // No need to call update_components here as it will be called by the caller
     }
 }
 

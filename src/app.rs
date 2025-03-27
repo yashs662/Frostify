@@ -252,7 +252,18 @@ impl App<'_> {
         };
 
         // Improved event detection logic
-        let event_type = if button.is_some() {
+        let event_type = if scroll_delta.is_some() {
+            // Prioritize scroll events over others when scroll_delta is provided
+            if let Some(delta) = scroll_delta {
+                if delta > 0.0 {
+                    EventType::ScrollUp
+                } else {
+                    EventType::ScrollDown
+                }
+            } else {
+                EventType::None
+            }
+        } else if button.is_some() {
             // Mouse button events
             if state == Some(ElementState::Pressed) {
                 EventType::Press
@@ -263,18 +274,8 @@ impl App<'_> {
             // This is a drag event - mouse is moving while button is pressed
             EventType::Drag
         } else if button.is_none() && state.is_none() {
-            // No button events - either hover or scroll
-            if self.last_cursor_input.1 != mouse_position {
-                EventType::Hover
-            } else if let Some(scroll_delta) = scroll_delta {
-                if scroll_delta > 0.0 {
-                    EventType::ScrollUp
-                } else {
-                    EventType::ScrollDown
-                }
-            } else {
-                EventType::None
-            }
+            // No button or scroll events - must be hover
+            EventType::Hover
         } else {
             EventType::None
         };
@@ -518,6 +519,13 @@ impl ApplicationHandler for App<'_> {
                 {
                     wgpu_ctx.resize((new_size.width, new_size.height));
                     self.layout_context.resize_viewport(wgpu_ctx);
+
+                    // Explicitly refresh all sliders to ensure proper visual sync after resize
+                    self.layout_context.refresh_all_sliders();
+
+                    // Ensure component updates are applied immediately
+                    self.layout_context.update_components(wgpu_ctx, 0.0);
+
                     window.request_redraw();
                 }
             }
@@ -593,6 +601,27 @@ impl ApplicationHandler for App<'_> {
                 if let Some((x, y)) = self.app_state.cursor_position {
                     if let MouseScrollDelta::LineDelta(_, scroll_y) = delta {
                         self.handle_ui_event(event_loop, x, y, None, None, Some(scroll_y));
+                    }
+                }
+            }
+            WindowEvent::Focused(focused) => {
+                if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
+                    self.last_cursor_input = (None, ComponentPosition { x: 0.0, y: 0.0 });
+
+                    // First reset all drag states
+                    self.layout_context.reset_all_drag_states(wgpu_ctx);
+
+                    // If the window regained focus, ensure sliders are properly refreshed
+                    if focused {
+                        // Explicitly refresh all sliders to ensure visual sync
+                        self.layout_context.refresh_all_sliders();
+
+                        // Complete layout update and redraw
+                        self.layout_context.update_components(wgpu_ctx, 0.0);
+                        wgpu_ctx.draw(&mut self.layout_context);
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
                     }
                 }
             }
