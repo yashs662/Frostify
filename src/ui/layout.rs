@@ -730,7 +730,7 @@ impl LayoutContext {
         for (id, bounds) in self.computed_bounds.iter() {
             if let Some(component) = self.components.get_mut(id) {
                 component.set_position(wgpu_ctx, *bounds, self.viewport_size);
-                
+
                 // If this is a slider, refresh it to ensure thumb and track positions are correct
                 if component.is_a_slider() {
                     component.update_track_bounds(component.computed_bounds);
@@ -1516,7 +1516,8 @@ impl LayoutContext {
                     let track_start = bounds.position.x;
                     let track_width = bounds.size.width;
 
-                    if track_width > 0.0 {  // Ensure we don't divide by zero
+                    if track_width > 0.0 {
+                        // Ensure we don't divide by zero
                         // Calculate relative position on the track (0.0 to 1.0)
                         let relative_pos = (position.x - track_start) / track_width;
                         let clamped_pos = relative_pos.clamp(0.0, 1.0);

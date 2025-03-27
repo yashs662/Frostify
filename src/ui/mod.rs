@@ -503,17 +503,34 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
 
     player_controls_container.add_child(player_controls_sub_container);
 
-    // placeholder background for the song slider
-    let song_progress_slider = SliderBuilder::new().build(wgpu_ctx);
+    // Replace the placeholder song progress slider with a fully customized slider
+    let song_progress_slider = SliderBuilder::new()
+        .with_value(25.0) // Start at 25% as an example
+        .with_range(0.0, 100.0)
+        .with_track_color(Color::DarkGray.lighten(0.1))
+        .with_track_fill_color(Color::Blue.lighten(0.1))
+        .with_track_height(4.0)
+        .with_track_border_radius(BorderRadius::all(2.0))
+        .with_thumb_color(Color::White)
+        .with_thumb_size(8.0)
+        .with_debug_name("Song Progress Slider")
+        .build(wgpu_ctx);
 
     player_controls_container.add_child(song_progress_slider);
 
-    // placeholder background for the volume slider
-    let volume_slider = BackgroundBuilder::with_color(Color::Gray.lighten(0.2))
-        .with_debug_name("Volume Slider Background")
-        .with_size(FlexValue::Fixed(100.0), FlexValue::Fixed(4.0))
+    // Replace the placeholder volume slider with a customized slider
+    let volume_slider = SliderBuilder::new()
+        .with_value(70.0) // Set volume at 70% as an example
+        .with_range(0.0, 100.0)
+        .with_track_color(Color::Gray.lighten(0.2))
+        .with_track_fill_color(Color::Green.lighten(0.1))
+        .with_track_height(4.0)
+        .with_track_border_radius(BorderRadius::all(2.0))
+        .with_thumb_color(Color::White)
+        .with_thumb_size(8.0)
         .with_margin(Edges::all(10.0))
-        .with_border_radius(BorderRadius::all(2.0))
+        .with_size(FlexValue::Fixed(100.0), FlexValue::Fixed(20.0))
+        .with_debug_name("Volume Slider")
         .build(wgpu_ctx);
 
     player_container.add_child(player_container_background);

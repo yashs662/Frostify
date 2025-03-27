@@ -13,7 +13,6 @@ use super::{
     component_builder::{CommonBuilderProps, ComponentBuilder},
     container::FlexContainerBuilder,
 };
-use log::debug;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
@@ -171,7 +170,6 @@ impl SliderBehavior for Component {
 
             // Update the value and mark for update
             if (new_value - data.value).abs() > f32::EPSILON {
-                debug!("Setting slider value to {}", new_value);
                 data.value = new_value;
                 data.needs_update = true;
             }
@@ -215,12 +213,20 @@ impl SliderBehavior for Component {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SliderBuilderConfig {
     pub value: f32,
     pub min: f32,
     pub max: f32,
     pub step: f32,
+    // Visual configuration
+    pub thumb_color: Color,
+    pub thumb_size: f32,
+    pub thumb_border_radius: Option<BorderRadius>,
+    pub track_color: Color,
+    pub track_fill_color: Color,
+    pub track_height: FlexValue,
+    pub track_border_radius: Option<BorderRadius>,
 }
 
 impl Default for SliderBuilderConfig {
@@ -230,6 +236,14 @@ impl Default for SliderBuilderConfig {
             min: 0.0,
             max: 100.0,
             step: 1.0,
+            // Default visual appearance
+            thumb_color: Color::White,
+            thumb_size: 10.0,
+            thumb_border_radius: Some(BorderRadius::all(999.0)), // Circle by default
+            track_color: Color::DarkGray,
+            track_fill_color: Color::Blue,
+            track_height: FlexValue::Fraction(0.5),
+            track_border_radius: Some(BorderRadius::all(5.0)),
         }
     }
 }
@@ -253,6 +267,60 @@ impl SliderBuilder {
         }
     }
 
+    // Configuration methods for slider values
+    pub fn with_value(mut self, value: f32) -> Self {
+        self.config.value = value;
+        self
+    }
+
+    pub fn with_range(mut self, min: f32, max: f32) -> Self {
+        self.config.min = min;
+        self.config.max = max;
+        self
+    }
+
+    pub fn with_step(mut self, step: f32) -> Self {
+        self.config.step = step;
+        self
+    }
+
+    // Configuration methods for thumb appearance
+    pub fn with_thumb_color(mut self, color: Color) -> Self {
+        self.config.thumb_color = color;
+        self
+    }
+
+    pub fn with_thumb_size(mut self, size: f32) -> Self {
+        self.config.thumb_size = size;
+        self
+    }
+
+    pub fn with_thumb_border_radius(mut self, radius: BorderRadius) -> Self {
+        self.config.thumb_border_radius = Some(radius);
+        self
+    }
+
+    // Configuration methods for track appearance
+    pub fn with_track_color(mut self, color: Color) -> Self {
+        self.config.track_color = color;
+        self
+    }
+
+    pub fn with_track_fill_color(mut self, color: Color) -> Self {
+        self.config.track_fill_color = color;
+        self
+    }
+
+    pub fn with_track_height(mut self, height: impl Into<FlexValue>) -> Self {
+        self.config.track_height = height.into();
+        self
+    }
+
+    pub fn with_track_border_radius(mut self, radius: BorderRadius) -> Self {
+        self.config.track_border_radius = Some(radius);
+        self
+    }
+
     pub fn build(self, wgpu_ctx: &mut WgpuCtx) -> Component {
         let mut container_builder = FlexContainerBuilder::new();
         let common_props = self.common.clone();
@@ -269,32 +337,43 @@ impl SliderBuilder {
 
         let fill_percentage = (config.value - config.min) / (config.max - config.min);
 
-        // Create thumb with improved hit area
-        let mut thumb = BackgroundBuilder::with_color(Color::White)
-            .with_size(10.0, 10.0)
-            .with_border_radius(BorderRadius::all(999.0))
+        // Create thumb with customizable appearance
+        let mut thumb_builder = BackgroundBuilder::with_color(config.thumb_color)
+            .with_size(config.thumb_size, config.thumb_size)
             .with_fixed_position(Anchor::Left)
-            .with_z_index(2)
-            .build(wgpu_ctx);
+            .with_z_index(2);
 
+        if let Some(radius) = config.thumb_border_radius {
+            thumb_builder = thumb_builder.with_border_radius(radius);
+        }
+
+        let mut thumb = thumb_builder.build(wgpu_ctx);
         thumb.transform.offset.x = FlexValue::Fraction(fill_percentage);
 
-        // Create track fill
-        let track_fill = BackgroundBuilder::with_color(Color::Blue)
-            .with_height(FlexValue::Fraction(0.5))
+        // Create track fill with customizable appearance
+        let mut track_fill_builder = BackgroundBuilder::with_color(config.track_fill_color)
+            .with_height(config.track_height.clone())
             .with_width(FlexValue::Fraction(fill_percentage))
-            .with_border_radius(BorderRadius::all(5.0))
             .with_fixed_position(Anchor::Left)
-            .with_z_index(1)
-            .build(wgpu_ctx);
+            .with_z_index(1);
 
-        // Create track background
-        let track_background = BackgroundBuilder::with_color(Color::DarkGray)
-            .with_height(FlexValue::Fraction(0.5))
+        if let Some(radius) = config.track_border_radius {
+            track_fill_builder = track_fill_builder.with_border_radius(radius);
+        }
+
+        let track_fill = track_fill_builder.build(wgpu_ctx);
+
+        // Create track background with customizable appearance
+        let mut track_bg_builder = BackgroundBuilder::with_color(config.track_color)
+            .with_height(config.track_height)
             .with_fixed_position(Anchor::Left)
-            .with_border_radius(BorderRadius::all(5.0))
-            .with_z_index(0)
-            .build(wgpu_ctx);
+            .with_z_index(0);
+
+        if let Some(radius) = config.track_border_radius {
+            track_bg_builder = track_bg_builder.with_border_radius(radius);
+        }
+
+        let track_background = track_bg_builder.build(wgpu_ctx);
 
         let slider_data = SliderData {
             value: config.value,
