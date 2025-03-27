@@ -32,6 +32,7 @@ pub mod animation;
 pub mod asset;
 pub mod color;
 pub mod component;
+pub mod component_update;
 pub mod components;
 pub mod img_utils;
 pub mod layout;

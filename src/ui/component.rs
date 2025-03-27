@@ -12,7 +12,7 @@ use crate::{
                 text::TextComponent,
             },
             image::ScaleMode,
-            slider::{SliderData, SliderUpdateData},
+            slider::SliderData,
         },
         layout::{
             BorderRadius, Bounds, ComponentOffset, ComponentPosition, ComponentSize,
@@ -21,7 +21,6 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::debug;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -224,8 +223,8 @@ impl Component {
         }
     }
 
-    pub fn flag_for_update(&mut self) {
-        self.needs_update = true;
+    pub fn clear_update_flag(&mut self) {
+        self.needs_update = false;
     }
 
     pub fn has_children(&self) -> bool {
@@ -588,71 +587,10 @@ impl Component {
         })
     }
 
-    pub fn set_slider_value(&mut self, cursor_position: f32) {
-        if let Some(ComponentMetaData::SliderData(data)) = self
-            .metadata
-            .iter_mut()
-            .find(|m| matches!(m, ComponentMetaData::SliderData(_)))
-        {
-            let bounds = self.computed_bounds;
-            let (min_x, max_x) = (bounds.position.x, bounds.position.x + bounds.size.width);
-
-            // Clamp the cursor position to the slider track bounds
-            let clamped_position = cursor_position.clamp(min_x, max_x);
-
-            // Calculate the percentage along the slider
-            let fill_percentage = (clamped_position - min_x) / (max_x - min_x);
-
-            // Calculate raw value based on min/max range
-            let raw_value = data.min + fill_percentage * (data.max - data.min);
-
-            // Apply stepping if step is non-zero
-            let new_value = if data.step > 0.0 {
-                let steps = ((raw_value - data.min) / data.step).round();
-                data.min + steps * data.step
-            } else {
-                raw_value
-            };
-
-            // Update the value and mark for update
-            if (new_value - data.value).abs() > f32::EPSILON {
-                debug!("Setting slider value to {}", new_value);
-                data.value = new_value;
-                self.flag_for_update();
-            }
-        }
-    }
-
-    pub fn prepare_slider_for_sync(&mut self) -> Option<SliderUpdateData> {
-        if !self.is_a_slider() {
-            return None;
-        }
-
-        let slider_data = self
-            .metadata
-            .iter()
-            .find_map(|m| match m {
-                ComponentMetaData::SliderData(data) => Some(data),
-                _ => None,
-            })
-            .unwrap();
-
-        // Calculate normalized percentage (0.0 to 1.0)
-        let fill_percentage =
-            (slider_data.value - slider_data.min) / (slider_data.max - slider_data.min);
-
-        // Reset the update flag since we're handling the update now
-        self.needs_update = false;
-
-        // Return a structured object with all needed data
-        let bounds = self.computed_bounds;
-
-        Some(SliderUpdateData {
-            track_start_x: bounds.position.x,
-            track_width: bounds.size.width,
-            thumb_id: slider_data.thumb_id,
-            track_fill_id: slider_data.track_background_id,
-            fill_percentage,
+    pub fn get_slider_data(&self) -> Option<&SliderData> {
+        self.metadata.iter().find_map(|m| match m {
+            ComponentMetaData::SliderData(data) => Some(data),
+            _ => None,
         })
     }
 
