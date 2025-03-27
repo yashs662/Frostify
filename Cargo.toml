@@ -29,6 +29,7 @@ rand = "0.9.0"
 url = "2.5.4"
 keyring = { version = "3.6.2", features = ["windows-native"] }
 smaa = "0.16.0"
+clap = { version = "4.5.6", features = ["derive"] }
 
 [build-dependencies]
 winresource = "0.1.20"

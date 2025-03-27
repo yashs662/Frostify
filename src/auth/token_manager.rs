@@ -101,3 +101,10 @@ pub fn load_tokens() -> Result<StoredTokens, AuthError> {
     debug!("Loaded stored Spotify tokens");
     Ok(tokens)
 }
+
+pub fn delete_tokens() -> Result<(), AuthError> {
+    let entry = Entry::new(CREDENTIAL_SERVICE_NAME, CREDENTIAL_USER_NAME)?;
+    entry.delete_credential()?;
+    debug!("Spotify tokens deleted successfully");
+    Ok(())
+}

@@ -4,6 +4,7 @@
 )]
 
 use crate::{app::App, ui::asset};
+use clap::Parser;
 use colored::Colorize;
 use env_logger::Builder;
 use log::LevelFilter;
@@ -24,7 +25,32 @@ mod ui;
 mod utils;
 mod wgpu_ctx;
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Reset stored login data
+    #[arg(long, short, action = clap::ArgAction::SetTrue, help = "Reset Frostify config")]
+    reset: bool,
+}
+
 fn main() -> Result<(), EventLoopError> {
+    // Parse command line arguments
+    let args = Args::parse();
+
+    // Handle reset option if specified
+    if args.reset {
+        match auth::token_manager::delete_tokens() {
+            Ok(_) => {
+                println!("{}", "Frostify config reset successfully.".green());
+                return Ok(());
+            }
+            Err(e) => {
+                println!("{}: {}", "Error resetting Frostify config".red(), e);
+                return Ok(());
+            }
+        }
+    }
+
     // Initialize assets before creating the event loop
     asset::initialize_assets();
 

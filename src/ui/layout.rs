@@ -1454,25 +1454,29 @@ impl LayoutContext {
             }
 
             // Handle scroll events for sliders
-            if matches!(event.event_type, EventType::ScrollUp | EventType::ScrollDown) {
+            if matches!(
+                event.event_type,
+                EventType::ScrollUp | EventType::ScrollDown
+            ) {
                 // Find the topmost slider under the cursor
                 for id in self.render_order.iter().rev() {
                     if let Some(component) = self.components.get(id) {
-                        if component.is_visible() && component.is_hit(position) {
-                            if component.is_a_slider() {
-                                // Convert scroll event to delta
-                                let scroll_delta = match event.event_type {
-                                    EventType::ScrollUp => 1.0,
-                                    EventType::ScrollDown => -1.0,
-                                    _ => 0.0,
-                                };
-                                
-                                // Handle the scroll event
-                                if let Some(slider) = self.components.get_mut(id) {
-                                    slider.handle_scroll(scroll_delta);
-                                }
-                                return None; // Consume the scroll event
+                        if component.is_visible()
+                            && component.is_hit(position)
+                            && component.is_a_slider()
+                        {
+                            // Convert scroll event to delta
+                            let scroll_delta = match event.event_type {
+                                EventType::ScrollUp => 1.0,
+                                EventType::ScrollDown => -1.0,
+                                _ => 0.0,
+                            };
+
+                            // Handle the scroll event
+                            if let Some(slider) = self.components.get_mut(id) {
+                                slider.handle_scroll(scroll_delta);
                             }
+                            return None; // Consume the scroll event
                         }
                     }
                 }
