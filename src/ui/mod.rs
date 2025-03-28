@@ -133,6 +133,7 @@ pub fn create_login_ui(
             tint_color: Color::Black,
             blur_radius: 5.0,
             opacity: 1.0,
+            tint_intensity: 0.5,
         })
         .with_sub_component(ButtonSubComponent::Text(TextConfig {
             text: "Login with Spotify".to_string(),
@@ -191,13 +192,13 @@ pub fn create_app_ui(
         .build(wgpu_ctx);
 
     // Background
-    let background = ImageBuilder::new("test.png")
+    let background = ImageBuilder::new("album_art.png")
         .with_scale_mode(ScaleMode::Cover)
         .with_debug_name("Background")
         .with_fixed_position(Anchor::Center)
         .build(wgpu_ctx);
 
-    let frosted_glass = BackgroundBuilder::with_frosted_glass(Color::Black, 1.0, 1.0)
+    let frosted_glass = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0, 0.5)
         .with_debug_name("Frosted Glass")
         .with_position(Position::Absolute(Anchor::Center))
         .with_z_index(1)
@@ -219,7 +220,7 @@ pub fn create_app_ui(
         .with_direction(FlexDirection::Column)
         .build(wgpu_ctx);
 
-    let library_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
+    let library_background = BackgroundBuilder::with_frosted_glass(Color::Black, 2000.0, 1.0, 0.5)
         .with_debug_name("Library Background")
         .with_border_radius(BorderRadius::all(5.0))
         .with_border(1.0, Color::DarkGray.darken(0.05))
@@ -269,12 +270,13 @@ pub fn create_app_ui(
         .with_direction(FlexDirection::Column)
         .build(wgpu_ctx);
 
-    let main_area_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
-        .with_debug_name("Main Area Background")
-        .with_border_radius(BorderRadius::all(5.0))
-        .with_border(1.0, Color::DarkGray.darken(0.05))
-        .with_fixed_position(Anchor::Center)
-        .build(wgpu_ctx);
+    let main_area_background =
+        BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0, 0.5)
+            .with_debug_name("Main Area Background")
+            .with_border_radius(BorderRadius::all(5.0))
+            .with_border(1.0, Color::DarkGray.darken(0.05))
+            .with_fixed_position(Anchor::Center)
+            .build(wgpu_ctx);
 
     main_area_container.add_child(main_area_background);
 
@@ -285,12 +287,13 @@ pub fn create_app_ui(
         .with_direction(FlexDirection::Column)
         .build(wgpu_ctx);
 
-    let now_playing_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
-        .with_debug_name("Now Playing Background")
-        .with_border_radius(BorderRadius::all(5.0))
-        .with_border(1.0, Color::DarkGray.darken(0.05))
-        .with_fixed_position(Anchor::Center)
-        .build(wgpu_ctx);
+    let now_playing_background =
+        BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0, 0.5)
+            .with_debug_name("Now Playing Background")
+            .with_border_radius(BorderRadius::all(5.0))
+            .with_border(1.0, Color::DarkGray.darken(0.05))
+            .with_fixed_position(Anchor::Center)
+            .build(wgpu_ctx);
 
     now_playing_container.add_child(now_playing_background);
 
@@ -322,7 +325,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -
         .with_padding(Edges::all(10.0))
         .build(wgpu_ctx);
 
-    let nav_bar_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
+    let nav_bar_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0, 0.5)
         .with_debug_name("Nav Bar Background")
         .with_border_radius(BorderRadius::all(5.0))
         .with_border(1.0, Color::DarkGray.darken(0.05))
@@ -439,7 +442,7 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
 
     // Create frosted glass background with an outside border
     let player_container_background =
-        BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0)
+        BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0, 0.5)
             .with_debug_name("Player Container Background")
             .with_border_radius(BorderRadius::all(5.0))
             .with_border(1.0, Color::DarkGray.darken(0.05))

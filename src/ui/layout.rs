@@ -1648,10 +1648,9 @@ impl LayoutContext {
                             && component.is_hit(position)
                             && component.layout.is_scrollable
                         {
-                            // Convert scroll event to delta - FLIP THE DIRECTION
                             let scroll_delta = match event.event_type {
-                                EventType::ScrollUp => -30.0,
-                                EventType::ScrollDown => 30.0,
+                                EventType::ScrollUp => 30.0,
+                                EventType::ScrollDown => -30.0,
                                 _ => 0.0,
                             };
 

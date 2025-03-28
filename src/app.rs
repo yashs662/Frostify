@@ -256,9 +256,9 @@ impl App<'_> {
             // Prioritize scroll events over others when scroll_delta is provided
             if let Some(delta) = scroll_delta {
                 if delta > 0.0 {
-                    EventType::ScrollUp
-                } else {
                     EventType::ScrollDown
+                } else {
+                    EventType::ScrollUp
                 }
             } else {
                 EventType::None

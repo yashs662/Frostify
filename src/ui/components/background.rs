@@ -31,6 +31,7 @@ pub enum BackgroundType {
         tint_color: Color,
         blur_radius: f32,
         opacity: f32,
+        tint_intensity: f32,
     },
 }
 
@@ -79,13 +80,19 @@ impl BackgroundBuilder {
         }
     }
 
-    pub fn with_frosted_glass(tint_color: Color, blur_radius: f32, opacity: f32) -> Self {
+    pub fn with_frosted_glass(
+        tint_color: Color,
+        blur_radius: f32,
+        opacity: f32,
+        tint_intensity: f32,
+    ) -> Self {
         Self {
             common: CommonBuilderProps::default(),
             background_type: BackgroundType::FrostedGlass {
                 tint_color,
                 blur_radius,
                 opacity,
+                tint_intensity,
             },
         }
     }
@@ -131,12 +138,14 @@ impl BackgroundBuilder {
                 tint_color,
                 blur_radius,
                 opacity,
+                tint_intensity,
             } => {
                 component.configure(
                     ComponentConfig::FrostedGlass(FrostedGlassConfig {
                         tint_color,
                         blur_radius,
                         opacity,
+                        tint_intensity,
                     }),
                     wgpu_ctx,
                 );

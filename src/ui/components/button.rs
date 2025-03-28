@@ -34,6 +34,7 @@ pub enum ButtonSubComponent {
         tint_color: Color,
         blur_radius: f32,
         opacity: f32,
+        tint_intensity: f32,
     },
     Image(ImageConfig),
     Text(TextConfig),
@@ -154,9 +155,15 @@ impl ButtonBuilder {
                     tint_color,
                     blur_radius,
                     opacity,
+                    tint_intensity,
                 } => {
-                    let mut bg =
-                        self.configure_frosted_glass(wgpu_ctx, tint_color, blur_radius, opacity);
+                    let mut bg = self.configure_frosted_glass(
+                        wgpu_ctx,
+                        tint_color,
+                        blur_radius,
+                        opacity,
+                        tint_intensity,
+                    );
                     if let Some(animation) = &animation_config {
                         bg.set_animation(animation.clone(), wgpu_ctx);
                     }
@@ -236,6 +243,7 @@ impl ButtonBuilder {
         tint_color: Color,
         blur_radius: f32,
         opacity: f32,
+        tint_intensity: f32,
     ) -> Component {
         let bg_id = Uuid::new_v4();
         let mut bg = Component::new(bg_id, ComponentType::FrostedGlass);
@@ -259,6 +267,7 @@ impl ButtonBuilder {
                 tint_color,
                 blur_radius,
                 opacity,
+                tint_intensity,
             }),
             wgpu_ctx,
         );

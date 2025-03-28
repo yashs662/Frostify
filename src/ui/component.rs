@@ -151,6 +151,7 @@ pub struct FrostedGlassConfig {
     pub tint_color: Color,
     pub blur_radius: f32, // Blur intensity (0-10)
     pub opacity: f32,     // Overall opacity (0.0-1.0 range)
+    pub tint_intensity: f32,
 }
 
 #[repr(C)]
@@ -164,11 +165,12 @@ pub struct ComponentBufferData {
     pub use_texture: u32,        // Flag: 0 for color, 1 for texture, 2 for frosted glass
     pub blur_radius: f32,        // Blur amount for frosted glass (0-10)
     pub opacity: f32,            // Overall opacity for frosted glass (0.0-1.0)
-    pub _padding1: [f32; 3],     // Padding for alignment
-    pub border_color: [f32; 4],  // Border color
-    pub border_width: f32,       // Border thickness in pixels
-    pub border_position: u32,    // Border position: 0=inside, 1=center, 2=outside
-    pub _padding2: [f32; 2],     // Padding for alignment
+    pub tint_intensity: f32,
+    pub _padding1: [f32; 2],    // Padding for alignment
+    pub border_color: [f32; 4], // Border color
+    pub border_width: f32,      // Border thickness in pixels
+    pub border_position: u32,   // Border position: 0=inside, 1=center, 2=outside
+    pub _padding2: [f32; 2],    // Padding for alignment
     // Pre-computed values for optimization
     pub inner_bounds: [f32; 4], // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
     pub outer_bounds: [f32; 4], // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
@@ -701,16 +703,17 @@ impl Component {
         let size = [bounds.size.width, bounds.size.height];
 
         // Get color and frosted glass parameters if available
-        let (color, blur_radius, opacity) = match &self.config {
+        let (color, blur_radius, opacity, tint_intensity) = match &self.config {
             Some(ComponentConfig::BackgroundColor(BackgroundColorConfig { color })) => {
-                (color.value(), 0.0, 1.0)
+                (color.value(), 0.0, 1.0, 0.0)
             }
             Some(ComponentConfig::FrostedGlass(FrostedGlassConfig {
                 tint_color,
                 blur_radius,
                 opacity,
-            })) => (tint_color.value(), *blur_radius, *opacity),
-            _ => (default_color, 0.0, 1.0),
+                tint_intensity,
+            })) => (tint_color.value(), *blur_radius, *opacity, *tint_intensity),
+            _ => (default_color, 0.0, 1.0, 0.0),
         };
 
         let use_texture = match &self.config {
@@ -882,7 +885,8 @@ impl Component {
             use_texture,
             blur_radius,
             opacity,
-            _padding1: [0.0; 3],
+            tint_intensity,
+            _padding1: [0.0; 2],
             border_color: self.border_color.value(),
             border_width: self.border_width,
             border_position: border_position_value,
