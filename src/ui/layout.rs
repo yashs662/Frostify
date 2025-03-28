@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{error, trace};
+use log::{debug, error, trace};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
@@ -642,7 +642,6 @@ impl LayoutContext {
 
     pub fn update_components(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
         let mut updates = Vec::new();
-        let mut requires_relayout = false;
 
         // First pass: collect all updates from components
         for (_id, component) in self.components.iter_mut() {
@@ -656,9 +655,6 @@ impl LayoutContext {
                 if let Some(update_data) = component.get_update_data() {
                     updates.push(update_data);
                     component.reset_update_state();
-                } else {
-                    // No specific update data but needs update - mark for relayout
-                    requires_relayout = true;
                 }
             }
 
@@ -681,11 +677,6 @@ impl LayoutContext {
                     update.apply(additional_target, wgpu_ctx);
                 }
             }
-        }
-
-        // If any component needs a full relayout, do it
-        if requires_relayout {
-            self.compute_layout();
         }
     }
 
