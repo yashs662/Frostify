@@ -270,13 +270,12 @@ pub fn create_app_ui(
         .with_direction(FlexDirection::Column)
         .build(wgpu_ctx);
 
-    let main_area_background =
-        BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0, 0.5)
-            .with_debug_name("Main Area Background")
-            .with_border_radius(BorderRadius::all(5.0))
-            .with_border(1.0, Color::DarkGray.darken(0.05))
-            .with_fixed_position(Anchor::Center)
-            .build(wgpu_ctx);
+    let main_area_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0, 0.5)
+        .with_debug_name("Main Area Background")
+        .with_border_radius(BorderRadius::all(5.0))
+        .with_border(1.0, Color::DarkGray.darken(0.05))
+        .with_fixed_position(Anchor::Center)
+        .build(wgpu_ctx);
 
     main_area_container.add_child(main_area_background);
 

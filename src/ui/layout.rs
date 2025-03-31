@@ -6,7 +6,7 @@ use crate::{
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
-use log::{debug, error, trace};
+use log::{error, trace};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;

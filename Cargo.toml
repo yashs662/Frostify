@@ -10,12 +10,12 @@ wgpu = "24.0.3"
 tokio = { version = "1.44.1", features = ["full"] }
 bytemuck = { version = "1.22.0", features = ["derive"] }
 pollster = "0.4.0"
-image = "0.25.5"
+image = "0.25.6"
 glyphon = "0.8.0"
 uuid = { version = "1.16.0", features = ["v4","fast-rng"] }
-log = "0.4.26"
+log = "0.4.27"
 env_logger = "0.11.7"
-time = { version = "0.3.40", features = ["formatting", "macros", "local-offset"] }
+time = { version = "0.3.41", features = ["formatting", "macros", "local-offset"] }
 colored = "3.0.0"
 colorgrad = "0.7.0"
 oauth2 = { version = "5.0.0", features = ["rustls-tls"] }
