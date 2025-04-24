@@ -18,9 +18,6 @@ use winit::{
     window::{CursorIcon, Icon, ResizeDirection, Theme, Window, WindowId},
 };
 
-#[cfg(target_os = "windows")]
-use winit::platform::windows::WindowAttributesExtWindows;
-
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     Close,
@@ -426,7 +423,8 @@ impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let icon = load_icon(include_bytes!("../assets/frostify_logo.ico"));
-            let win_attr = Window::default_attributes()
+            #[allow(unused_mut)]
+            let mut win_attr = Window::default_attributes()
                 .with_title("Frostify")
                 .with_window_icon(Some(icon.clone()))
                 .with_decorations(false)
