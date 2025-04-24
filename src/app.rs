@@ -15,9 +15,11 @@ use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
-    platform::windows::WindowAttributesExtWindows,
     window::{CursorIcon, Icon, ResizeDirection, Theme, Window, WindowId},
 };
+
+#[cfg(target_os = "windows")]
+use winit::platform::windows::WindowAttributesExtWindows;
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -424,10 +426,9 @@ impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let icon = load_icon(include_bytes!("../assets/frostify_logo.ico"));
-            let mut win_attr = Window::default_attributes()
+            let win_attr = Window::default_attributes()
                 .with_title("Frostify")
                 .with_window_icon(Some(icon.clone()))
-                .with_taskbar_icon(Some(icon))
                 .with_decorations(false)
                 .with_transparent(true)
                 .with_resizable(true)
@@ -442,6 +443,7 @@ impl ApplicationHandler for App<'_> {
                 use winit::platform::windows::WindowAttributesExtWindows;
 
                 win_attr = win_attr
+                    .with_taskbar_icon(Some(icon))
                     .with_system_backdrop(winit::platform::windows::BackdropType::TransientWindow)
                     .with_corner_preference(winit::platform::windows::CornerPreference::Round);
             }
