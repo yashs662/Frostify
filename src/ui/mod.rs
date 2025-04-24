@@ -6,8 +6,8 @@ use crate::{
         },
         color::Color,
         component::{
-            BorderPosition, Component, ComponentConfig, ComponentMetaData, GradientColorStop,
-            ImageConfig, TextConfig,
+            Component, ComponentConfig, ComponentMetaData, GradientColorStop, ImageConfig,
+            TextConfig,
         },
         components::{
             background::BackgroundBuilder,
@@ -192,7 +192,7 @@ pub fn create_app_ui(
         .build(wgpu_ctx);
 
     // Background
-    let background = ImageBuilder::new("album_art.png")
+    let background = ImageBuilder::new("test.png")
         .with_scale_mode(ScaleMode::Cover)
         .with_debug_name("Background")
         .with_fixed_position(Anchor::Center)
@@ -249,6 +249,17 @@ pub fn create_app_ui(
             .with_size(FlexValue::Fixed(70.0), FlexValue::Fixed(70.0))
             .with_border_radius(BorderRadius::all(5.0))
             .with_shadow(Color::Black, (0.0, 0.0), 4.0, 0.4)
+            .with_animation(AnimationConfig {
+                duration: Duration::from_millis(150),
+                direction: AnimationDirection::Alternate,
+                easing: EasingFunction::EaseOutQuart,
+                animation_type: AnimationType::Scale {
+                    from: 1.0,
+                    to: 1.5,
+                    anchor: Anchor::Left,
+                },
+                when: AnimationWhen::Hover,
+            })
             .with_clipping(true);
 
         if i == 0 {
@@ -600,46 +611,4 @@ fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>
     player_container.add_child(volume_slider);
 
     player_container
-}
-
-// Create a demonstration section showing different border positions
-fn create_border_demo(wgpu_ctx: &mut WgpuCtx) -> Component {
-    let mut demo_container = FlexContainerBuilder::new()
-        .with_debug_name("Border Demo Container")
-        .with_size(FlexValue::Fill, FlexValue::Fixed(200.0))
-        .with_direction(FlexDirection::Row)
-        .with_justify_content(JustifyContent::SpaceEvenly)
-        .with_align_items(AlignItems::Center)
-        .with_padding(Edges::all(20.0))
-        .build(wgpu_ctx);
-
-    // Inside border example
-    let inside_border = BackgroundBuilder::with_color(Color::White)
-        .with_debug_name("Inside Border Example")
-        .with_size(120.0, 120.0)
-        .with_border_full(15.0, Color::Red, BorderPosition::Inside)
-        .with_uniform_border_radius(20.0)
-        .build(wgpu_ctx);
-
-    // Center border example
-    let center_border = BackgroundBuilder::with_color(Color::White)
-        .with_debug_name("Center Border Example")
-        .with_size(120.0, 120.0)
-        .with_border_full(15.0, Color::Green, BorderPosition::Center)
-        .with_uniform_border_radius(20.0)
-        .build(wgpu_ctx);
-
-    // Outside border example
-    let outside_border = BackgroundBuilder::with_color(Color::White)
-        .with_debug_name("Outside Border Example")
-        .with_size(120.0, 120.0)
-        .with_border_full(15.0, Color::Blue, BorderPosition::Outside)
-        .with_uniform_border_radius(20.0)
-        .build(wgpu_ctx);
-
-    demo_container.add_child(inside_border);
-    demo_container.add_child(center_border);
-    demo_container.add_child(outside_border);
-
-    demo_container
 }

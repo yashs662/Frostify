@@ -231,7 +231,7 @@ impl App<'_> {
     fn apply_layout_updates(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
         // Done 3 times to ensure components with FlexValue::Fit have their positions calculated correctly
         for _ in 0..3 {
-            layout_context.resize_viewport(wgpu_ctx);
+            layout_context.compute_layout_and_update_components(wgpu_ctx);
         }
     }
 

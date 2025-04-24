@@ -12,19 +12,17 @@ use crate::{
                 text::TextComponent,
             },
             image::ScaleMode,
-            slider::SliderData,
+            slider::{SliderBehavior, SliderData},
         },
         layout::{
-            BorderRadius, Bounds, ComponentOffset, ComponentPosition, ComponentSize,
-            ComponentTransform, FlexValue, Layout, Position, Size,
+            BorderRadius, Bounds, ComponentPosition, ComponentSize, ComponentTransform, FlexValue,
+            Layout,
         },
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
-
-use super::components::slider::SliderBehavior;
 
 /// Defines the position of the border relative to the component edges
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -218,16 +216,7 @@ impl Component {
             id,
             debug_name: None,
             component_type,
-            transform: ComponentTransform {
-                size: Size::fill(),
-                offset: ComponentOffset {
-                    x: 0.0.into(),
-                    y: 0.0.into(),
-                },
-                position_type: Position::Flex,
-                z_index: 0,
-                border_radius: BorderRadius::zero(),
-            },
+            transform: ComponentTransform::default(),
             layout: Layout::new(),
             children_ids: Vec::new(),
             parent_id: None,
@@ -272,13 +261,29 @@ impl Component {
     }
 
     pub fn is_hit(&self, position: ComponentPosition) -> bool {
-        let bounds = self.computed_bounds;
         let x = position.x;
         let y = position.y;
-        x >= bounds.position.x
-            && x <= bounds.position.x + bounds.size.width
-            && y >= bounds.position.y
-            && y <= bounds.position.y + bounds.size.height
+
+        // Check if clipped
+        if let Some((clip_bounds, clip_x, clip_y)) = &self.clip_bounds {
+            if *clip_x
+                && (x < clip_bounds.position.x
+                    || x > clip_bounds.position.x + clip_bounds.size.width)
+            {
+                return false;
+            }
+            if *clip_y
+                && (y < clip_bounds.position.y
+                    || y > clip_bounds.position.y + clip_bounds.size.height)
+            {
+                return false;
+            }
+        }
+
+        x >= self.computed_bounds.position.x
+            && x <= self.computed_bounds.position.x + self.computed_bounds.size.width
+            && y >= self.computed_bounds.position.y
+            && y <= self.computed_bounds.position.y + self.computed_bounds.size.height
     }
 
     pub fn get_parent_id(&self) -> Option<Uuid> {
@@ -331,6 +336,11 @@ impl Component {
             self.clean_config_copy = self.config.clone();
         }
         let animation = Animation::new(animation);
+        if let AnimationType::Scale { from, to, anchor } = animation.config.animation_type {
+            self.transform.min_scale_factor = from;
+            self.transform.max_scale_factor = to;
+            self.transform.scale_anchor = anchor;
+        }
 
         // Save current border radius before animation configuration
         let current_border_radius = self.transform.border_radius;
@@ -366,6 +376,9 @@ impl Component {
 
     pub fn set_hover_state(&mut self, is_hovered: bool) {
         self.is_hovered = is_hovered;
+        if self.is_hoverable() {
+            self.flag_for_update();
+        }
     }
 
     pub fn is_hovered(&self) -> bool {
@@ -461,32 +474,34 @@ impl Component {
     pub fn set_position_only_layout(&mut self, bounds: &Bounds) {
         self.computed_bounds = *bounds;
         if self.get_render_data_buffer().is_some() {
-            self.needs_update = true;
+            self.flag_for_update();
         }
     }
 
     pub fn needs_update(&self) -> bool {
-        self.animations.iter().any(|animation| {
-            matches!(
-                animation.config.when,
-                AnimationWhen::Hover | AnimationWhen::Forever
-            )
-        }) || self.needs_update
+        self.animations
+            .iter()
+            .any(|animation| matches!(animation.config.when, AnimationWhen::Forever))
+            || self.needs_update
     }
 
-    pub fn update(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
-        let mut should_update = false;
+    pub fn update(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) -> bool {
+        let mut relayout_required = false;
+        let mut should_update_gpu_data = false;
         let mut needs_reconfigure = false;
         let mut new_config = None;
 
         // Check if we've been marked for position update
         if self.needs_update {
-            should_update = true;
+            should_update_gpu_data = true;
         }
+
+        let mut anim_progress = Vec::new();
 
         for animation in &mut self.animations {
             if let AnimationWhen::Hover = animation.config.when {
                 let progress = animation.update(frame_time, self.is_hovered);
+                anim_progress.push(progress);
 
                 match &animation.config.animation_type {
                     AnimationType::Color { from, to } => {
@@ -494,7 +509,7 @@ impl Component {
 
                         if let Some(ComponentConfig::BackgroundColor(config)) = &mut self.config {
                             config.color = color;
-                            should_update = true;
+                            should_update_gpu_data = true;
                         } else {
                             new_config =
                                 Some(ComponentConfig::BackgroundColor(BackgroundColorConfig {
@@ -508,7 +523,20 @@ impl Component {
 
                         if let Some(ComponentConfig::FrostedGlass(config)) = &mut self.config {
                             config.tint_color = tint_color;
-                            should_update = true;
+                            should_update_gpu_data = true;
+                        }
+                    }
+                    AnimationType::Scale { .. } => {
+                        // Calculate the new scale factor
+                        let scale = self.transform.min_scale_factor
+                            + (self.transform.max_scale_factor - self.transform.min_scale_factor)
+                                * progress;
+
+                        // Only update if scale changed significantly
+                        if (self.transform.scale_factor - scale).abs() > 0.001 {
+                            self.transform.scale_factor = scale;
+                            should_update_gpu_data = true;
+                            relayout_required = true;
                         }
                     }
                 }
@@ -520,7 +548,7 @@ impl Component {
             if let Some(config) = new_config {
                 self.configure(config, wgpu_ctx);
             }
-        } else if should_update {
+        } else if should_update_gpu_data {
             if let Some(buffer) = self.get_render_data_buffer() {
                 wgpu_ctx.queue.write_buffer(
                     buffer,
@@ -528,9 +556,16 @@ impl Component {
                     bytemuck::cast_slice(&[self.get_render_data(self.computed_bounds)]),
                 );
 
-                self.needs_update = false;
+                // check if any of the animations are still active
+                if anim_progress.iter().any(|p| *p > 0.0) {
+                    self.flag_for_update();
+                } else {
+                    self.clear_update_flag();
+                }
             }
         }
+
+        relayout_required
     }
 
     pub fn add_child(&mut self, child: Component) {
@@ -963,7 +998,7 @@ impl Component {
                 if new_value != current_value {
                     slider_data.value = new_value;
                     slider_data.needs_update = true; // Make sure to mark as needing update
-                    self.needs_update = true;
+                    self.flag_for_update();
                 }
             }
         }
@@ -981,7 +1016,7 @@ impl Component {
 
     pub fn refresh_slider(&mut self) {
         if self.is_a_slider() {
-            self.needs_update = true;
+            self.flag_for_update();
         }
     }
 
@@ -989,6 +1024,6 @@ impl Component {
         if self.is_a_slider() {
             <Self as SliderBehavior>::reset_drag_state(self);
         }
-        self.needs_update = true;
+        self.flag_for_update();
     }
 }

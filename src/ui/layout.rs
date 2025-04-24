@@ -2,6 +2,8 @@ use crate::{
     app::AppEvent,
     ui::{
         component::{Component, ComponentType},
+        component_update::CanProvideUpdates,
+        components::slider::SliderBehavior,
         z_index_manager::ZIndexManager,
     },
     wgpu_ctx::{AppPipelines, WgpuCtx},
@@ -11,15 +13,22 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
 
-use super::{component_update::CanProvideUpdates, components::slider::SliderBehavior};
-
 #[derive(Debug, Clone)]
 pub struct ComponentOffset {
     pub x: FlexValue,
     pub y: FlexValue,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+impl Default for ComponentOffset {
+    fn default() -> Self {
+        Self {
+            x: 0.0.into(),
+            y: 0.0.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ComponentSize {
     pub width: f32,
     pub height: f32,
@@ -81,7 +90,7 @@ pub enum FlexWrap {
 
 // Enhanced FlexValue enum
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum FlexValue {
     Auto,
     Fixed(f32),
@@ -91,11 +100,12 @@ pub enum FlexValue {
     Min(Box<FlexValue>, Box<FlexValue>), // min(a, b)
     Max(Box<FlexValue>, Box<FlexValue>), // max(a, b)
     Fit,                                 // fit-content
-    Fill,                                // 100%
+    #[default]
+    Fill,                  // 100%
 }
 
 // BorderRadius struct
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct BorderRadius {
     pub top_left: f32,
     pub top_right: f32,
@@ -104,7 +114,7 @@ pub struct BorderRadius {
 }
 
 // Edges struct for padding, margin, and border
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Edges {
     pub top: f32,
     pub right: f32,
@@ -114,9 +124,10 @@ pub struct Edges {
 
 // Position enum for positioning system
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Position {
-    Flex,               // Default - follows flex layout rules
+    #[default]
+    Flex, // Default - follows flex layout rules
     Fixed(Anchor),      // Fixed position relative to parent
     Absolute(Anchor),   // Absolute position relative to root
     Grid(usize, usize), // Position in a grid (row, column)
@@ -124,12 +135,13 @@ pub enum Position {
 
 // Anchor enum
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Anchor {
     TopLeft,
     Top,
     TopRight,
     Left,
+    #[default]
     Center,
     Right,
     BottomLeft,
@@ -145,11 +157,31 @@ pub struct ComponentTransform {
     pub position_type: Position,
     pub z_index: i32,
     pub border_radius: BorderRadius,
+    pub max_scale_factor: f32,
+    pub min_scale_factor: f32,
+    pub scale_factor: f32,
+    pub scale_anchor: Anchor,
+}
+
+impl Default for ComponentTransform {
+    fn default() -> Self {
+        Self {
+            size: Size::default(),
+            offset: ComponentOffset::default(),
+            position_type: Position::default(),
+            z_index: 0,
+            border_radius: BorderRadius::zero(),
+            max_scale_factor: 1.0,
+            min_scale_factor: 1.0,
+            scale_factor: 1.0,
+            scale_anchor: Anchor::default(),
+        }
+    }
 }
 
 // Size struct to replace ComponentSize
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Size {
     pub width: FlexValue,
     pub height: FlexValue,
@@ -204,7 +236,6 @@ pub struct Layout {
 pub enum ScrollOrientation {
     Vertical,
     Horizontal,
-    Both,
 }
 
 // Add Overflow enum after ScrollOrientation
@@ -601,9 +632,7 @@ struct SpacingData<'a> {
     is_row: bool,
     content_space: Bounds,
     flex_children: &'a [(Uuid, &'a Component)],
-    total_fixed_size: f32,
     space_per_flex_unit: f32,
-    total_flex_grow: f32,
     total_margins: f32,
 }
 
@@ -642,12 +671,12 @@ impl LayoutContext {
 
     pub fn update_components(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
         let mut updates = Vec::new();
-
+        let mut needs_relayout = false;
         // First pass: collect all updates from components
         for (_id, component) in self.components.iter_mut() {
             // Update component state and check for update requests
-            if component.needs_update() {
-                component.update(wgpu_ctx, frame_time);
+            if component.needs_update() && component.update(wgpu_ctx, frame_time) {
+                needs_relayout = true;
             }
 
             // If component provides updates, collect them
@@ -677,6 +706,10 @@ impl LayoutContext {
                     update.apply(additional_target, wgpu_ctx);
                 }
             }
+        }
+
+        if needs_relayout {
+            self.compute_layout_and_update_components(wgpu_ctx);
         }
     }
 
@@ -791,36 +824,45 @@ impl LayoutContext {
         self.components.get(id)
     }
 
-    pub fn resize_viewport(&mut self, wgpu_ctx: &mut WgpuCtx) {
-        self.viewport_size = wgpu_ctx.get_screen_size();
-        self.compute_layout();
+    pub fn compute_layout_and_update_components(&mut self, wgpu_ctx: &mut WgpuCtx) {
+        let mut re_layout_required = true;
+        let mut re_layout_attempts = 0;
+        let max_re_layout_attempts = 5;
 
-        // Update all component positions with new screen size
-        for (id, bounds) in self.computed_bounds.iter() {
-            if let Some(component) = self.components.get_mut(id) {
-                component.set_position(wgpu_ctx, *bounds, self.viewport_size);
+        while re_layout_required && re_layout_attempts < max_re_layout_attempts {
+            re_layout_required = false;
+            re_layout_attempts += 1;
 
-                // If this is a slider, refresh it to ensure thumb and track positions are correct
-                if component.is_a_slider() {
-                    component.update_track_bounds(component.computed_bounds);
-                    component.refresh_slider();
+            // Compute layout for all components
+            self.compute_layout();
+
+            // Update all component positions with new screen size
+            for (id, bounds) in self.computed_bounds.iter() {
+                if let Some(component) = self.components.get_mut(id) {
+                    component.set_position(wgpu_ctx, *bounds, self.viewport_size);
+
+                    // If this is a slider, refresh it to ensure thumb and track positions are correct
+                    if component.is_a_slider() {
+                        component.update_track_bounds(component.computed_bounds);
+                        component.refresh_slider();
+                    }
+                }
+            }
+
+            // check if any components have the can be resized to metadata if so resize them and calculate layout again, remove metadata
+            for (_, component) in self.components.iter_mut() {
+                if component.can_be_resized_to_metadata().is_some() {
+                    re_layout_required = true;
+                    component.resize_to_metadata();
+                    component.remove_resize_metadata();
                 }
             }
         }
+    }
 
-        // check if any components have the can be resized to metadata if so resize them and calculate layout again, remove metadata
-        let mut re_layout_required = false;
-        for (_, component) in self.components.iter_mut() {
-            if component.can_be_resized_to_metadata().is_some() {
-                re_layout_required = true;
-                component.resize_to_metadata();
-                component.remove_resize_metadata();
-            }
-        }
-
-        if re_layout_required {
-            self.compute_layout();
-        }
+    pub fn resize_viewport(&mut self, wgpu_ctx: &mut WgpuCtx) {
+        self.viewport_size = wgpu_ctx.get_screen_size();
+        self.compute_layout_and_update_components(wgpu_ctx);
     }
 
     pub fn compute_layout(&mut self) {
@@ -952,13 +994,13 @@ impl LayoutContext {
             FlexValue::Fill | FlexValue::Auto => available_space.size.width,
             _ => available_space.size.width, // Default to parent width
         };
-
+        let scaled_width = width * component.transform.scale_factor;
         let height = match &component.transform.size.height {
             FlexValue::Fixed(h) => *h,
             FlexValue::Fill | FlexValue::Auto => available_space.size.height,
             _ => available_space.size.height, // Default to parent height
         };
-
+        let scaled_height = height * component.transform.scale_factor;
         // Base position (without offset)
         let position = ComponentPosition {
             x: available_space.position.x,
@@ -977,6 +1019,17 @@ impl LayoutContext {
             .y
             .resolve(available_space.size.height, self.viewport_size.height);
 
+        // let (scale_offset_x, scale_offset_y) = calc_scale_anchor_offsets(
+        //     component.transform.scale_anchor,
+        //     width,
+        //     height,
+        //     scaled_width,
+        //     scaled_height,
+        // );
+
+        // TODO: handle scale offset not affecting siblings,
+        // should be added below to all the siblings together for the effect to work, currently we can only add it to the scaled component so it looks weird
+
         let final_position = ComponentPosition {
             x: position.x + offset_x,
             y: position.y + offset_y,
@@ -984,7 +1037,10 @@ impl LayoutContext {
 
         Bounds {
             position: final_position,
-            size: ComponentSize { width, height },
+            size: ComponentSize {
+                width: scaled_width,
+                height: scaled_height,
+            },
         }
     }
 
@@ -1000,12 +1056,13 @@ impl LayoutContext {
             .size
             .width
             .resolve(parent_bounds.size.width, self.viewport_size.width);
-
+        let scaled_width = width * component.transform.scale_factor;
         let height = component
             .transform
             .size
             .height
             .resolve(parent_bounds.size.height, self.viewport_size.height);
+        let scaled_height = height * component.transform.scale_factor;
 
         // Calculate position based on anchor - without applying offset yet
         let position = match anchor {
@@ -1059,6 +1116,17 @@ impl LayoutContext {
             .y
             .resolve(parent_bounds.size.height, self.viewport_size.height);
 
+        // let (scale_offset_x, scale_offset_y) = calc_scale_anchor_offsets(
+        //     component.transform.scale_anchor,
+        //     width,
+        //     height,
+        //     scaled_width,
+        //     scaled_height,
+        // );
+
+        // TODO: handle scale offset not affecting siblings,
+        // should be added below to all the siblings together for the effect to work, currently we can only add it to the scaled component so it looks weird
+
         let final_position = ComponentPosition {
             x: position.x + offset_x,
             y: position.y + offset_y,
@@ -1066,7 +1134,10 @@ impl LayoutContext {
 
         Bounds {
             position: final_position,
-            size: ComponentSize { width, height },
+            size: ComponentSize {
+                width: scaled_width,
+                height: scaled_height,
+            },
         }
     }
 
@@ -1197,13 +1268,17 @@ impl LayoutContext {
 
         // Only consider flex children for space calculations
         for (_, child) in &flex_children {
+            // Apply scale factor if component requires relayout
+            let scale_factor = child.transform.scale_factor;
             // Sum up margins in the main axis
             if is_row {
                 total_margins += child.layout.margin.left + child.layout.margin.right;
                 match &child.transform.size.width {
                     FlexValue::Fixed(w) => {
-                        total_fixed_size += w;
-                        content_size += w + child.layout.margin.left + child.layout.margin.right;
+                        let scaled_width = w * scale_factor;
+                        total_fixed_size += scaled_width;
+                        content_size +=
+                            scaled_width + child.layout.margin.left + child.layout.margin.right;
                     }
                     FlexValue::Fill => {
                         total_flex_grow += child.layout.flex_grow.max(1.0);
@@ -1216,8 +1291,10 @@ impl LayoutContext {
                 total_margins += child.layout.margin.top + child.layout.margin.bottom;
                 match &child.transform.size.height {
                     FlexValue::Fixed(h) => {
-                        total_fixed_size += h;
-                        content_size += h + child.layout.margin.top + child.layout.margin.bottom;
+                        let scaled_height = h * scale_factor;
+                        total_fixed_size += scaled_height;
+                        content_size +=
+                            scaled_height + child.layout.margin.top + child.layout.margin.bottom;
                     }
                     FlexValue::Fill => {
                         total_flex_grow += child.layout.flex_grow.max(1.0);
@@ -1250,9 +1327,7 @@ impl LayoutContext {
             is_row,
             content_space,
             flex_children: &flex_children,
-            total_fixed_size,
             space_per_flex_unit,
-            total_flex_grow,
             total_margins,
         };
 
@@ -1393,10 +1468,42 @@ impl LayoutContext {
             spacing_data.content_space.size.height
         };
 
-        let total_flex_size = spacing_data.space_per_flex_unit * spacing_data.total_flex_grow;
-        // Include margins in total_used_space
-        let total_used_space =
-            spacing_data.total_fixed_size + total_flex_size + spacing_data.total_margins;
+        // Calculate total scaled size including flex items
+        let mut total_used_space = spacing_data.total_margins;
+        let mut total_flex_size = 0.0;
+
+        // Recalculate total used space considering scaled components
+        for (_, child) in spacing_data.flex_children {
+            let scale_factor = child.transform.scale_factor;
+
+            if spacing_data.is_row {
+                match &child.transform.size.width {
+                    FlexValue::Fixed(w) => {
+                        total_used_space += w * scale_factor;
+                    }
+                    FlexValue::Fill => {
+                        total_flex_size += spacing_data.space_per_flex_unit
+                            * child.layout.flex_grow.max(1.0)
+                            * scale_factor;
+                    }
+                    _ => {}
+                }
+            } else {
+                match &child.transform.size.height {
+                    FlexValue::Fixed(h) => {
+                        total_used_space += h * scale_factor;
+                    }
+                    FlexValue::Fill => {
+                        total_flex_size += spacing_data.space_per_flex_unit
+                            * child.layout.flex_grow.max(1.0)
+                            * scale_factor;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        total_used_space += total_flex_size;
         let free_space = (main_axis_size - total_used_space).max(0.0);
 
         match spacing_data.justify_content {
@@ -1494,7 +1601,7 @@ impl LayoutContext {
             content_space.size.width - (child.layout.margin.left + child.layout.margin.right)
         };
 
-        let main_size = if is_row {
+        let mut main_size = if is_row {
             match &child.transform.size.width {
                 FlexValue::Fixed(w) => *w,
                 FlexValue::Fill => space_per_flex_unit * child.layout.flex_grow.max(1.0),
@@ -1532,7 +1639,7 @@ impl LayoutContext {
             }
         };
 
-        let cross_size = if is_row {
+        let mut cross_size = if is_row {
             match &child.transform.size.height {
                 FlexValue::Fixed(h) => *h,
                 FlexValue::Fraction(frac) => cross_axis_available * frac,
@@ -1555,6 +1662,12 @@ impl LayoutContext {
                     .resolve(cross_axis_available, self.viewport_size.width),
             }
         };
+
+        // Apply scale factor to sizes if component requires relayout for scaling
+        if child.transform.scale_factor != 1.0 {
+            main_size *= child.transform.scale_factor;
+            cross_size *= child.transform.scale_factor;
+        }
 
         (main_size, cross_size)
     }
@@ -1666,9 +1779,6 @@ impl LayoutContext {
                                     } else {
                                         false
                                     }
-                                }
-                                ScrollOrientation::Both => {
-                                    component.layout.update_scroll_position(scroll_delta)
                                 }
                             };
 
@@ -1974,6 +2084,38 @@ impl LayoutContext {
         }
 
         // No need to call update_components here as it will be called by the caller
+    }
+}
+
+fn calc_scale_anchor_offsets(
+    scale_anchor: Anchor,
+    original_width: f32,
+    original_height: f32,
+    scaled_width: f32,
+    scaled_height: f32,
+) -> (f32, f32) {
+    match scale_anchor {
+        Anchor::TopLeft => (0.0, 0.0),
+        Anchor::Top => ((original_width - scaled_width) / 2.0, 0.0),
+        Anchor::TopRight => (original_width - scaled_width, 0.0),
+        Anchor::Left => (0.0, (original_height - scaled_height) / 2.0),
+        Anchor::Center => (
+            (original_width - scaled_width) / 2.0,
+            (original_height - scaled_height) / 2.0,
+        ),
+        Anchor::Right => (
+            original_width - scaled_width,
+            (original_height - scaled_height) / 2.0,
+        ),
+        Anchor::BottomLeft => (0.0, original_height - scaled_height),
+        Anchor::Bottom => (
+            (original_width - scaled_width) / 2.0,
+            original_height - scaled_height,
+        ),
+        Anchor::BottomRight => (
+            original_width - scaled_width,
+            original_height - scaled_height,
+        ),
     }
 }
 

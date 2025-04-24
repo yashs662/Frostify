@@ -47,11 +47,6 @@ impl Positionable for TextComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
         let text_computed_bounds = wgpu_ctx.text_handler.measure_text(component.id);
         let calc_bounds = if let Some(text_size) = text_computed_bounds {
-            if component.fit_to_size {
-                component
-                    .metadata
-                    .push(ComponentMetaData::CanBeResizedTo(text_size));
-            }
             if text_size.width == 0.0 || text_size.height == 0.0 {
                 // Initial Layout is not yet computed, wait for next set_position call
                 debug!(
@@ -60,6 +55,11 @@ impl Positionable for TextComponent {
                 );
                 bounds
             } else {
+                if component.fit_to_size && component.computed_bounds.size != text_size {
+                    component
+                        .metadata
+                        .push(ComponentMetaData::CanBeResizedTo(text_size));
+                }
                 // center text use the x and y of bounds and the text size
                 let x = bounds.position.x + (bounds.size.width - text_size.width) / 2.0;
                 let y = bounds.position.y + (bounds.size.height - text_size.height) / 2.0;

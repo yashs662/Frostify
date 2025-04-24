@@ -86,7 +86,7 @@ impl TextRenderBuffers {
         buffer.set_text(
             font_system,
             text,
-            glyphon::Attrs::new().family(glyphon::Family::SansSerif),
+            &glyphon::Attrs::new().family(glyphon::Family::SansSerif),
             glyphon::Shaping::Advanced,
         );
         buffer
@@ -226,7 +226,7 @@ impl TextHandler {
                 data.buffer.set_text(
                     &mut self.font_system,
                     &updated_text,
-                    glyphon::Attrs::new().family(glyphon::Family::SansSerif),
+                    &glyphon::Attrs::new().family(glyphon::Family::SansSerif),
                     glyphon::Shaping::Advanced,
                 );
             } else if let Some(updated_metrics) = value.metrics {

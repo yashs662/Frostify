@@ -40,9 +40,25 @@ pub enum AnimationWhen {
 
 #[derive(Debug, Clone)]
 pub enum AnimationType {
-    Color { from: Color, to: Color },
-    FrostedGlassTint { from: Color, to: Color },
-    // Scale { from: f32, to: f32 },
+    Color {
+        from: Color,
+        to: Color,
+    },
+    FrostedGlassTint {
+        from: Color,
+        to: Color,
+    },
+    Scale {
+        from: f32,
+        to: f32,
+        // TODO: Scale anchor does nothing as of now, scaled position is
+        // calculated based on how the parent is placing the scaled object
+
+        // TODO: Scale animation interferes with scrollable containers making them allocate
+        // more space than required as the scale is also taken into account even though
+        // the object is not scaled at the moment
+        anchor: Anchor,
+    },
 }
 
 #[allow(dead_code)]
@@ -353,6 +369,11 @@ impl Animation {
                         "added frosted glass tint animation but the component doesn't have a frosted glass tint component"
                     );
                 }
+            }
+            AnimationType::Scale { from, to, anchor } => {
+                component.transform.scale_anchor = anchor;
+                component.transform.min_scale_factor = from;
+                component.transform.max_scale_factor = to;
             }
         }
     }

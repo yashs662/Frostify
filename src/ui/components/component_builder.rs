@@ -38,6 +38,7 @@ pub struct CommonBuilderProps {
 }
 
 /// Trait for component builders that share common properties
+#[allow(dead_code)]
 pub trait ComponentBuilder: Sized {
     fn common_props(&mut self) -> &mut CommonBuilderProps;
 

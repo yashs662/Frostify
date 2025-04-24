@@ -109,10 +109,6 @@ impl FlexContainerBuilder {
         match orientation {
             ScrollOrientation::Vertical => self.direction = FlexDirection::Column,
             ScrollOrientation::Horizontal => self.direction = FlexDirection::Row,
-            ScrollOrientation::Both => {
-                // Default to column for Both orientation
-                self.direction = FlexDirection::Column;
-            }
         }
 
         // Don't clip the container itself, only its children
