@@ -232,7 +232,7 @@ impl Component {
             fit_to_size: false,
             computed_bounds: Bounds::default(),
             is_hovered: false,
-            is_active: false,
+            is_active: true,
             animations: Vec::new(),
             needs_update: false,
             shadow_color: Color::Transparent,
