@@ -423,6 +423,7 @@ impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let icon = load_icon(include_bytes!("../assets/frostify_logo.ico"));
+            // allow unused_mut to avoid warnings on systems other than windows
             #[allow(unused_mut)]
             let mut win_attr = Window::default_attributes()
                 .with_title("Frostify")

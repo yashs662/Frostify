@@ -59,7 +59,7 @@ pub struct Component {
     pub computed_bounds: Bounds,
     pub animations: Vec<Animation>,
     is_hovered: bool,
-    clean_config_copy: Option<ComponentConfig>,
+    is_active: bool,
     needs_update: bool,
     pub shadow_color: Color,
     pub shadow_offset: (f32, f32),
@@ -232,7 +232,7 @@ impl Component {
             fit_to_size: false,
             computed_bounds: Bounds::default(),
             is_hovered: false,
-            clean_config_copy: None,
+            is_active: false,
             animations: Vec::new(),
             needs_update: false,
             shadow_color: Color::Transparent,
@@ -242,6 +242,18 @@ impl Component {
             clip_bounds: None,
             clip_self: true, // Default to true - most components should be clipped
         }
+    }
+
+    pub fn set_as_inactive(&mut self) {
+        self.is_active = false;
+    }
+
+    pub fn set_as_active(&mut self) {
+        self.is_active = true;
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.is_active
     }
 
     pub fn clear_update_flag(&mut self) {
@@ -332,9 +344,6 @@ impl Component {
     }
 
     pub fn set_animation(&mut self, animation: AnimationConfig, wgpu_ctx: &mut WgpuCtx) {
-        if self.clean_config_copy.is_none() {
-            self.clean_config_copy = self.config.clone();
-        }
         let animation = Animation::new(animation);
         if let AnimationType::Scale { from, to, anchor } = animation.config.animation_type {
             self.transform.min_scale_factor = from;

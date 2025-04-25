@@ -19,7 +19,7 @@ pub struct AppPipelines {
 }
 
 pub struct WgpuCtx<'window> {
-    surface: wgpu::Surface<'window>,
+    surface: Option<wgpu::Surface<'window>>,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -33,7 +33,7 @@ pub struct WgpuCtx<'window> {
     frame_sample_view: Option<wgpu::TextureView>,
     blit_sampler: Option<wgpu::Sampler>,
     blit_bind_group: Option<wgpu::BindGroup>,
-    smaa_target: SmaaTarget,
+    smaa_target: Option<SmaaTarget>,
 }
 
 impl<'window> WgpuCtx<'window> {
@@ -74,7 +74,7 @@ impl<'window> WgpuCtx<'window> {
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode, // Use the supported alpha mode instead of hardcoding
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -93,7 +93,7 @@ impl<'window> WgpuCtx<'window> {
         );
 
         WgpuCtx {
-            surface,
+            surface: Some(surface),
             surface_config,
             device,
             queue,
@@ -109,7 +109,68 @@ impl<'window> WgpuCtx<'window> {
             frame_sample_view: None,
             blit_sampler: None,
             blit_bind_group: None,
-            smaa_target,
+            smaa_target: Some(smaa_target),
+        }
+    }
+
+    #[cfg(test)]
+    /// no-op context for testing purposes
+    pub async fn new_noop() -> WgpuCtx<'window> {
+        use winit::dpi::PhysicalSize;
+
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::NOOP,
+            backend_options: wgpu::BackendOptions {
+                noop: wgpu::NoopBackendOptions { enable: true },
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .expect("adapter");
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await
+            .expect("device");
+
+        let size: PhysicalSize<u32> = (100, 100).into(); // Dummy size for no-op context
+        let width = size.width.max(1);
+        let height = size.height.max(1);
+
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        let unified_pipeline = create_unified_pipeline(&device, surface_config.format);
+        let text_handler = TextHandler::new(&device, &surface_config, &queue);
+
+        WgpuCtx {
+            surface: None,
+            surface_config,
+            device,
+            queue,
+            text_handler,
+            app_pipelines: AppPipelines {
+                unified_pipeline,
+                blit_pipeline: None,
+                blit_bind_group_layout: None,
+            },
+            main_render_texture: None,
+            main_render_view: None,
+            frame_sample_texture: None,
+            frame_sample_view: None,
+            blit_sampler: None,
+            blit_bind_group: None,
+            smaa_target: None,
         }
     }
 
@@ -191,10 +252,14 @@ impl<'window> WgpuCtx<'window> {
         let (width, height) = new_size;
         self.surface_config.width = width.max(1);
         self.surface_config.height = height.max(1);
-        self.surface.configure(&self.device, &self.surface_config);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.surface_config);
+        }
         self.text_handler
             .update_viewport_size(&self.surface_config, &self.queue);
-        self.smaa_target.resize(&self.device, width, height);
+        if let Some(smaa_target) = &mut self.smaa_target {
+            smaa_target.resize(&self.device, width, height);
+        }
 
         // Reset render textures to be recreated at the right size
         self.main_render_texture = None;
@@ -212,10 +277,14 @@ impl<'window> WgpuCtx<'window> {
     }
 
     pub fn draw(&mut self, layout_context: &mut LayoutContext) {
-        let surface_texture = self
-            .surface
-            .get_current_texture()
-            .expect("Failed to acquire next swap chain texture");
+        let surface_texture = if let Some(surface) = &self.surface {
+            surface
+                .get_current_texture()
+                .expect("Failed to acquire next swap chain texture")
+        } else {
+            panic!("Surface not initialized");
+        };
+
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -228,9 +297,11 @@ impl<'window> WgpuCtx<'window> {
         self.ensure_blit_bind_group();
 
         // Create SMAA frame with the final surface view as target
-        let smaa_frame = self
-            .smaa_target
-            .start_frame(&self.device, &self.queue, &surface_view);
+        let smaa_frame = if let Some(smaa_target) = &mut self.smaa_target {
+            smaa_target.start_frame(&self.device, &self.queue, &surface_view)
+        } else {
+            panic!("SMAA target not initialized");
+        };
 
         // Create main rendering encoder
         let mut encoder = self
@@ -598,7 +669,7 @@ fn prepare_render_groups(layout_context: &mut LayoutContext) -> Vec<RenderGroup>
             continue;
         };
 
-        if component.component_type == ComponentType::Container {
+        if component.component_type == ComponentType::Container || !component.is_active() {
             continue;
         }
 

@@ -35,6 +35,7 @@ pub struct CommonBuilderProps {
     pub shadow_blur: Option<f32>,
     pub shadow_opacity: Option<f32>,
     pub clip_self: Option<bool>, // Whether component should be clipped by its parent
+    pub as_inactive: bool,       // Whether component should be inactive on creation
 }
 
 /// Trait for component builders that share common properties
@@ -45,6 +46,11 @@ pub trait ComponentBuilder: Sized {
     fn with_size(mut self, width: impl Into<FlexValue>, height: impl Into<FlexValue>) -> Self {
         self.common_props().width = Some(width.into());
         self.common_props().height = Some(height.into());
+        self
+    }
+
+    fn with_inactive(mut self) -> Self {
+        self.common_props().as_inactive = true;
         self
     }
 
@@ -164,7 +170,8 @@ pub trait ComponentBuilder: Sized {
         self
     }
 
-    fn apply_common_props_for_testing(&mut self, component: &mut Component) {
+    /// This is only to be used for leaf components like image, background, etc.
+    fn apply_common_props_for_leaf(&mut self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
         let props = self.common_props();
 
         if let Some(debug_name) = props.debug_name.clone() {
@@ -251,15 +258,10 @@ pub trait ComponentBuilder: Sized {
             component.clip_self = clip_self;
         }
 
-        // Animation is not applied here, as it requires Wgpu context which is not available in tests
-    }
+        if props.as_inactive {
+            component.set_as_inactive();
+        }
 
-    /// This is only to be used for leaf components like image, background, etc.
-    fn apply_common_props_for_leaf(&mut self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
-        // apply all from test
-        self.apply_common_props_for_testing(component);
-
-        let props = self.common_props();
         if let Some(animation) = props.animation.clone() {
             component.set_animation(animation, wgpu_ctx);
         }

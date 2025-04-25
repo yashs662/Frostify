@@ -169,32 +169,4 @@ impl FlexContainerBuilder {
 
         container
     }
-
-    /// Only for testing purposes
-    /// This function is used to create a component without needing a WgpuCtx - Skipping any Animation data
-    pub fn build_for_test(mut self) -> Component {
-        let container_id = Uuid::new_v4();
-        let mut container = Component::new(container_id, ComponentType::Container);
-
-        self.apply_common_props_for_testing(&mut container);
-
-        container.layout.direction = self.direction;
-        container.layout.wrap = self.wrap;
-        container.layout.justify_content = self.justify_content;
-        container.layout.align_items = self.align_items;
-
-        // Apply scrolling properties
-        container.layout.is_scrollable = self.is_scrollable;
-        container.layout.scroll_orientation = self.scroll_orientation;
-
-        // Apply overflow settings
-        container.layout.overflow_x = self.overflow_x;
-        container.layout.overflow_y = self.overflow_y;
-
-        if let Some(parent_id) = self.parent_id {
-            container.set_parent(parent_id);
-        }
-
-        container
-    }
 }

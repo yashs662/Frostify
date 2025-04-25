@@ -652,8 +652,7 @@ impl LayoutContext {
         self.root_component_ids.clear();
     }
 
-    /// Used for testing purposes only
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn get_computed_bounds(&self) -> &BTreeMap<Uuid, Bounds> {
         &self.computed_bounds
     }
@@ -2087,37 +2086,37 @@ impl LayoutContext {
     }
 }
 
-fn calc_scale_anchor_offsets(
-    scale_anchor: Anchor,
-    original_width: f32,
-    original_height: f32,
-    scaled_width: f32,
-    scaled_height: f32,
-) -> (f32, f32) {
-    match scale_anchor {
-        Anchor::TopLeft => (0.0, 0.0),
-        Anchor::Top => ((original_width - scaled_width) / 2.0, 0.0),
-        Anchor::TopRight => (original_width - scaled_width, 0.0),
-        Anchor::Left => (0.0, (original_height - scaled_height) / 2.0),
-        Anchor::Center => (
-            (original_width - scaled_width) / 2.0,
-            (original_height - scaled_height) / 2.0,
-        ),
-        Anchor::Right => (
-            original_width - scaled_width,
-            (original_height - scaled_height) / 2.0,
-        ),
-        Anchor::BottomLeft => (0.0, original_height - scaled_height),
-        Anchor::Bottom => (
-            (original_width - scaled_width) / 2.0,
-            original_height - scaled_height,
-        ),
-        Anchor::BottomRight => (
-            original_width - scaled_width,
-            original_height - scaled_height,
-        ),
-    }
-}
+// fn calc_scale_anchor_offsets(
+//     scale_anchor: Anchor,
+//     original_width: f32,
+//     original_height: f32,
+//     scaled_width: f32,
+//     scaled_height: f32,
+// ) -> (f32, f32) {
+//     match scale_anchor {
+//         Anchor::TopLeft => (0.0, 0.0),
+//         Anchor::Top => ((original_width - scaled_width) / 2.0, 0.0),
+//         Anchor::TopRight => (original_width - scaled_width, 0.0),
+//         Anchor::Left => (0.0, (original_height - scaled_height) / 2.0),
+//         Anchor::Center => (
+//             (original_width - scaled_width) / 2.0,
+//             (original_height - scaled_height) / 2.0,
+//         ),
+//         Anchor::Right => (
+//             original_width - scaled_width,
+//             (original_height - scaled_height) / 2.0,
+//         ),
+//         Anchor::BottomLeft => (0.0, original_height - scaled_height),
+//         Anchor::Bottom => (
+//             (original_width - scaled_width) / 2.0,
+//             original_height - scaled_height,
+//         ),
+//         Anchor::BottomRight => (
+//             original_width - scaled_width,
+//             original_height - scaled_height,
+//         ),
+//     }
+// }
 
 // Implement From<f32> for FlexValue to allow for convenient conversions
 impl From<f32> for FlexValue {
