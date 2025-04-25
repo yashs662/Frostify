@@ -152,13 +152,14 @@ pub fn create_login_ui(
             },
             when: AnimationWhen::Hover,
         })
+        // TODO: un-comment this once scale anchors are working
         // .with_animation(AnimationConfig {
         //     duration: Duration::from_millis(200),
         //     easing: EasingFunction::EaseOutExpo,
         //     direction: AnimationDirection::Alternate,
         //     animation_type: AnimationType::Scale {
         //         from: 1.0,
-        //         to: 1.05,
+        //         to: 1.02,
         //     },
         //     when: AnimationWhen::Hover,
         // })
