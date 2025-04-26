@@ -3,13 +3,13 @@ use crate::ui::{
     ecs::{
         EntityId, World,
         components::{
-            AnimationComponent, BoundsComponent, FrostedGlassComponent, HierarchyComponent, 
-            IdentityComponent, InteractionComponent, LayoutComponent, RenderDataComponent, 
+            AnimationComponent, BoundsComponent, FrostedGlassComponent, HierarchyComponent,
+            IdentityComponent, InteractionComponent, LayoutComponent, RenderDataComponent,
             SliderComponent, TransformComponent, VisualComponent,
         },
         resources::{RenderOrderResource, ViewportResource},
     },
-    layout::{ComponentSize, LayoutContext},
+    layout::LayoutContext,
 };
 
 pub fn convert_component_to_entity(component: &Component, world: &mut World) -> EntityId {
@@ -67,9 +67,9 @@ pub fn convert_component_to_entity(component: &Component, world: &mut World) -> 
         VisualComponent {
             component_type: component.component_type,
             border_width: component.border_width,
-            border_color: component.border_color.clone(),
+            border_color: component.border_color,
             border_position: component.border_position,
-            shadow_color: component.shadow_color.clone(),
+            shadow_color: component.shadow_color,
             shadow_offset: component.shadow_offset,
             shadow_blur: component.shadow_blur,
             shadow_opacity: component.shadow_opacity,
@@ -126,7 +126,7 @@ pub fn convert_component_to_entity(component: &Component, world: &mut World) -> 
             world.add_component(
                 entity_id,
                 FrostedGlassComponent {
-                    tint_color: config.tint_color.clone(),
+                    tint_color: config.tint_color,
                     blur_radius: config.blur_radius,
                     opacity: config.opacity,
                     tint_intensity: config.tint_intensity,
@@ -232,11 +232,11 @@ pub fn update_global_viewport_resource(layout_context: &mut LayoutContext) {
 pub fn sync_render_order(layout_context: &mut LayoutContext) {
     // Get the render order from the layout context
     let render_order = layout_context.get_render_order().clone();
-    
+
     // Update or create the render order resource in the world
-    layout_context.world.add_resource(RenderOrderResource {
-        render_order,
-    });
+    layout_context
+        .world
+        .add_resource(RenderOrderResource { render_order });
 }
 
 // Hybrid draw method that avoids multiple mutable borrows

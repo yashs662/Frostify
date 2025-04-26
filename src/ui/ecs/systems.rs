@@ -79,12 +79,13 @@ pub struct RenderPrepareSystem;
 impl EcsSystem for RenderPrepareSystem {
     fn run(&mut self, world: &mut World) {
         // Get the render order from the resource, if available
-        let render_order = if let Some(render_order_resource) = world.get_resource::<RenderOrderResource>() {
-            render_order_resource.render_order.clone()
-        } else {
-            // Fallback to the old method if resource is not available
-            compute_fallback_render_order(world)
-        };
+        let render_order =
+            if let Some(render_order_resource) = world.get_resource::<RenderOrderResource>() {
+                render_order_resource.render_order.clone()
+            } else {
+                // Fallback to the old method if resource is not available
+                compute_fallback_render_order(world)
+            };
 
         // Create render groups similar to the original approach
         let mut render_groups = Vec::new();

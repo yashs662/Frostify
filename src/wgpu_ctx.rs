@@ -493,6 +493,7 @@ impl<'window> WgpuCtx<'window> {
 
         // Create a local clone of the device and frame_sample_view
         let device = &self.device;
+        let queue = &self.queue;
         let frame_sample_view = self.frame_sample_view.as_ref();
         let main_render_texture_view = self.main_render_view.as_ref().unwrap();
         let main_render_texture = &self.main_render_texture;
@@ -525,19 +526,29 @@ impl<'window> WgpuCtx<'window> {
             for entity_id in frosted_glass_entities {
                 // Get the required components and data
                 if let (Some(render_data), Some(_frosted_glass)) = (
-                    world.get_component::<crate::ui::ecs::components::RenderDataComponent>(entity_id),
-                    world.get_component::<crate::ui::ecs::components::FrostedGlassComponent>(entity_id),
+                    world.get_component::<crate::ui::ecs::components::RenderDataComponent>(
+                        entity_id,
+                    ),
+                    world.get_component::<crate::ui::ecs::components::FrostedGlassComponent>(
+                        entity_id,
+                    ),
                 ) {
                     // Extract resources needed to create a new bind group
-                    if let (Some(render_data_buffer), Some(sampler)) = (
-                        &render_data.render_data_buffer,
-                        &render_data.sampler
-                    ) {
+                    if let (Some(render_data_buffer), Some(sampler)) =
+                        (&render_data.render_data_buffer, &render_data.sampler)
+                    {
                         // Create bind group layout with the unified layout entries
-                        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                            entries: crate::constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-                            label: Some(format!("{} Updated ECS Frosted Glass Bind Group Layout", entity_id).as_str()),
-                        });
+                        let bind_group_layout =
+                            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                                entries: crate::constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+                                label: Some(
+                                    format!(
+                                        "{} Updated ECS Frosted Glass Bind Group Layout",
+                                        entity_id
+                                    )
+                                    .as_str(),
+                                ),
+                            });
 
                         // Create new bind group with the captured frame texture
                         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -556,7 +567,10 @@ impl<'window> WgpuCtx<'window> {
                                     resource: wgpu::BindingResource::Sampler(sampler),
                                 },
                             ],
-                            label: Some(format!("{} Updated ECS Frosted Glass Bind Group", entity_id).as_str()),
+                            label: Some(
+                                format!("{} Updated ECS Frosted Glass Bind Group", entity_id)
+                                    .as_str(),
+                            ),
                         });
 
                         // Update the bind group in the component
@@ -618,10 +632,7 @@ impl<'window> WgpuCtx<'window> {
                             });
 
                         // Extract entity data
-                        if let (Some(visual), Some(_bounds), Some(render_data)) = (
-                            world.get_component::<crate::ui::ecs::components::VisualComponent>(
-                                *entity_id,
-                            ),
+                        if let (Some(_bounds), Some(render_data)) = (
                             world.get_component::<crate::ui::ecs::components::BoundsComponent>(
                                 *entity_id,
                             ),
@@ -653,25 +664,28 @@ impl<'window> WgpuCtx<'window> {
             } else {
                 // Normal rendering logic - handle in a single pass
                 {
-                    let mut render_pass =
-                        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("ECS Render Pass"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: main_render_texture_view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: load_op,
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                            occlusion_query_set: None,
-                            timestamp_writes: None,
-                        });
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("ECS Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: main_render_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: load_op,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
 
                     if render_group.is_text {
-                        // For text rendering, just skip for now
-                        // We'll integrate with TextHandler later
+                        text_handler.render(
+                            device,
+                            queue,
+                            &mut render_pass,
+                            render_group.entity_ids.clone(),
+                        );
                     } else {
                         // Render each entity manually
                         for &entity_id in &render_group.entity_ids {
