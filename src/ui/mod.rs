@@ -35,11 +35,11 @@ pub mod color;
 pub mod component;
 pub mod component_update;
 pub mod components;
+pub mod ecs;
 pub mod img_utils;
 pub mod layout;
 pub mod text_renderer;
 pub mod z_index_manager;
-pub mod ecs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum UiView {
@@ -323,10 +323,10 @@ pub fn create_app_ui(
     main_container.add_child(app_container);
     main_container.add_child(player_container);
 
-    // main_container.add_child(border_demo_container);
-
     // Add components in the correct order
     layout_context.add_component(main_container);
+
+    convert_layout_context_to_world(layout_context);
 }
 
 fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -> Component {

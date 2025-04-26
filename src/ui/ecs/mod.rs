@@ -4,9 +4,9 @@ use std::fmt::Debug;
 use uuid::Uuid;
 
 pub mod components;
-pub mod systems;
 pub mod integration;
 pub mod resources;
+pub mod systems;
 
 pub type EntityId = Uuid;
 
@@ -79,41 +79,45 @@ impl World {
 
     pub fn add_component<T: EcsComponent>(&mut self, entity_id: EntityId, component: T) {
         let type_id = TypeId::of::<T>();
-        
-        let entity_map = self.components
-            .entry(type_id)
-            .or_insert_with(HashMap::new);
-            
+
+        let entity_map = self.components.entry(type_id).or_default();
+
         entity_map.insert(entity_id, Box::new(component));
     }
 
     pub fn get_component<T: EcsComponent + 'static>(&self, entity_id: EntityId) -> Option<&T> {
         let type_id = TypeId::of::<T>();
-        
-        self.components.get(&type_id)
+
+        self.components
+            .get(&type_id)
             .and_then(|entity_map| entity_map.get(&entity_id))
-            .and_then(|boxed_component| {
-                boxed_component.as_any().downcast_ref::<T>()
-            })
+            .and_then(|boxed_component| boxed_component.as_any().downcast_ref::<T>())
     }
 
-    pub fn get_component_mut<T: EcsComponent + 'static>(&mut self, entity_id: EntityId) -> Option<&mut T> {
+    pub fn get_component_mut<T: EcsComponent + 'static>(
+        &mut self,
+        entity_id: EntityId,
+    ) -> Option<&mut T> {
         let type_id = TypeId::of::<T>();
-        
-        self.components.get_mut(&type_id)
+
+        self.components
+            .get_mut(&type_id)
             .and_then(|entity_map| entity_map.get_mut(&entity_id))
-            .and_then(|boxed_component| {
-                boxed_component.as_any_mut().downcast_mut::<T>()
-            })
+            .and_then(|boxed_component| boxed_component.as_any_mut().downcast_mut::<T>())
     }
 
-    pub fn query_combined<T: EcsComponent + 'static, U: EcsComponent + 'static>(&self) -> Vec<(EntityId, &T, &U)> {
+    pub fn query_combined<T: EcsComponent + 'static, U: EcsComponent + 'static>(
+        &self,
+    ) -> Vec<(EntityId, &T, &U)> {
         let type_id_t = TypeId::of::<T>();
         let type_id_u = TypeId::of::<U>();
-        
+
         let mut result = Vec::new();
-        
-        if let (Some(t_map), Some(u_map)) = (self.components.get(&type_id_t), self.components.get(&type_id_u)) {
+
+        if let (Some(t_map), Some(u_map)) = (
+            self.components.get(&type_id_t),
+            self.components.get(&type_id_u),
+        ) {
             // Find entities that have both component types
             for (entity_id, t_component) in t_map {
                 if let Some(u_component) = u_map.get(entity_id) {
@@ -126,7 +130,7 @@ impl World {
                 }
             }
         }
-        
+
         result
     }
 
@@ -137,20 +141,18 @@ impl World {
 
     pub fn get_resource<T: EcsResource + 'static>(&self) -> Option<&T> {
         let type_id = TypeId::of::<T>();
-        
-        self.resources.get(&type_id)
-            .and_then(|boxed_resource| {
-                boxed_resource.as_any().downcast_ref::<T>()
-            })
+
+        self.resources
+            .get(&type_id)
+            .and_then(|boxed_resource| boxed_resource.as_any().downcast_ref::<T>())
     }
 
     pub fn get_resource_mut<T: EcsResource + 'static>(&mut self) -> Option<&mut T> {
         let type_id = TypeId::of::<T>();
-        
-        self.resources.get_mut(&type_id)
-            .and_then(|boxed_resource| {
-                boxed_resource.as_any_mut().downcast_mut::<T>()
-            })
+
+        self.resources
+            .get_mut(&type_id)
+            .and_then(|boxed_resource| boxed_resource.as_any_mut().downcast_mut::<T>())
     }
 
     pub fn run_system<S: EcsSystem>(&mut self, mut system: S) {
@@ -160,7 +162,7 @@ impl World {
     pub fn cleanup(&mut self) {
         for entity_id in &self.removed_entities {
             self.entities.retain(|e| e != entity_id);
-            for (_, entity_map) in &mut self.components {
+            for entity_map in self.components.values_mut() {
                 entity_map.remove(entity_id);
             }
         }
@@ -169,7 +171,7 @@ impl World {
 
     pub fn query<T: EcsComponent + 'static>(&self) -> Vec<(EntityId, &T)> {
         let type_id = TypeId::of::<T>();
-        
+
         let mut result = Vec::new();
         if let Some(entity_map) = self.components.get(&type_id) {
             for (entity_id, component) in entity_map {
@@ -183,7 +185,7 @@ impl World {
 
     pub fn query_mut<T: EcsComponent + 'static>(&mut self) -> Vec<(EntityId, &mut T)> {
         let type_id = TypeId::of::<T>();
-        
+
         let mut result = Vec::new();
         if let Some(entity_map) = self.components.get_mut(&type_id) {
             for (entity_id, component) in entity_map {

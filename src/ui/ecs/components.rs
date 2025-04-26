@@ -1,12 +1,9 @@
+use super::{EcsComponent, EntityId};
 use crate::ui::{
     color::Color,
-    layout::{
-        BorderRadius, ComponentOffset, ComponentPosition, ComponentSize, 
-        FlexValue, Layout, Position,
-    },
+    layout::{BorderRadius, ComponentOffset, ComponentSize, Layout, Position},
 };
 use std::any::Any;
-use super::{EntityId, EcsComponent};
 
 // Transform Component
 #[derive(Debug, Clone)]
@@ -86,43 +83,75 @@ pub struct IdentityComponent {
 
 // Implement EcsComponent for all components
 impl EcsComponent for TransformComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl EcsComponent for LayoutComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl EcsComponent for HierarchyComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl EcsComponent for VisualComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl EcsComponent for BoundsComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl EcsComponent for InteractionComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl EcsComponent for AnimationComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl EcsComponent for IdentityComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 // Special component types for specific behaviors
@@ -142,8 +171,12 @@ pub struct SliderComponent {
 }
 
 impl EcsComponent for SliderComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 // Render Data Component
@@ -155,6 +188,29 @@ pub struct RenderDataComponent {
 }
 
 impl EcsComponent for RenderDataComponent {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+// Frosted Glass Component - specialized component for frosted glass effects
+#[derive(Debug, Clone)]
+pub struct FrostedGlassComponent {
+    pub tint_color: Color,
+    pub blur_radius: f32,
+    pub opacity: f32,
+    pub tint_intensity: f32,
+    pub needs_frame_update: bool,
+}
+
+impl EcsComponent for FrostedGlassComponent {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }

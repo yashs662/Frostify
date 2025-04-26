@@ -25,6 +25,7 @@ pub struct SliderData {
     pub track_fill_id: Uuid,
     pub needs_update: bool,
     pub track_bounds: Option<Bounds>,
+    pub is_dragging: bool,
 }
 
 /// A specialized update for sliders that updates both thumb position and track fill
@@ -360,6 +361,7 @@ impl SliderBuilder {
             track_fill_id: track_fill.id,
             needs_update: false,
             track_bounds: None,
+            is_dragging: false,
         };
 
         container

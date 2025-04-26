@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
 
-use super::ecs::{integration::update_global_viewport_resource, World};
+use super::ecs::{World, integration::update_global_viewport_resource};
 
 #[derive(Debug, Clone)]
 pub struct ComponentOffset {

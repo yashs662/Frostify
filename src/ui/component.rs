@@ -67,6 +67,7 @@ pub struct Component {
     pub shadow_opacity: f32,
     pub clip_bounds: Option<(Bounds, bool, bool)>, // (bounds, clip_x, clip_y)
     pub clip_self: bool, // Whether this component should be clipped by its parent
+    pub track_bounds: Option<Bounds>, // For slider components - stores the track bounds
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -241,6 +242,7 @@ impl Component {
             shadow_opacity: 1.0,
             clip_bounds: None,
             clip_self: true, // Default to true - most components should be clipped
+            track_bounds: None,
         }
     }
 
@@ -1030,5 +1032,10 @@ impl Component {
             <Self as SliderBehavior>::reset_drag_state(self);
         }
         self.flag_for_update();
+    }
+
+    pub fn get_track_bounds(&self) -> Option<Bounds> {
+        // Return a copy of the stored track bounds
+        self.track_bounds
     }
 }

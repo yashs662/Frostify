@@ -1,13 +1,15 @@
 use crate::ui::{
-    component::{Component, ComponentType},
+    component::{Component, ComponentConfig, ComponentType},
     ecs::{
         EntityId, World,
         components::{
-            AnimationComponent, BoundsComponent, HierarchyComponent, IdentityComponent,
-            InteractionComponent, LayoutComponent, RenderDataComponent, SliderComponent,
-            TransformComponent, VisualComponent,
+            AnimationComponent, BoundsComponent, FrostedGlassComponent, HierarchyComponent, 
+            IdentityComponent, InteractionComponent, LayoutComponent, RenderDataComponent, 
+            SliderComponent, TransformComponent, VisualComponent,
         },
+        resources::{RenderOrderResource, ViewportResource},
     },
+    layout::{ComponentSize, LayoutContext},
 };
 
 pub fn convert_component_to_entity(component: &Component, world: &mut World) -> EntityId {
@@ -108,7 +110,7 @@ pub fn convert_component_to_entity(component: &Component, world: &mut World) -> 
         },
     );
 
-    // Add render data component
+    // Add render data component with GPU resources
     world.add_component(
         entity_id,
         RenderDataComponent {
@@ -118,16 +120,50 @@ pub fn convert_component_to_entity(component: &Component, world: &mut World) -> 
         },
     );
 
+    // If it's a frosted glass component, add specialized FrostedGlassComponent
+    if component.component_type == ComponentType::FrostedGlass {
+        if let Some(ComponentConfig::FrostedGlass(config)) = &component.config {
+            world.add_component(
+                entity_id,
+                FrostedGlassComponent {
+                    tint_color: config.tint_color.clone(),
+                    blur_radius: config.blur_radius,
+                    opacity: config.opacity,
+                    tint_intensity: config.tint_intensity,
+                    needs_frame_update: true,
+                },
+            );
+        }
+    }
+
+    // If it's a slider component, add SliderComponent data
+    if component.is_a_slider() {
+        if let Some(slider_data) = component.get_slider_data() {
+            world.add_component(
+                entity_id,
+                SliderComponent {
+                    value: slider_data.value,
+                    min: slider_data.min,
+                    max: slider_data.max,
+                    step: slider_data.step,
+                    thumb_id: slider_data.thumb_id,
+                    track_fill_id: slider_data.track_fill_id,
+                    track_bounds: component.get_track_bounds(),
+                    needs_update: component.needs_update(),
+                    is_dragging: slider_data.is_dragging,
+                },
+            );
+        }
+    }
+
     entity_id
 }
 
-pub fn convert_layout_context_to_world(layout_context: &mut crate::ui::layout::LayoutContext) {
+pub fn convert_layout_context_to_world(layout_context: &mut LayoutContext) {
     // Add resources
-    layout_context
-        .world
-        .add_resource(crate::ui::ecs::resources::ViewportResource {
-            size: layout_context.viewport_size,
-        });
+    layout_context.world.add_resource(ViewportResource {
+        size: layout_context.viewport_size,
+    });
 
     // Convert all components
     for (id, component) in layout_context.components.iter() {
@@ -135,36 +171,45 @@ pub fn convert_layout_context_to_world(layout_context: &mut crate::ui::layout::L
     }
 }
 
-// Gradually migrate systems but keep current layout functionality
+// Hybrid update method that runs ECS systems first, then updates traditional components
 pub fn hybrid_update(
-    layout_context: &mut crate::ui::layout::LayoutContext,
-    world: &mut World,
+    layout_context: &mut LayoutContext,
     wgpu_ctx: &mut crate::wgpu_ctx::WgpuCtx,
     frame_time: f32,
 ) {
-    // Run ECS systems first
-    world.run_system(crate::ui::ecs::systems::AnimationSystem { frame_time });
+    // Run ECS systems directly on the world contained in layout_context
+    {
+        let world = &mut layout_context.world;
+        world.run_system(crate::ui::ecs::systems::AnimationSystem { frame_time });
+    }
 
-    // Update traditional components using data from ECS
-    for (entity_id, anim_comp) in world.query::<AnimationComponent>() {
-        if anim_comp.needs_update {
-            if let Some(component) = layout_context.get_component_mut(&entity_id) {
-                // Sync data from ECS back to component
+    // First collect animation data from ECS in a separate step
+    let mut component_updates = Vec::new();
+    {
+        let world = &layout_context.world;
+        for (entity_id, anim_comp) in world.query::<AnimationComponent>() {
+            if anim_comp.needs_update {
                 if let Some(transform) = world.get_component::<TransformComponent>(entity_id) {
-                    component.transform.scale_factor = transform.scale_factor;
+                    component_updates.push((entity_id, transform.scale_factor));
                 }
-
-                // Call traditional update which will handle GPU updates
-                component.update(wgpu_ctx, frame_time);
             }
         }
     }
 
+    // Then apply the updates to components in a separate step
+    for (entity_id, scale_factor) in component_updates {
+        if let Some(component) = layout_context.get_component_mut(&entity_id) {
+            component.transform.scale_factor = scale_factor;
+            component.update(wgpu_ctx, frame_time);
+        }
+    }
+
     // Cleanup any removed entities
-    world.cleanup();
+    layout_context.world.cleanup();
 }
 
-pub fn sync_computed_bounds(layout_context: &mut crate::ui::layout::LayoutContext) {
+// Sync computed bounds from LayoutContext to ECS
+pub fn sync_computed_bounds(layout_context: &mut LayoutContext) {
     // Sync bounds back to ECS
     for (id, bounds) in layout_context.computed_bounds.iter() {
         if let Some(bounds_comp) = layout_context
@@ -176,11 +221,44 @@ pub fn sync_computed_bounds(layout_context: &mut crate::ui::layout::LayoutContex
     }
 }
 
-pub fn update_global_viewport_resource(layout_context: &mut crate::ui::layout::LayoutContext) {
-    if let Some(viewport_resource) = layout_context
-        .world
-        .get_resource_mut::<crate::ui::ecs::resources::ViewportResource>()
-    {
+// Update viewport resource in ECS when viewport changes
+pub fn update_global_viewport_resource(layout_context: &mut LayoutContext) {
+    if let Some(viewport_resource) = layout_context.world.get_resource_mut::<ViewportResource>() {
         viewport_resource.size = layout_context.viewport_size;
     }
+}
+
+// Sync render order from LayoutContext to ECS
+pub fn sync_render_order(layout_context: &mut LayoutContext) {
+    // Get the render order from the layout context
+    let render_order = layout_context.get_render_order().clone();
+    
+    // Update or create the render order resource in the world
+    layout_context.world.add_resource(RenderOrderResource {
+        render_order,
+    });
+}
+
+// Hybrid draw method that avoids multiple mutable borrows
+pub fn hybrid_draw(layout_context: &mut LayoutContext, wgpu_ctx: &mut crate::wgpu_ctx::WgpuCtx) {
+    // First ensure all render data is synced within layout_context
+    {
+        for (id, component) in &layout_context.components {
+            if let Some(render_data_comp) = layout_context
+                .world
+                .get_component_mut::<RenderDataComponent>(*id)
+            {
+                // Update render data if component has GPU resources
+                render_data_comp.render_data_buffer = component.get_render_data_buffer().cloned();
+                render_data_comp.bind_group = component.get_bind_group().cloned();
+                render_data_comp.sampler = component.get_sampler().cloned();
+            }
+        }
+    }
+
+    // Sync the render order from layout context to ECS world
+    sync_render_order(layout_context);
+
+    // Draw using ECS system
+    wgpu_ctx.draw_ecs(&mut layout_context.world);
 }

@@ -4,6 +4,9 @@ use crate::{
     core::worker::{Worker, WorkerResponse},
     ui::{
         UiView, create_app_ui, create_login_ui,
+        ecs::integration::{
+            convert_layout_context_to_world, hybrid_draw, hybrid_update, sync_computed_bounds,
+        },
         layout::{self, ComponentPosition, EventType},
     },
     wgpu_ctx::WgpuCtx,
@@ -473,6 +476,9 @@ impl ApplicationHandler for App<'_> {
             // Start with login UI by default
             create_login_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
 
+            // Convert all components to ECS entities
+            convert_layout_context_to_world(&mut self.layout_context);
+
             self.wgpu_ctx = Some(wgpu_ctx);
 
             // Check for stored tokens as soon as the app starts
@@ -484,8 +490,14 @@ impl ApplicationHandler for App<'_> {
 
             // Draw the first frame before making the window visible
             if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                self.layout_context.update_components(wgpu_ctx, 0.0);
-                wgpu_ctx.draw(&mut self.layout_context);
+                // Use hybrid update for animations
+                hybrid_update(&mut self.layout_context, wgpu_ctx, 0.0);
+
+                // Sync computed bounds to ECS
+                sync_computed_bounds(&mut self.layout_context);
+
+                // Use hybrid draw method - now properly handles borrows internally
+                hybrid_draw(&mut self.layout_context, wgpu_ctx);
 
                 // Now that we've drawn the first frame, make the window visible
                 if let Some(window) = &self.window {
@@ -540,9 +552,19 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    self.layout_context
-                        .update_components(wgpu_ctx, self.frame_counter.get_frame_time());
-                    wgpu_ctx.draw(&mut self.layout_context);
+                    // Use hybrid update for animations and state changes
+                    hybrid_update(
+                        &mut self.layout_context,
+                        wgpu_ctx,
+                        self.frame_counter.get_frame_time(),
+                    );
+
+                    // Sync computed bounds to ECS
+                    sync_computed_bounds(&mut self.layout_context);
+
+                    // Draw using hybrid approach (gradually transitioning to ECS)
+                    hybrid_draw(&mut self.layout_context, wgpu_ctx);
+
                     wgpu_ctx.text_handler.trim_atlas();
                 }
 
@@ -619,7 +641,7 @@ impl ApplicationHandler for App<'_> {
 
                         // Complete layout update and redraw
                         self.layout_context.update_components(wgpu_ctx, 0.0);
-                        wgpu_ctx.draw(&mut self.layout_context);
+                        wgpu_ctx.draw_ecs(&mut self.layout_context.world);
                         if let Some(window) = &self.window {
                             window.request_redraw();
                         }
