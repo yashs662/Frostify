@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 use winit::event::MouseButton;
 
+use super::ecs::{integration::update_global_viewport_resource, World};
+
 #[derive(Debug, Clone)]
 pub struct ComponentOffset {
     pub x: FlexValue,
@@ -249,10 +251,11 @@ pub enum Overflow {
 // LayoutContext to manage component relationships and computed layouts
 #[derive(Debug, Default)]
 pub struct LayoutContext {
-    components: BTreeMap<Uuid, Component>,
+    pub world: World,
+    pub components: BTreeMap<Uuid, Component>,
     root_component_ids: Vec<Uuid>,
-    computed_bounds: BTreeMap<Uuid, Bounds>,
-    viewport_size: ComponentSize,
+    pub computed_bounds: BTreeMap<Uuid, Bounds>,
+    pub viewport_size: ComponentSize,
     render_order: Vec<Uuid>,
     initialized: bool,
     z_index_manager: ZIndexManager,
@@ -640,6 +643,7 @@ struct SpacingData<'a> {
 impl LayoutContext {
     pub fn initialize(&mut self, width: f32, height: f32) {
         self.viewport_size = ComponentSize { width, height };
+        update_global_viewport_resource(self);
         self.initialized = true;
         self.compute_layout();
     }

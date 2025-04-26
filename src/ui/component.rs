@@ -48,7 +48,7 @@ pub struct Component {
     parent_id: Option<Uuid>,
     pub metadata: Vec<ComponentMetaData>,
     pub config: Option<ComponentConfig>,
-    screen_size: ComponentSize,
+    pub screen_size: ComponentSize,
     requires_children_extraction: bool,
     is_clickable: bool,
     is_draggable: bool,
@@ -246,10 +246,6 @@ impl Component {
 
     pub fn set_as_inactive(&mut self) {
         self.is_active = false;
-    }
-
-    pub fn set_as_active(&mut self) {
-        self.is_active = true;
     }
 
     pub fn is_active(&self) -> bool {

@@ -25,6 +25,7 @@ use crate::{
     wgpu_ctx::{AppPipelines, WgpuCtx},
 };
 use components::slider::SliderBuilder;
+use ecs::integration::convert_layout_context_to_world;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -38,6 +39,7 @@ pub mod img_utils;
 pub mod layout;
 pub mod text_renderer;
 pub mod z_index_manager;
+pub mod ecs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum UiView {
@@ -178,6 +180,8 @@ pub fn create_login_ui(
     main_container.add_child(sub_container);
 
     layout_context.add_component(main_container);
+
+    convert_layout_context_to_world(layout_context);
 }
 
 pub fn create_app_ui(

@@ -1,9 +1,6 @@
 use crate::{
     ui::{
-        component::ComponentType,
-        components::core::frosted_glass::FrostedGlassComponent,
-        layout::{ComponentSize, LayoutContext},
-        text_renderer::TextHandler,
+        component::ComponentType, components::core::frosted_glass::FrostedGlassComponent, ecs::systems::RenderSystem, layout::{ComponentSize, LayoutContext}, text_renderer::TextHandler
     },
     utils::create_unified_pipeline,
 };
@@ -453,6 +450,29 @@ impl<'window> WgpuCtx<'window> {
         // Let SMAA resolve the final image
         smaa_frame.resolve();
         surface_texture.present();
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("ecs::Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &surface_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        // layout_context.world.run_system(RenderSystem {
+        //     wgpu_ctx: self,
+        //     render_pass: &mut render_pass,
+        //     app_pipelines,
+        // });
     }
 
     fn capture_current_frame_texture(
