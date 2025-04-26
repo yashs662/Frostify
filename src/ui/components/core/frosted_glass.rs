@@ -1,13 +1,12 @@
 use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
-        Configurable, Positionable, Renderable,
+        Configurable, Positionable,
         component::{Component, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },
-    wgpu_ctx::{AppPipelines, WgpuCtx},
+    wgpu_ctx::WgpuCtx,
 };
-use log::error;
 use wgpu::util::DeviceExt;
 
 pub struct FrostedGlassComponent;
@@ -124,30 +123,6 @@ impl Configurable for FrostedGlassComponent {
     }
 }
 
-impl Renderable for FrostedGlassComponent {
-    fn draw(
-        component: &mut Component,
-        render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut AppPipelines,
-    ) {
-        let bind_group = component.get_bind_group();
-
-        if bind_group.is_none() {
-            error!(
-                "Required resources not found for frosted glass component id: {}, unable to draw",
-                component.id
-            );
-            return;
-        }
-
-        let bind_group = bind_group.unwrap();
-
-        render_pass.set_pipeline(&app_pipelines.unified_pipeline);
-        render_pass.set_bind_group(0, bind_group, &[]);
-        render_pass.draw(0..3, 0..1);
-    }
-}
-
 impl Positionable for FrostedGlassComponent {
     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds) {
         if let Some(render_data_buffer) = component.get_render_data_buffer() {
@@ -157,63 +132,5 @@ impl Positionable for FrostedGlassComponent {
                 bytemuck::cast_slice(&[component.get_render_data(bounds)]),
             );
         }
-    }
-}
-
-impl FrostedGlassComponent {
-    // Add a new method to update the bind group with the captured frame texture
-    pub fn update_with_frame_texture(
-        component: &mut Component,
-        device: &wgpu::Device,
-        frame_texture_view: &wgpu::TextureView,
-    ) -> bool {
-        // Get the existing resources
-        let render_data_buffer = match component.get_render_data_buffer() {
-            Some(buffer) => buffer,
-            None => {
-                error!("No render data buffer found for frosted glass component");
-                return false;
-            }
-        };
-
-        let sampler = match component.get_sampler() {
-            Some(sampler) => sampler,
-            None => {
-                error!("No sampler found for frosted glass component");
-                return false;
-            }
-        };
-
-        // Create new bind group with the captured frame texture
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-            label: Some(
-                format!("{} Updated Frosted Glass Bind Group Layout", component.id).as_str(),
-            ),
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: render_data_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(frame_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-            label: Some(format!("{} Updated Frosted Glass Bind Group", component.id).as_str()),
-        });
-
-        // Replace the old bind group with the new one
-        component.update_bind_group(bind_group);
-
-        true
     }
 }

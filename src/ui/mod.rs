@@ -22,7 +22,7 @@ use crate::{
             JustifyContent, Position,
         },
     },
-    wgpu_ctx::{AppPipelines, WgpuCtx},
+    wgpu_ctx::WgpuCtx,
 };
 use components::slider::SliderBuilder;
 use ecs::integration::convert_layout_context_to_world;
@@ -54,14 +54,6 @@ pub trait Configurable {
         config: ComponentConfig,
         wgpu_ctx: &mut WgpuCtx,
     ) -> Vec<ComponentMetaData>;
-}
-
-pub trait Renderable {
-    fn draw(
-        component: &mut Component,
-        render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut AppPipelines,
-    );
 }
 
 pub trait Positionable {

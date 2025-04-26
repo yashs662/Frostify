@@ -641,7 +641,7 @@ impl ApplicationHandler for App<'_> {
 
                         // Complete layout update and redraw
                         self.layout_context.update_components(wgpu_ctx, 0.0);
-                        wgpu_ctx.draw_ecs(&mut self.layout_context.world);
+                        wgpu_ctx.draw(&mut self.layout_context.world);
                         if let Some(window) = &self.window {
                             window.request_redraw();
                         }

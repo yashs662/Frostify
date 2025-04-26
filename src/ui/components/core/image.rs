@@ -1,13 +1,13 @@
 use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
-        Configurable, Positionable, Renderable,
+        Configurable, Positionable,
         component::{Component, ComponentConfig, ComponentMetaData},
         components::image::ScaleMode,
         img_utils::RgbaImg,
         layout::{Bounds, ComponentSize},
     },
-    wgpu_ctx::{AppPipelines, WgpuCtx},
+    wgpu_ctx::WgpuCtx,
 };
 use log::error;
 use wgpu::{SamplerDescriptor, util::DeviceExt};
@@ -147,31 +147,6 @@ pub struct ImageMetadata {
     pub original_width: u32,
     pub original_height: u32,
     pub scale_mode: ScaleMode,
-}
-
-impl Renderable for ImageComponent {
-    fn draw(
-        component: &mut Component,
-        render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut AppPipelines,
-    ) {
-        let bind_group = component.get_bind_group();
-
-        if bind_group.is_none() {
-            error!(
-                "Bind group not found for image component id: {}, unable to draw",
-                component.id
-            );
-            return;
-        }
-
-        // Use the color pipeline with our bind group
-        render_pass.set_pipeline(&app_pipelines.unified_pipeline);
-        render_pass.set_bind_group(0, bind_group.unwrap(), &[]);
-
-        // Draw full-screen triangle with the shader handling clipping
-        render_pass.draw(0..3, 0..1);
-    }
 }
 
 impl Positionable for ImageComponent {

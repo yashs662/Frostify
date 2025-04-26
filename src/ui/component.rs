@@ -1,7 +1,7 @@
 use crate::{
     app::AppEvent,
     ui::{
-        Configurable, Positionable, Renderable,
+        Configurable, Positionable,
         animation::{Animation, AnimationConfig, AnimationType, AnimationWhen},
         color::Color,
         components::{
@@ -19,7 +19,7 @@ use crate::{
             Layout,
         },
     },
-    wgpu_ctx::{AppPipelines, WgpuCtx},
+    wgpu_ctx::WgpuCtx,
 };
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
@@ -390,31 +390,6 @@ impl Component {
 
     pub fn is_hovered(&self) -> bool {
         self.is_hovered
-    }
-
-    pub fn draw(&mut self, render_pass: &mut wgpu::RenderPass, app_pipelines: &mut AppPipelines) {
-        if self.config.is_some() {
-            match self.component_type {
-                ComponentType::BackgroundColor => {
-                    BackgroundColorComponent::draw(self, render_pass, app_pipelines);
-                }
-                ComponentType::BackgroundGradient => {
-                    BackgroundGradientComponent::draw(self, render_pass, app_pipelines);
-                }
-                ComponentType::Text => {
-                    TextComponent::draw(self, render_pass, app_pipelines);
-                }
-                ComponentType::Image => {
-                    ImageComponent::draw(self, render_pass, app_pipelines);
-                }
-                ComponentType::FrostedGlass => {
-                    FrostedGlassComponent::draw(self, render_pass, app_pipelines);
-                }
-                ComponentType::Container => {
-                    // Containers are not drawn directly
-                }
-            }
-        }
     }
 
     pub fn configure(&mut self, config: ComponentConfig, wgpu_ctx: &mut WgpuCtx) {

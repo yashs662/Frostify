@@ -1,10 +1,5 @@
 use crate::{
-    ui::{
-        component::ComponentType,
-        components::core::frosted_glass::FrostedGlassComponent,
-        layout::{ComponentSize, LayoutContext},
-        text_renderer::TextHandler,
-    },
+    ui::{layout::ComponentSize, text_renderer::TextHandler},
     utils::create_unified_pipeline,
 };
 use smaa::{SmaaMode, SmaaTarget};
@@ -276,187 +271,8 @@ impl<'window> WgpuCtx<'window> {
         }
     }
 
-    pub fn draw(&mut self, layout_context: &mut LayoutContext) {
-        let surface_texture = if let Some(surface) = &self.surface {
-            surface
-                .get_current_texture()
-                .expect("Failed to acquire next swap chain texture")
-        } else {
-            panic!("Surface not initialized");
-        };
-
-        let surface_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        // Ensure we have render textures and resources
-        self.ensure_render_textures();
-        self.ensure_blit_sampler();
-        self.ensure_blit_bind_group_layout();
-        self.ensure_blit_pipeline();
-        self.ensure_blit_bind_group();
-
-        // Create SMAA frame with the final surface view as target
-        let smaa_frame = if let Some(smaa_target) = &mut self.smaa_target {
-            smaa_target.start_frame(&self.device, &self.queue, &surface_view)
-        } else {
-            panic!("SMAA target not initialized");
-        };
-
-        // Create main rendering encoder
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        // Render all components to the main render texture
-        // Pre-fetch resources we'll need
-        let device = &self.device;
-        let queue = &self.queue;
-        let frame_sample_view = self.frame_sample_view.as_ref();
-        let main_render_texture_view = self.main_render_view.as_ref().unwrap();
-        let main_render_texture = &self.main_render_texture;
-        let frame_sample_texture = &self.frame_sample_texture;
-        let text_handler = &mut self.text_handler;
-        let app_pipelines = &mut self.app_pipelines;
-        let surface_width = self.surface_config.width;
-        let surface_height = self.surface_config.height;
-
-        let render_groups = prepare_render_groups(layout_context);
-
-        for (idx, render_group) in render_groups.iter().enumerate() {
-            let load_op = if idx == 0 {
-                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-            } else {
-                wgpu::LoadOp::Load
-            };
-
-            if render_group.is_frosted_glass {
-                // Frosted glass rendering logic
-                if idx != 0 {
-                    WgpuCtx::capture_current_frame_texture(
-                        main_render_texture,
-                        frame_sample_texture,
-                        surface_width,
-                        surface_height,
-                        &mut encoder,
-                    );
-                }
-
-                for (frosted_idx, frosted_component) in
-                    render_group.component_ids.iter().enumerate()
-                {
-                    if let Some(component) = layout_context.get_component_mut(frosted_component) {
-                        if let Some(frame_view) = frame_sample_view {
-                            FrostedGlassComponent::update_with_frame_texture(
-                                component, device, frame_view,
-                            );
-                        }
-
-                        let mut render_pass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Frosted Glass Render Pass"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: main_render_texture_view,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: if frosted_idx == 0 && idx == 0 {
-                                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-                                        } else {
-                                            wgpu::LoadOp::Load
-                                        },
-                                        store: wgpu::StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: None,
-                                occlusion_query_set: None,
-                                timestamp_writes: None,
-                            });
-
-                        layout_context.draw_single(
-                            &mut render_pass,
-                            app_pipelines,
-                            frosted_component,
-                        );
-                    }
-
-                    if frosted_idx != render_group.component_ids.len() - 1 {
-                        WgpuCtx::capture_current_frame_texture(
-                            main_render_texture,
-                            frame_sample_texture,
-                            surface_width,
-                            surface_height,
-                            &mut encoder,
-                        );
-                    }
-                }
-            } else {
-                // Normal rendering logic
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Progressive Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: main_render_texture_view, // Render to SMAA color target
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: load_op,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-
-                if render_group.is_text {
-                    text_handler.render(
-                        device,
-                        queue,
-                        &mut render_pass,
-                        render_group.component_ids.clone(),
-                    );
-                } else {
-                    layout_context.draw_group(
-                        &mut render_pass,
-                        app_pipelines,
-                        render_group.component_ids.clone(),
-                    );
-                }
-            }
-        }
-
-        let blit_pipeline = self.app_pipelines.blit_pipeline.as_ref().unwrap();
-        let bind_group = self.blit_bind_group.as_ref().unwrap();
-
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Final Surface Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &smaa_frame,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_pipeline(blit_pipeline);
-            render_pass.set_bind_group(0, bind_group, &[]);
-            render_pass.draw(0..6, 0..1); // Draw two triangles (a quad)
-        }
-
-        // Submit main rendering commands
-        self.queue.submit(Some(encoder.finish()));
-
-        // Let SMAA resolve the final image
-        smaa_frame.resolve();
-        surface_texture.present();
-    }
-
     /// Draw the UI using the ECS system approach
-    pub fn draw_ecs(&mut self, world: &mut crate::ui::ecs::World) {
+    pub fn draw(&mut self, world: &mut crate::ui::ecs::World) {
         let surface_texture = if let Some(surface) = &self.surface {
             surface
                 .get_current_texture()
@@ -644,7 +460,7 @@ impl<'window> WgpuCtx<'window> {
                             if let Some(bind_group) = &render_data.bind_group {
                                 render_pass.set_pipeline(&app_pipelines.unified_pipeline);
                                 render_pass.set_bind_group(0, bind_group, &[]);
-                                render_pass.draw(0..6, 0..1);
+                                render_pass.draw(0..3, 0..1);
                             }
                         }
                     }
@@ -915,13 +731,13 @@ impl<'window> WgpuCtx<'window> {
     ) {
         if let (Some(main_tex), Some(frame_tex)) = (main_render_texture, frame_sample_texture) {
             encoder.copy_texture_to_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: main_tex,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: frame_tex,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
@@ -935,57 +751,4 @@ impl<'window> WgpuCtx<'window> {
             );
         }
     }
-}
-
-struct RenderGroup {
-    component_ids: Vec<uuid::Uuid>,
-    is_frosted_glass: bool,
-    is_text: bool,
-}
-
-fn prepare_render_groups(layout_context: &mut LayoutContext) -> Vec<RenderGroup> {
-    let render_order = layout_context.get_render_order().clone();
-
-    let mut result = Vec::new();
-    let mut current_group = RenderGroup {
-        component_ids: Vec::new(),
-        is_frosted_glass: false,
-        is_text: false,
-    };
-
-    for component_id in render_order {
-        let Some(component) = layout_context.get_component(&component_id) else {
-            continue;
-        };
-
-        if component.component_type == ComponentType::Container || !component.is_active() {
-            continue;
-        }
-
-        let is_frosted = component.is_frosted_component();
-        let is_text = component.is_text_component();
-
-        // Check if we need to start a new group
-        if (is_frosted != current_group.is_frosted_glass || is_text != current_group.is_text)
-            && !current_group.component_ids.is_empty()
-        {
-            result.push(current_group);
-            current_group = RenderGroup {
-                component_ids: Vec::new(),
-                is_frosted_glass: is_frosted,
-                is_text,
-            };
-        } else if current_group.component_ids.is_empty() {
-            current_group.is_frosted_glass = is_frosted;
-            current_group.is_text = is_text;
-        }
-
-        current_group.component_ids.push(component_id);
-    }
-
-    if !current_group.component_ids.is_empty() {
-        result.push(current_group);
-    }
-
-    result
 }

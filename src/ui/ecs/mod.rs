@@ -70,13 +70,6 @@ impl World {
         entity_id
     }
 
-    pub fn delete_entity(&mut self, entity_id: EntityId) {
-        if let Some(generation) = self.entity_generations.get_mut(&entity_id) {
-            *generation += 1;
-            self.removed_entities.push(entity_id);
-        }
-    }
-
     pub fn add_component<T: EcsComponent>(&mut self, entity_id: EntityId, component: T) {
         let type_id = TypeId::of::<T>();
 
@@ -176,20 +169,6 @@ impl World {
         if let Some(entity_map) = self.components.get(&type_id) {
             for (entity_id, component) in entity_map {
                 if let Some(typed_component) = component.as_any().downcast_ref::<T>() {
-                    result.push((*entity_id, typed_component));
-                }
-            }
-        }
-        result
-    }
-
-    pub fn query_mut<T: EcsComponent + 'static>(&mut self) -> Vec<(EntityId, &mut T)> {
-        let type_id = TypeId::of::<T>();
-
-        let mut result = Vec::new();
-        if let Some(entity_map) = self.components.get_mut(&type_id) {
-            for (entity_id, component) in entity_map {
-                if let Some(typed_component) = component.as_any_mut().downcast_mut::<T>() {
                     result.push((*entity_id, typed_component));
                 }
             }

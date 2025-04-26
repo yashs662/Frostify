@@ -6,7 +6,7 @@ use crate::{
         components::slider::SliderBehavior,
         z_index_manager::ZIndexManager,
     },
-    wgpu_ctx::{AppPipelines, WgpuCtx},
+    wgpu_ctx::WgpuCtx,
 };
 use log::{error, trace};
 use std::collections::BTreeMap;
@@ -661,17 +661,6 @@ impl LayoutContext {
         &self.computed_bounds
     }
 
-    pub fn draw_group(
-        &mut self,
-        render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut AppPipelines,
-        group: Vec<Uuid>,
-    ) {
-        for id in group {
-            self.draw_single(render_pass, app_pipelines, &id);
-        }
-    }
-
     pub fn update_components(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
         let mut updates = Vec::new();
         let mut needs_relayout = false;
@@ -713,38 +702,6 @@ impl LayoutContext {
 
         if needs_relayout {
             self.compute_layout_and_update_components(wgpu_ctx);
-        }
-    }
-
-    // Helper method to draw a single component by ID
-    pub fn draw_single(
-        &mut self,
-        render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut AppPipelines,
-        component_id: &Uuid,
-    ) {
-        if let Some(component) = self.components.get_mut(component_id) {
-            if !component.requires_to_be_drawn() {
-                return;
-            }
-
-            if self.computed_bounds.contains_key(component_id) {
-                // Update the component's z-index with the computed value from manager
-                let computed_z = self.z_index_manager.get_z_index(component_id);
-                component.transform.z_index = computed_z;
-
-                component.draw(render_pass, app_pipelines);
-            } else {
-                error!(
-                    "Computed bounds not found for component id: {}, unable to draw single component",
-                    component_id
-                );
-            }
-        } else {
-            error!(
-                "Component with id: {} not found for single rendering",
-                component_id
-            );
         }
     }
 

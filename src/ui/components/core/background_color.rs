@@ -1,13 +1,12 @@
 use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
-        Configurable, Positionable, Renderable,
+        Configurable, Positionable,
         component::{Component, ComponentConfig, ComponentMetaData},
         layout::Bounds,
     },
-    wgpu_ctx::{AppPipelines, WgpuCtx},
+    wgpu_ctx::WgpuCtx,
 };
-use log::error;
 use wgpu::util::DeviceExt;
 
 pub struct BackgroundColorComponent;
@@ -115,31 +114,6 @@ impl Configurable for BackgroundColorComponent {
             ComponentMetaData::BindGroup(bind_group),
             ComponentMetaData::RenderDataBuffer(render_data_buffer),
         ]
-    }
-}
-
-impl Renderable for BackgroundColorComponent {
-    fn draw(
-        component: &mut Component,
-        render_pass: &mut wgpu::RenderPass,
-        app_pipelines: &mut AppPipelines,
-    ) {
-        let bind_group = component.get_bind_group();
-
-        if bind_group.is_none() {
-            error!(
-                "Bind group not found for component id: {}, unable to draw",
-                component.id
-            );
-            return;
-        }
-
-        let bind_group = bind_group.unwrap();
-
-        render_pass.set_pipeline(&app_pipelines.unified_pipeline);
-        render_pass.set_bind_group(0, bind_group, &[]);
-        // Draw a single triangle that covers the whole screen
-        render_pass.draw(0..3, 0..1);
     }
 }
 

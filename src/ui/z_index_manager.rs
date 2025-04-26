@@ -59,15 +59,6 @@ impl ZIndexManager {
         self.dirty = true;
     }
 
-    /// Get the computed absolute z-index for a component
-    pub fn get_z_index(&mut self, component_id: &Uuid) -> i32 {
-        if self.dirty {
-            self.compute_all_z_indices();
-        }
-
-        *self.computed_indices.get(component_id).unwrap_or(&0)
-    }
-
     /// Compute z-indices for all registered components
     fn compute_all_z_indices(&mut self) {
         self.computed_indices.clear();

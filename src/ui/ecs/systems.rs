@@ -1,6 +1,5 @@
 use crate::ui::component::ComponentType;
 use crate::ui::ecs::{EcsSystem, World, components::*, resources::RenderOrderResource};
-use crate::wgpu_ctx::WgpuCtx;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -188,7 +187,6 @@ impl crate::ui::ecs::EcsResource for RenderGroupsResource {
 }
 
 pub struct RenderSystem<'a> {
-    pub wgpu_ctx: &'a mut WgpuCtx<'a>,
     pub render_pass: &'a mut wgpu::RenderPass<'a>,
     pub app_pipelines: &'a mut crate::wgpu_ctx::AppPipelines,
 }
@@ -196,20 +194,17 @@ pub struct RenderSystem<'a> {
 impl EcsSystem for RenderSystem<'_> {
     fn run(&mut self, world: &mut World) {
         // Render entities based on their component types
-        let visual_entities = world.query_combined::<VisualComponent, BoundsComponent>();
+        let visual_entities = world.query::<VisualComponent>();
 
         // Create a mapping of entity ID to its components for quick access
-        let visual_map: HashMap<_, _> = visual_entities
-            .into_iter()
-            .map(|(id, visual, bounds)| (id, (visual, bounds)))
-            .collect();
+        let visual_map: HashMap<_, _> = visual_entities.into_iter().collect();
 
         // Get the render groups
         if let Some(render_groups) = world.get_resource::<RenderGroupsResource>() {
             for group in &render_groups.groups {
                 for &entity_id in &group.entity_ids {
-                    if let Some((visual, bounds)) = visual_map.get(&entity_id) {
-                        self.render_entity(entity_id, visual, bounds, world);
+                    if let Some(visual) = visual_map.get(&entity_id) {
+                        self.render_entity(entity_id, visual, world);
                     }
                 }
             }
@@ -218,13 +213,7 @@ impl EcsSystem for RenderSystem<'_> {
 }
 
 impl RenderSystem<'_> {
-    pub fn render_entity(
-        &mut self,
-        entity_id: Uuid,
-        visual: &VisualComponent,
-        bounds: &BoundsComponent,
-        world: &World,
-    ) {
+    pub fn render_entity(&mut self, entity_id: Uuid, visual: &VisualComponent, world: &World) {
         // Skip if not visible
         if !visual.is_visible {
             return;

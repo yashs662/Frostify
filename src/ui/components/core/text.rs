@@ -1,11 +1,11 @@
 use crate::{
     ui::{
-        Configurable, Positionable, Renderable,
+        Configurable, Positionable,
         component::{Component, ComponentConfig, ComponentMetaData},
         layout::{Bounds, ComponentPosition, ComponentSize},
         text_renderer::OptionalTextUpdateData,
     },
-    wgpu_ctx::{AppPipelines, WgpuCtx},
+    wgpu_ctx::WgpuCtx,
 };
 use log::debug;
 
@@ -30,16 +30,6 @@ impl Configurable for TextComponent {
         );
 
         vec![]
-    }
-}
-
-impl Renderable for TextComponent {
-    fn draw(
-        _component: &mut Component,
-        _render_pass: &mut wgpu::RenderPass,
-        _app_pipelines: &mut AppPipelines,
-    ) {
-        // Text rendering is done in a separate pass
     }
 }
 

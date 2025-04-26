@@ -260,5 +260,5 @@ pub fn hybrid_draw(layout_context: &mut LayoutContext, wgpu_ctx: &mut crate::wgp
     sync_render_order(layout_context);
 
     // Draw using ECS system
-    wgpu_ctx.draw_ecs(&mut layout_context.world);
+    wgpu_ctx.draw(&mut layout_context.world);
 }
