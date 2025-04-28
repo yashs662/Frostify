@@ -1,66 +1,224 @@
-use crate::ui::component::ComponentType;
-use crate::ui::ecs::{EcsSystem, World, components::*, resources::RenderOrderResource};
-use std::collections::HashMap;
-use uuid::Uuid;
+use super::resources::{MousePositionResource, RenderGroupsResource};
+use crate::ui::{
+    animation::{AnimationDirection, AnimationType, AnimationWhen},
+    color::Color,
+    ecs::{
+        BorderPosition, ComponentType, EcsSystem, EntityId, RenderBufferData, World,
+        components::*,
+        resources::{RenderOrderResource, WgpuQueueResource},
+    },
+    layout::{Bounds, ClipBounds, ComponentPosition},
+};
 
 pub struct AnimationSystem {
     pub frame_time: f32,
 }
 
+// Animation update data to be collected in first pass
+struct AnimationUpdateData {
+    entity_id: EntityId,
+    update_type: AnimationUpdateType,
+    animation_index: usize,
+    raw_progress: f32,
+}
+
+// Types of updates to perform in second pass
+enum AnimationUpdateType {
+    Scale { scale_factor: f32 },
+    Color { color: Color },
+    FrostedGlass { tint_color: Color },
+}
+
 impl EcsSystem for AnimationSystem {
     fn run(&mut self, world: &mut World) {
-        let entities_with_animation =
-            world.query_combined::<AnimationComponent, InteractionComponent>();
-        let mut entities_to_update = Vec::new();
+        // First pass: Collect animation updates without mutating components
+        let mut updates = Vec::new();
 
-        // First pass: collect entities that need update
-        for (entity_id, anim_comp, interaction) in entities_with_animation {
-            let need_update =
-                anim_comp.needs_update || (interaction.is_hoverable && interaction.is_hovered);
+        // Get relevant entities and build update list
+        {
+            let entities_with_animation =
+                world.query_combined_2::<AnimationComponent, VisualComponent>();
 
-            if need_update {
-                entities_to_update.push((entity_id, interaction.is_hovered));
+            for (entity_id, anim_comp, visual_comp) in entities_with_animation {
+                if !visual_comp.is_visible {
+                    continue;
+                }
+
+                // Get interaction state if this component is interactive
+                let (is_hovered, is_clicked) = world
+                    .get_component::<InteractionComponent>(entity_id)
+                    .map(|interaction| (interaction.is_hovered, interaction.is_clicked))
+                    .unwrap_or((false, false));
+
+                // Process each animation
+                for (index, animation) in anim_comp.animations.iter().enumerate() {
+                    let should_animate_forward = match animation.config.when {
+                        AnimationWhen::Hover => is_hovered,
+                        AnimationWhen::OnClick => is_clicked,
+                        AnimationWhen::Forever => true,
+                    };
+
+                    // Calculate delta based on frame time and duration
+                    let delta = self.frame_time / animation.config.duration.as_secs_f32();
+
+                    // Calculate the raw progress value based on animation direction
+                    let raw_progress = match animation.config.direction {
+                        AnimationDirection::Forward => {
+                            if should_animate_forward {
+                                (animation.progress + delta).min(1.0)
+                            } else {
+                                0.0 // Instant reset
+                            }
+                        }
+                        AnimationDirection::Backward => {
+                            if should_animate_forward {
+                                1.0 // Instant full
+                            } else {
+                                (animation.progress - delta).max(0.0)
+                            }
+                        }
+                        AnimationDirection::Alternate => {
+                            if should_animate_forward {
+                                (animation.progress + delta).min(1.0)
+                            } else {
+                                (animation.progress - delta).max(0.0)
+                            }
+                        }
+                        AnimationDirection::AlternateReverse => {
+                            if should_animate_forward {
+                                (animation.progress - delta).max(0.0)
+                            } else {
+                                (animation.progress + delta).min(1.0)
+                            }
+                        }
+                    };
+
+                    // Apply easing to the calculated raw progress
+                    let eased_progress = animation.config.easing.compute(raw_progress);
+                    let should_process = should_animate_forward || raw_progress > 0.0;
+
+                    if !should_process {
+                        continue;
+                    }
+
+                    // Process different animation types and collect updates
+                    match &animation.config.animation_type {
+                        AnimationType::Scale { from, to, .. } => {
+                            let scale = from + (to - from) * eased_progress;
+                            let transform =
+                                world.get_component::<TransformComponent>(entity_id).expect(
+                                    "Expected TransformComponent to be present, while trying to update scale animation",
+                                );
+                            if (transform.scale_factor - scale).abs() > 0.001 {
+                                updates.push(AnimationUpdateData {
+                                    entity_id,
+                                    update_type: AnimationUpdateType::Scale {
+                                        scale_factor: scale,
+                                    },
+                                    animation_index: index,
+                                    raw_progress,
+                                });
+                            }
+                        }
+                        AnimationType::Color { from, to } => {
+                            let color = from.lerp(to, eased_progress);
+                            updates.push(AnimationUpdateData {
+                                entity_id,
+                                update_type: AnimationUpdateType::Color { color },
+                                animation_index: index,
+                                raw_progress,
+                            });
+                        }
+                        AnimationType::FrostedGlassTint { from, to } => {
+                            let tint_color = from.lerp(to, eased_progress);
+                            updates.push(AnimationUpdateData {
+                                entity_id,
+                                update_type: AnimationUpdateType::FrostedGlass { tint_color },
+                                animation_index: index,
+                                raw_progress,
+                            });
+                        }
+                    }
+                }
             }
         }
 
-        // Second pass: process animations
-        for (entity_id, is_hovered) in entities_to_update {
-            let mut scale_changed = false;
-            let mut tint_changed = false;
-            let mut color_changed = false;
+        let mut updated_render_datas = Vec::new();
 
-            // Process animation
-            if let Some(anim_comp) = world.get_component_mut::<AnimationComponent>(entity_id) {
-                for animation in &mut anim_comp.animations {
-                    let progress = animation.update(self.frame_time, is_hovered);
-
-                    // Process different animation types
-                    match &animation.config.animation_type {
-                        crate::ui::animation::AnimationType::Scale { .. } => {
-                            scale_changed = true;
+        // Second pass: Apply all collected updates and calculate new render buffer data
+        for update in updates {
+            match update.update_type {
+                AnimationUpdateType::Scale { scale_factor } => {
+                    if let Some(transform) =
+                        world.get_component_mut::<TransformComponent>(update.entity_id)
+                    {
+                        transform.scale_factor = scale_factor;
+                    }
+                    if let Some(AnimationComponent { animations, .. }) =
+                        world.get_component_mut::<AnimationComponent>(update.entity_id)
+                    {
+                        if update.animation_index < animations.len() {
+                            // Update the raw progress value, not the eased one
+                            animations[update.animation_index].progress = update.raw_progress;
                         }
-                        crate::ui::animation::AnimationType::FrostedGlassTint { .. } => {
-                            tint_changed = true;
+                    }
+                }
+                AnimationUpdateType::Color { color } => {
+                    if let Some(color_component) =
+                        world.get_component_mut::<ColorComponent>(update.entity_id)
+                    {
+                        color_component.color = color;
+                    }
+                    if let Some(AnimationComponent { animations, .. }) =
+                        world.get_component_mut::<AnimationComponent>(update.entity_id)
+                    {
+                        if update.animation_index < animations.len() {
+                            // Update the raw progress value, not the eased one
+                            animations[update.animation_index].progress = update.raw_progress;
                         }
-                        crate::ui::animation::AnimationType::Color { .. } => {
-                            color_changed = true;
+                    }
+                }
+                AnimationUpdateType::FrostedGlass { tint_color } => {
+                    if let Some(frosted_glass) =
+                        world.get_component_mut::<FrostedGlassComponent>(update.entity_id)
+                    {
+                        frosted_glass.tint_color = tint_color;
+                    }
+                    if let Some(AnimationComponent { animations, .. }) =
+                        world.get_component_mut::<AnimationComponent>(update.entity_id)
+                    {
+                        if update.animation_index < animations.len() {
+                            // Update the raw progress value, not the eased one
+                            animations[update.animation_index].progress = update.raw_progress;
                         }
                     }
                 }
             }
 
-            // Apply animation effects
-            if scale_changed {
-                // Handle scale changes
-            }
+            updated_render_datas.push((
+                update.entity_id,
+                create_component_buffer_data(world, update.entity_id),
+            ));
+        }
 
-            if tint_changed {
-                // Handle tint changes
-            }
+        // Third pass: Update render data buffers
+        let device_queue = world
+            .get_resource::<WgpuQueueResource>()
+            .expect("Expected WgpuQueueResource to be present, while updating animation");
 
-            if color_changed {
-                // Handle color changes
-            }
+        for (entity_id, render_data) in updated_render_datas {
+            let render_data_comp = world
+                .get_component::<RenderDataComponent>(entity_id)
+                .expect("Expected RenderDataComponent to be present, while updating animation");
+
+            device_queue.queue.write_buffer(
+                render_data_comp
+                    .render_data_buffer
+                    .as_ref()
+                    .expect("RenderDataComponent should have a valid render data buffer"),
+                0,
+                bytemuck::cast_slice(&[render_data]),
+            );
         }
     }
 }
@@ -68,7 +226,7 @@ impl EcsSystem for AnimationSystem {
 // Define render group structure for ECS rendering
 #[derive(Debug, Clone)]
 pub struct RenderGroup {
-    pub entity_ids: Vec<Uuid>,
+    pub entity_ids: Vec<EntityId>,
     pub is_frosted_glass: bool,
     pub is_text: bool,
 }
@@ -78,13 +236,10 @@ pub struct RenderPrepareSystem;
 impl EcsSystem for RenderPrepareSystem {
     fn run(&mut self, world: &mut World) {
         // Get the render order from the resource, if available
-        let render_order =
-            if let Some(render_order_resource) = world.get_resource::<RenderOrderResource>() {
-                render_order_resource.render_order.clone()
-            } else {
-                // Fallback to the old method if resource is not available
-                compute_fallback_render_order(world)
-            };
+        let render_order_resource = world
+            .get_resource::<RenderOrderResource>()
+            .expect("Expected RenderOrderResource to be present, while trying to get render order");
+        let render_order = &render_order_resource.render_order;
 
         // Create render groups similar to the original approach
         let mut render_groups = Vec::new();
@@ -96,11 +251,16 @@ impl EcsSystem for RenderPrepareSystem {
 
         for component_id in render_order {
             // Get visual and identity components
-            let Some(identity) = world.get_component::<IdentityComponent>(component_id) else {
+            let Some(identity) = world.get_component::<IdentityComponent>(*component_id) else {
+                log::error!(
+                    "Failed to get IdentityComponent for entity: {}",
+                    component_id
+                );
                 continue;
             };
 
-            let Some(visual) = world.get_component::<VisualComponent>(component_id) else {
+            let Some(visual) = world.get_component::<VisualComponent>(*component_id) else {
+                log::error!("Failed to get VisualComponent for entity: {}", component_id);
                 continue;
             };
 
@@ -127,7 +287,7 @@ impl EcsSystem for RenderPrepareSystem {
                 current_group.is_text = is_text;
             }
 
-            current_group.entity_ids.push(component_id);
+            current_group.entity_ids.push(*component_id);
         }
 
         // Add the last group if not empty
@@ -136,136 +296,325 @@ impl EcsSystem for RenderPrepareSystem {
         }
 
         // Store render groups as a resource
-        world.add_resource(RenderGroupsResource {
-            groups: render_groups,
+        let render_groups_resource = world
+            .get_resource_mut::<RenderGroupsResource>()
+            .expect("Expected RenderGroupsResource to be present");
+        render_groups_resource.groups = render_groups;
+    }
+}
+
+pub struct ComponentHoverSystem;
+
+impl EcsSystem for ComponentHoverSystem {
+    fn run(&mut self, world: &mut World) {
+        // Get the mouse position from the resource
+        let mouse_position = world
+            .get_resource::<MousePositionResource>()
+            .expect("Expected MousePositionResource to be present");
+
+        let interactive_entities =
+            world.query_combined_3::<BoundsComponent, InteractionComponent, VisualComponent>();
+
+        let mut hovered_entities = Vec::new();
+
+        for (entity_id, bounds_comp, interaction_comp, visual_comp) in interactive_entities {
+            // Check if the entity is visible
+            if visual_comp.is_visible && interaction_comp.is_hoverable {
+                // Check if the mouse is within the bounds of the entity
+                if is_hit(
+                    bounds_comp.computed_bounds,
+                    bounds_comp.clip_bounds,
+                    mouse_position.position,
+                ) {
+                    hovered_entities.push(entity_id);
+                }
+            }
+        }
+
+        world.for_each_component_mut::<InteractionComponent, _>(|id, interaction_comp| {
+            interaction_comp.is_hovered = hovered_entities.contains(&id);
         });
     }
 }
 
-// Fallback method for calculating render order when render_order resource is not available
-fn compute_fallback_render_order(world: &World) -> Vec<Uuid> {
-    // Get all visible components with visual and identity components
-    let entities = world.query_combined::<VisualComponent, IdentityComponent>();
+fn is_hit(
+    computed_bounds: Bounds,
+    clip_bounds: Option<ClipBounds>,
+    mouse_position: ComponentPosition,
+) -> bool {
+    let x = mouse_position.x;
+    let y = mouse_position.y;
 
-    // Filter entities and convert to a Vec for sorting and processing
-    let mut visible_entities: Vec<_> = entities
-        .into_iter()
-        .filter(|(_, visual, _)| visual.is_visible)
-        .map(|(entity_id, _, _)| entity_id)
-        .collect();
-
-    // Sort by z-index
-    let mut z_index_map = HashMap::new();
-    for &entity_id in &visible_entities {
-        if let Some(transform) = world.get_component::<TransformComponent>(entity_id) {
-            z_index_map.insert(entity_id, transform.z_index);
+    // Check if clipped
+    if let Some(clip_bounds) = &clip_bounds {
+        if clip_bounds.clip_x
+            && (x < clip_bounds.bounds.position.x
+                || x > clip_bounds.bounds.position.x + clip_bounds.bounds.size.width)
+        {
+            return false;
+        }
+        if clip_bounds.clip_y
+            && (y < clip_bounds.bounds.position.y
+                || y > clip_bounds.bounds.position.y + clip_bounds.bounds.size.height)
+        {
+            return false;
         }
     }
 
-    visible_entities.sort_by(|&a_id, &b_id| {
-        let a_z = z_index_map.get(&a_id).copied().unwrap_or(0);
-        let b_z = z_index_map.get(&b_id).copied().unwrap_or(0);
-        a_z.cmp(&b_z)
-    });
-
-    visible_entities
+    x >= computed_bounds.position.x
+        && x <= computed_bounds.position.x + computed_bounds.size.width
+        && y >= computed_bounds.position.y
+        && y <= computed_bounds.position.y + computed_bounds.size.height
 }
 
-// Resource to store render groups
-pub struct RenderGroupsResource {
-    pub groups: Vec<RenderGroup>,
-}
+pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> RenderBufferData {
+    // Necessary components for rendering
+    let bounds_comp = world
+        .get_component::<BoundsComponent>(entity_id)
+        .expect("Failed to get BoundsComponent");
+    let visual_comp = world
+        .get_component::<VisualComponent>(entity_id)
+        .expect("Failed to get VisualComponent");
+    let identity_comp = world
+        .get_component::<IdentityComponent>(entity_id)
+        .expect("Failed to get IdentityComponent");
 
-impl crate::ui::ecs::EcsResource for RenderGroupsResource {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
+    let default_color = [1.0, 0.0, 1.0, 1.0];
+    let position = [
+        bounds_comp.computed_bounds.position.x,
+        bounds_comp.computed_bounds.position.y,
+    ];
+    let size = [
+        bounds_comp.computed_bounds.size.width,
+        bounds_comp.computed_bounds.size.height,
+    ];
 
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-}
+    // Get color and frosted glass parameters if available
+    let (color, blur_radius, opacity, tint_intensity) = match identity_comp.component_type {
+        ComponentType::BackgroundColor => {
+            let color_comp = world
+                .get_component::<ColorComponent>(entity_id)
+                .expect("BackgroundColor Type Component should have ColorComponent");
+            (color_comp.color.value(), 0.0, 1.0, 0.0)
+        }
+        ComponentType::FrostedGlass => {
+            let frosted_glass_comp = world
+                .get_component::<FrostedGlassComponent>(entity_id)
+                .expect("FrostedGlass Type Component should have FrostedGlassComponent");
+            (
+                frosted_glass_comp.tint_color.value(),
+                frosted_glass_comp.blur_radius,
+                frosted_glass_comp.opacity,
+                frosted_glass_comp.tint_intensity,
+            )
+        }
+        _ => (default_color, 0.0, 1.0, 0.0),
+    };
 
-pub struct RenderSystem<'a> {
-    pub render_pass: &'a mut wgpu::RenderPass<'a>,
-    pub app_pipelines: &'a mut crate::wgpu_ctx::AppPipelines,
-}
+    let use_texture = match identity_comp.component_type {
+        ComponentType::BackgroundGradient | ComponentType::Image => 1,
+        ComponentType::FrostedGlass => 2,
+        _ => 0,
+    };
 
-impl EcsSystem for RenderSystem<'_> {
-    fn run(&mut self, world: &mut World) {
-        // Render entities based on their component types
-        let visual_entities = world.query::<VisualComponent>();
+    // Convert border position enum to u32 for shader
+    let border_position_value = match visual_comp.border_position {
+        BorderPosition::Inside => 0u32,
+        BorderPosition::Center => 1u32,
+        BorderPosition::Outside => 2u32,
+    };
 
-        // Create a mapping of entity ID to its components for quick access
-        let visual_map: HashMap<_, _> = visual_entities.into_iter().collect();
+    // Pre-compute corner properties
+    let content_min = vec![
+        bounds_comp.computed_bounds.position.x,
+        bounds_comp.computed_bounds.position.y,
+    ];
+    let content_max = vec![
+        bounds_comp.computed_bounds.position.x + bounds_comp.computed_bounds.size.width,
+        bounds_comp.computed_bounds.position.y + bounds_comp.computed_bounds.size.height,
+    ];
 
-        // Get the render groups
-        if let Some(render_groups) = world.get_resource::<RenderGroupsResource>() {
-            for group in &render_groups.groups {
-                for &entity_id in &group.entity_ids {
-                    if let Some(visual) = visual_map.get(&entity_id) {
-                        self.render_entity(entity_id, visual, world);
-                    }
-                }
+    // Calculate max radius to prevent overlap
+    let max_radius_x = bounds_comp.computed_bounds.size.width * 0.5;
+    let max_radius_y = bounds_comp.computed_bounds.size.height * 0.5;
+    let max_radius = max_radius_x.min(max_radius_y);
+
+    // Clamp all radii to max
+    let tl_radius = visual_comp.border_radius.top_left.min(max_radius);
+    let tr_radius = visual_comp.border_radius.top_right.min(max_radius);
+    let bl_radius = visual_comp.border_radius.bottom_left.min(max_radius);
+    let br_radius = visual_comp.border_radius.bottom_right.min(max_radius);
+
+    // Calculate outer radii based on border position
+    let (
+        outer_tl_radius,
+        outer_tr_radius,
+        outer_bl_radius,
+        outer_br_radius,
+        inner_tl_radius,
+        inner_tr_radius,
+        inner_bl_radius,
+        inner_br_radius,
+    ) = if visual_comp.border_width > 0.0 {
+        match visual_comp.border_position {
+            BorderPosition::Inside => (
+                tl_radius,
+                tr_radius,
+                bl_radius,
+                br_radius,
+                (tl_radius - visual_comp.border_width).max(0.0),
+                (tr_radius - visual_comp.border_width).max(0.0),
+                (bl_radius - visual_comp.border_width).max(0.0),
+                (br_radius - visual_comp.border_width).max(0.0),
+            ),
+            BorderPosition::Center => {
+                let half_border = visual_comp.border_width * 0.5;
+                (
+                    tl_radius + half_border,
+                    tr_radius + half_border,
+                    bl_radius + half_border,
+                    br_radius + half_border,
+                    (tl_radius - half_border).max(0.0),
+                    (tr_radius - half_border).max(0.0),
+                    (bl_radius - half_border).max(0.0),
+                    (br_radius - half_border).max(0.0),
+                )
             }
+            BorderPosition::Outside => (
+                tl_radius + visual_comp.border_width,
+                tr_radius + visual_comp.border_width,
+                bl_radius + visual_comp.border_width,
+                br_radius + visual_comp.border_width,
+                tl_radius,
+                tr_radius,
+                bl_radius,
+                br_radius,
+            ),
         }
-    }
-}
+    } else {
+        (
+            tl_radius, tr_radius, bl_radius, br_radius, tl_radius, tr_radius, bl_radius, br_radius,
+        )
+    };
 
-impl RenderSystem<'_> {
-    pub fn render_entity(&mut self, entity_id: Uuid, visual: &VisualComponent, world: &World) {
-        // Skip if not visible
-        if !visual.is_visible {
-            return;
-        }
+    // Calculate corner centers
+    let tl_center = [content_min[0] + tl_radius, content_min[1] + tl_radius];
+    let tr_center = [content_max[0] - tr_radius, content_min[1] + tr_radius];
+    let bl_center = [content_min[0] + bl_radius, content_max[1] - bl_radius];
+    let br_center = [content_max[0] - br_radius, content_max[1] - br_radius];
 
-        // Access render data
-        if let Some(render_data) = world.get_component::<RenderDataComponent>(entity_id) {
-            match visual.component_type {
-                ComponentType::BackgroundColor => {
-                    // Set pipeline and bind groups for background color rendering
-                    if let Some(bind_group) = &render_data.bind_group {
-                        self.render_pass
-                            .set_pipeline(&self.app_pipelines.unified_pipeline);
-                        self.render_pass.set_bind_group(0, bind_group, &[]);
-                        self.render_pass.draw(0..6, 0..1); // Draw a quad (2 triangles)
-                    }
-                }
-                ComponentType::BackgroundGradient => {
-                    // Similar to background color but with gradient settings
-                    if let Some(bind_group) = &render_data.bind_group {
-                        self.render_pass
-                            .set_pipeline(&self.app_pipelines.unified_pipeline);
-                        self.render_pass.set_bind_group(0, bind_group, &[]);
-                        self.render_pass.draw(0..6, 0..1);
-                    }
-                }
-                ComponentType::Image => {
-                    // Image rendering
-                    if let Some(bind_group) = &render_data.bind_group {
-                        self.render_pass
-                            .set_pipeline(&self.app_pipelines.unified_pipeline);
-                        self.render_pass.set_bind_group(0, bind_group, &[]);
-                        self.render_pass.draw(0..6, 0..1);
-                    }
-                }
-                ComponentType::FrostedGlass => {
-                    // Frosted glass requires special handling
-                    if let Some(bind_group) = &render_data.bind_group {
-                        self.render_pass
-                            .set_pipeline(&self.app_pipelines.unified_pipeline);
-                        self.render_pass.set_bind_group(0, bind_group, &[]);
-                        self.render_pass.draw(0..6, 0..1);
-                    }
-                }
-                ComponentType::Text => {
-                    // Text rendering would be handled by the text handler
-                    // This would require special integration with TextHandler
-                }
-                ComponentType::Container => {
-                    // Containers are not rendered directly
-                }
+    // Calculate inner and outer bounds
+    let (inner_min, inner_max, outer_min, outer_max) = if visual_comp.border_width > 0.0 {
+        match visual_comp.border_position {
+            BorderPosition::Inside => (
+                vec![
+                    content_min[0] + visual_comp.border_width,
+                    content_min[1] + visual_comp.border_width,
+                ],
+                vec![
+                    content_max[0] - visual_comp.border_width,
+                    content_max[1] - visual_comp.border_width,
+                ],
+                content_min,
+                content_max,
+            ),
+            BorderPosition::Center => {
+                let half_border = visual_comp.border_width * 0.5;
+                (
+                    vec![content_min[0] + half_border, content_min[1] + half_border],
+                    vec![content_max[0] - half_border, content_max[1] - half_border],
+                    vec![content_min[0] - half_border, content_min[1] - half_border],
+                    vec![content_max[0] + half_border, content_max[1] + half_border],
+                )
             }
+            BorderPosition::Outside => (
+                content_min.clone(),
+                content_max.clone(),
+                vec![
+                    content_min[0] - visual_comp.border_width,
+                    content_min[1] - visual_comp.border_width,
+                ],
+                vec![
+                    content_max[0] + visual_comp.border_width,
+                    content_max[1] + visual_comp.border_width,
+                ],
+            ),
         }
+    } else {
+        (
+            content_min.clone(),
+            content_max.clone(),
+            content_min,
+            content_max,
+        )
+    };
+
+    let (clip_bounds, clip_enabled) = if let Some(clip_bounds) = &bounds_comp.clip_bounds {
+        (
+            [
+                clip_bounds.bounds.position.x,
+                clip_bounds.bounds.position.y,
+                clip_bounds.bounds.position.x + clip_bounds.bounds.size.width,
+                clip_bounds.bounds.position.y + clip_bounds.bounds.size.height,
+            ],
+            [
+                if clip_bounds.clip_x { 1.0 } else { 0.0 },
+                if clip_bounds.clip_y { 1.0 } else { 0.0 },
+            ],
+        )
+    } else {
+        // Default to full screen with no clipping
+        (
+            [
+                0.0,
+                0.0,
+                bounds_comp.screen_size.width,
+                bounds_comp.screen_size.height,
+            ],
+            [0.0, 0.0],
+        )
+    };
+
+    RenderBufferData {
+        color,
+        position,
+        size,
+        border_radius: visual_comp.border_radius.values(),
+        screen_size: [
+            bounds_comp.screen_size.width,
+            bounds_comp.screen_size.height,
+        ],
+        use_texture,
+        blur_radius,
+        opacity,
+        tint_intensity,
+        _padding1: [0.0; 2],
+        border_color: visual_comp.border_color.value(),
+        border_width: visual_comp.border_width,
+        border_position: border_position_value,
+        _padding2: [0.0; 2],
+        inner_bounds: [inner_min[0], inner_min[1], inner_max[0], inner_max[1]],
+        outer_bounds: [outer_min[0], outer_min[1], outer_max[0], outer_max[1]],
+        corner_centers: [tl_center[0], tl_center[1], tr_center[0], tr_center[1]],
+        corner_centers2: [bl_center[0], bl_center[1], br_center[0], br_center[1]],
+        corner_radii: [
+            inner_tl_radius,
+            inner_tr_radius,
+            inner_bl_radius,
+            inner_br_radius,
+        ],
+        corner_radii2: [
+            outer_tl_radius,
+            outer_tr_radius,
+            outer_bl_radius,
+            outer_br_radius,
+        ],
+        shadow_color: visual_comp.shadow_color.value(),
+        shadow_offset: [visual_comp.shadow_offset.0, visual_comp.shadow_offset.1],
+        shadow_blur: visual_comp.shadow_blur,
+        shadow_opacity: visual_comp.shadow_opacity,
+        clip_bounds,
+        clip_enabled,
+        _padding3: [0.0; 2],
     }
 }

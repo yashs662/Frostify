@@ -1,6 +1,6 @@
 use crate::{
     ui::{
-        components::{component_builder::ComponentBuilder, container::FlexContainerBuilder},
+        ecs::builders::{EntityBuilder, container::ContainerBuilder},
         layout::*,
     },
     wgpu_ctx::WgpuCtx,
@@ -9,102 +9,99 @@ use crate::{
 #[test]
 fn test_basic_fixed_flex_row_layout() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create second child with fixed size
-    let child2 = FlexContainerBuilder::new()
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child2_id = child2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    parent.add_child(child2);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, child2_id);
 
-    // Add all components to context
-    ctx.add_component(parent);
-
-    // Force layout computation
     ctx.compute_layout();
 
     let computed_bounds = ctx.get_computed_bounds();
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
-    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
-    assert_eq!(child2_bounds.size.width, 100.0);
-    assert_eq!(child2_bounds.size.height, 100.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
+    assert_eq!(child2_id_bounds.size.width, 100.0);
+    assert_eq!(child2_id_bounds.size.height, 100.0);
 
     // Test child positions - in row layout
-    assert_eq!(child1_bounds.position.x, 0.0);
-    assert_eq!(child2_bounds.position.x, 100.0);
+    assert_eq!(child1_id_bounds.position.x, 0.0);
+    assert_eq!(child2_id_bounds.position.x, 100.0);
 
     // Children should be at the same Y position
-    assert_eq!(child1_bounds.position.y, child2_bounds.position.y);
+    assert_eq!(child1_id_bounds.position.y, child2_id_bounds.position.y);
 }
 
 #[test]
 fn test_basic_fixed_flex_column_layout() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create second child with fixed size
-    let child2 = FlexContainerBuilder::new()
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child2_id = child2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    parent.add_child(child2);
-
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -113,62 +110,61 @@ fn test_basic_fixed_flex_column_layout() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
-    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
-    assert_eq!(child2_bounds.size.width, 100.0);
-    assert_eq!(child2_bounds.size.height, 100.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
+    assert_eq!(child2_id_bounds.size.width, 100.0);
+    assert_eq!(child2_id_bounds.size.height, 100.0);
 
     // Test child positions - in column layout
-    assert_eq!(child1_bounds.position.y, 0.0);
-    assert_eq!(child2_bounds.position.y, 100.0);
+    assert_eq!(child1_id_bounds.position.y, 0.0);
+    assert_eq!(child2_id_bounds.position.y, 100.0);
 
     // Children should be at the same X position
-    assert_eq!(child1_bounds.position.x, child2_bounds.position.x);
+    assert_eq!(child1_id_bounds.position.x, child2_id_bounds.position.x);
 }
 
 #[test]
 fn test_basic_fill_flex_row_layout() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create second child with fill size
-    let child2 = FlexContainerBuilder::new()
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build(&mut wgpu_ctx);
-    let child2_id = child2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    parent.add_child(child2);
-
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -177,62 +173,61 @@ fn test_basic_fill_flex_row_layout() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
-    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
-    assert_eq!(child2_bounds.size.width, 400.0);
-    assert_eq!(child2_bounds.size.height, 300.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
+    assert_eq!(child2_id_bounds.size.width, 400.0);
+    assert_eq!(child2_id_bounds.size.height, 300.0);
 
     // Test child positions - in row layout
-    assert_eq!(child1_bounds.position.x, 0.0);
-    assert_eq!(child2_bounds.position.x, 100.0);
+    assert_eq!(child1_id_bounds.position.x, 0.0);
+    assert_eq!(child2_id_bounds.position.x, 100.0);
 
     // Children should be at the same Y position
-    assert_eq!(child1_bounds.position.y, child2_bounds.position.y);
+    assert_eq!(child1_id_bounds.position.y, child2_id_bounds.position.y);
 }
 
 #[test]
 fn test_basic_fill_flex_column_layout() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create second child with fill size
-    let child2 = FlexContainerBuilder::new()
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build(&mut wgpu_ctx);
-    let child2_id = child2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    parent.add_child(child2);
-
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -241,63 +236,62 @@ fn test_basic_fill_flex_column_layout() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
-    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
-    assert_eq!(child2_bounds.size.width, 500.0);
-    assert_eq!(child2_bounds.size.height, 200.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
+    assert_eq!(child2_id_bounds.size.width, 500.0);
+    assert_eq!(child2_id_bounds.size.height, 200.0);
 
     // Test child positions - in column layout
-    assert_eq!(child1_bounds.position.y, 0.0);
-    assert_eq!(child2_bounds.position.y, 100.0);
+    assert_eq!(child1_id_bounds.position.y, 0.0);
+    assert_eq!(child2_id_bounds.position.y, 100.0);
 
     // Children should be at the same X position
-    assert_eq!(child1_bounds.position.x, child2_bounds.position.x);
+    assert_eq!(child1_id_bounds.position.x, child2_id_bounds.position.x);
 }
 
 #[test]
 fn test_basic_fill_flex_row_layout_with_padding() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
         .with_padding(Edges::horizontal(10.0))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create second child with fill size
-    let child2 = FlexContainerBuilder::new()
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build(&mut wgpu_ctx);
-    let child2_id = child2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    parent.add_child(child2);
-
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -306,63 +300,62 @@ fn test_basic_fill_flex_row_layout_with_padding() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
-    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
-    assert_eq!(child2_bounds.size.width, 380.0);
-    assert_eq!(child2_bounds.size.height, 300.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
+    assert_eq!(child2_id_bounds.size.width, 380.0);
+    assert_eq!(child2_id_bounds.size.height, 300.0);
 
     // Test child positions - in row layout
-    assert_eq!(child1_bounds.position.x, 10.0);
-    assert_eq!(child2_bounds.position.x, 110.0);
+    assert_eq!(child1_id_bounds.position.x, 10.0);
+    assert_eq!(child2_id_bounds.position.x, 110.0);
 
     // Children should be at the same Y position
-    assert_eq!(child1_bounds.position.y, child2_bounds.position.y);
+    assert_eq!(child1_id_bounds.position.y, child2_id_bounds.position.y);
 }
 
 #[test]
 fn test_basic_fill_flex_column_layout_with_padding() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
         .with_padding(Edges::vertical(10.0))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create second child with fill size
-    let child2 = FlexContainerBuilder::new()
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build(&mut wgpu_ctx);
-    let child2_id = child2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    parent.add_child(child2);
-
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -371,79 +364,80 @@ fn test_basic_fill_flex_column_layout_with_padding() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
-    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
-    assert_eq!(child2_bounds.size.width, 500.0);
-    assert_eq!(child2_bounds.size.height, 180.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
+    assert_eq!(child2_id_bounds.size.width, 500.0);
+    assert_eq!(child2_id_bounds.size.height, 180.0);
 
     // Test child positions - in column layout
-    assert_eq!(child1_bounds.position.y, 10.0);
-    assert_eq!(child2_bounds.position.y, 110.0);
+    assert_eq!(child1_id_bounds.position.y, 10.0);
+    assert_eq!(child2_id_bounds.position.y, 110.0);
 
     // Children should be at the same X position
-    assert_eq!(child1_bounds.position.x, child2_bounds.position.x);
+    assert_eq!(child1_id_bounds.position.x, child2_id_bounds.position.x);
 }
 
 #[test]
 fn test_nested_containers_with_flex_layout_fixed_nested_container() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create nested container with fixed size
-    let mut nested_parent = FlexContainerBuilder::new()
+    let nested_parent_id = ContainerBuilder::new()
+        .with_debug_name("Nested Parent Container")
         .with_width(FlexValue::Fixed(200.0))
         .with_height(FlexValue::Fixed(200.0))
         .with_direction(FlexDirection::Row)
-        .build(&mut wgpu_ctx);
-    let nested_parent_id = nested_parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create nested child with fixed size
-    let nested_child_1 = FlexContainerBuilder::new()
+    let nested_child_1_id = ContainerBuilder::new()
+        .with_debug_name("Nested Child 1 Container")
         .with_width(FlexValue::Fixed(25.0))
         .with_height(FlexValue::Fixed(25.0))
-        .build(&mut wgpu_ctx);
-    let nested_child_1_id = nested_child_1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create nested child with fill size
-    let nested_child_2 = FlexContainerBuilder::new()
+    let nested_child_2_id = ContainerBuilder::new()
+        .with_debug_name("Nested Child 2 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build(&mut wgpu_ctx);
-    let nested_child_2_id = nested_child_2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parents
-    nested_parent.add_child(nested_child_1);
-    nested_parent.add_child(nested_child_2);
-    parent.add_child(child1);
-    parent.add_child(nested_parent);
-
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world
+        .add_child_to_parent(nested_parent_id, nested_child_1_id);
+    ctx.world
+        .add_child_to_parent(nested_parent_id, nested_child_2_id);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, nested_parent_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -452,90 +446,92 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
     let nested_parent_bounds = computed_bounds.get(&nested_parent_id).unwrap();
-    let nested_child_1_bounds = computed_bounds.get(&nested_child_1_id).unwrap();
-    let nested_child_2_bounds = computed_bounds.get(&nested_child_2_id).unwrap();
+    let nested_child_1_id_bounds = computed_bounds.get(&nested_child_1_id).unwrap();
+    let nested_child_2_id_bounds = computed_bounds.get(&nested_child_2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
     assert_eq!(nested_parent_bounds.size.width, 200.0);
     assert_eq!(nested_parent_bounds.size.height, 200.0);
-    assert_eq!(nested_child_1_bounds.size.width, 25.0);
-    assert_eq!(nested_child_1_bounds.size.height, 25.0);
-    assert_eq!(nested_child_2_bounds.size.width, 175.0);
-    assert_eq!(nested_child_2_bounds.size.height, 200.0);
+    assert_eq!(nested_child_1_id_bounds.size.width, 25.0);
+    assert_eq!(nested_child_1_id_bounds.size.height, 25.0);
+    assert_eq!(nested_child_2_id_bounds.size.width, 175.0);
+    assert_eq!(nested_child_2_id_bounds.size.height, 200.0);
 
     // Test child positions - in row layout
-    assert_eq!(child1_bounds.position.x, 0.0);
+    assert_eq!(child1_id_bounds.position.x, 0.0);
     assert_eq!(nested_parent_bounds.position.x, 100.0);
-    assert_eq!(nested_child_1_bounds.position.x, 100.0);
-    assert_eq!(nested_child_2_bounds.position.x, 125.0);
+    assert_eq!(nested_child_1_id_bounds.position.x, 100.0);
+    assert_eq!(nested_child_2_id_bounds.position.x, 125.0);
 
     // Children should be at the same Y position
-    assert_eq!(child1_bounds.position.y, nested_parent_bounds.position.y);
+    assert_eq!(child1_id_bounds.position.y, nested_parent_bounds.position.y);
     assert_eq!(
-        nested_child_1_bounds.position.y,
-        nested_child_2_bounds.position.y
+        nested_child_1_id_bounds.position.y,
+        nested_child_2_id_bounds.position.y
     );
 }
 
 #[test]
 fn test_nested_containers_with_flex_layout_fill_nested_container() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fixed(100.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create nested container with fill size
-    let mut nested_parent = FlexContainerBuilder::new()
+    let nested_parent_id = ContainerBuilder::new()
+        .with_debug_name("Nested Parent Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
         .with_direction(FlexDirection::Row)
-        .build(&mut wgpu_ctx);
-    let nested_parent_id = nested_parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create nested child with fixed size
-    let nested_child_1 = FlexContainerBuilder::new()
+    let nested_child_1_id = ContainerBuilder::new()
+        .with_debug_name("Nested Child 1 Container")
         .with_width(FlexValue::Fixed(25.0))
         .with_height(FlexValue::Fixed(25.0))
-        .build(&mut wgpu_ctx);
-    let nested_child_1_id = nested_child_1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create nested child with fill size
-    let nested_child_2 = FlexContainerBuilder::new()
+    let nested_child_2_id = ContainerBuilder::new()
+        .with_debug_name("Nested Child 2 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build(&mut wgpu_ctx);
-    let nested_child_2_id = nested_child_2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    nested_parent.add_child(nested_child_1);
-    nested_parent.add_child(nested_child_2);
-    parent.add_child(child1);
-    parent.add_child(nested_parent);
-
-    ctx.add_component(parent);
+    ctx.world
+        .add_child_to_parent(nested_parent_id, nested_child_1_id);
+    ctx.world
+        .add_child_to_parent(nested_parent_id, nested_child_2_id);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, nested_parent_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -544,133 +540,134 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
     let nested_parent_bounds = computed_bounds.get(&nested_parent_id).unwrap();
-    let nested_child_1_bounds = computed_bounds.get(&nested_child_1_id).unwrap();
-    let nested_child_2_bounds = computed_bounds.get(&nested_child_2_id).unwrap();
+    let nested_child_1_id_bounds = computed_bounds.get(&nested_child_1_id).unwrap();
+    let nested_child_2_id_bounds = computed_bounds.get(&nested_child_2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 500.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
+    assert_eq!(child1_id_bounds.size.width, 500.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
     assert_eq!(nested_parent_bounds.size.width, 500.0);
     assert_eq!(nested_parent_bounds.size.height, 200.0);
-    assert_eq!(nested_child_1_bounds.size.width, 25.0);
-    assert_eq!(nested_child_1_bounds.size.height, 25.0);
-    assert_eq!(nested_child_2_bounds.size.width, 475.0);
-    assert_eq!(nested_child_2_bounds.size.height, 200.0);
+    assert_eq!(nested_child_1_id_bounds.size.width, 25.0);
+    assert_eq!(nested_child_1_id_bounds.size.height, 25.0);
+    assert_eq!(nested_child_2_id_bounds.size.width, 475.0);
+    assert_eq!(nested_child_2_id_bounds.size.height, 200.0);
 
     // Test child positions - in column layout
-    assert_eq!(child1_bounds.position.y, 0.0);
+    assert_eq!(child1_id_bounds.position.y, 0.0);
     assert_eq!(nested_parent_bounds.position.y, 100.0);
 
     // Test nested children positions
-    assert_eq!(nested_child_1_bounds.position.x, 0.0);
-    assert_eq!(nested_child_2_bounds.position.x, 25.0);
+    assert_eq!(nested_child_1_id_bounds.position.x, 0.0);
+    assert_eq!(nested_child_2_id_bounds.position.x, 25.0);
 
     // Children should be at the same Y position
     assert_eq!(
-        nested_child_1_bounds.position.y,
-        nested_child_2_bounds.position.y
+        nested_child_1_id_bounds.position.y,
+        nested_child_2_id_bounds.position.y
     );
 }
 
 #[test]
 fn test_navbar_app_layout() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Parent container
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
         .with_direction(FlexDirection::Column)
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Parent container background
-    let background = FlexContainerBuilder::new()
+    let background_id = ContainerBuilder::new()
+        .with_debug_name("Background Container")
         .with_position(Position::Absolute(Anchor::TopLeft))
-        .build(&mut wgpu_ctx);
-    let background_id = background.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Nav bar container
-    let mut nav_bar = FlexContainerBuilder::new()
+    let nav_bar_id = ContainerBuilder::new()
+        .with_debug_name("Nav Bar Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fixed(100.0))
         .with_direction(FlexDirection::Row)
         .with_align_items(AlignItems::Center)
         .with_padding(Edges::all(10.0))
-        .build(&mut wgpu_ctx);
-    let nav_bar_id = nav_bar.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Nav bar buttons with fixed size
     let button_size = 24.0;
 
     // Minimize button
-    let minimize_icon = FlexContainerBuilder::new()
+    let minimize_icon_id = ContainerBuilder::new()
+        .with_debug_name("Minimize Icon")
         .with_width(FlexValue::Fixed(button_size))
         .with_height(FlexValue::Fixed(button_size))
-        .build(&mut wgpu_ctx);
-    let minimize_icon_id = minimize_icon.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Expand button
-    let expand_icon = FlexContainerBuilder::new()
+    let expand_icon_id = ContainerBuilder::new()
+        .with_debug_name("Expand Icon")
         .with_width(FlexValue::Fixed(button_size))
         .with_height(FlexValue::Fixed(button_size))
-        .build(&mut wgpu_ctx);
-    let expand_icon_id = expand_icon.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Close button
-    let close_icon = FlexContainerBuilder::new()
+    let close_icon_id = ContainerBuilder::new()
+        .with_debug_name("Close Icon")
         .with_width(FlexValue::Fixed(button_size))
         .with_height(FlexValue::Fixed(button_size))
-        .build(&mut wgpu_ctx);
-    let close_icon_id = close_icon.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Content container
-    let mut content_container = FlexContainerBuilder::new()
+    let content_container_id = ContainerBuilder::new()
+        .with_debug_name("Content Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
         .with_direction(FlexDirection::Row)
-        .build(&mut wgpu_ctx);
-    let content_container_id = content_container.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Text with fixed size
-    let text = FlexContainerBuilder::new()
+    let text_id = ContainerBuilder::new()
+        .with_debug_name("Text Container")
         .with_width(FlexValue::Fixed(200.0))
         .with_height(FlexValue::Fixed(50.0))
-        .build(&mut wgpu_ctx);
-    let text_id = text.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Content image
-    let image = FlexContainerBuilder::new()
+    let image_id = ContainerBuilder::new()
+        .with_debug_name("Image Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
-        .build(&mut wgpu_ctx);
-    let image_id = image.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Add children to the content container
-    content_container.add_child(text);
-    content_container.add_child(image);
+    ctx.world.add_child_to_parent(content_container_id, text_id);
+    ctx.world
+        .add_child_to_parent(content_container_id, image_id);
 
     // Add children to the nav bar container
-    nav_bar.add_child(minimize_icon);
-    nav_bar.add_child(expand_icon);
-    nav_bar.add_child(close_icon);
+    ctx.world.add_child_to_parent(nav_bar_id, minimize_icon_id);
+    ctx.world.add_child_to_parent(nav_bar_id, expand_icon_id);
+    ctx.world.add_child_to_parent(nav_bar_id, close_icon_id);
 
     // Add children to the main container
-    parent.add_child(background);
-    parent.add_child(nav_bar);
-    parent.add_child(content_container);
-
-    // Add components in the correct order
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, background_id);
+    ctx.world.add_child_to_parent(parent_id, nav_bar_id);
+    ctx.world
+        .add_child_to_parent(parent_id, content_container_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -746,41 +743,40 @@ fn test_navbar_app_layout() {
 #[test]
 fn test_margin_and_padding_layout() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::TopLeft))
         .with_padding(Edges::all(10.0))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
         .with_margin(Edges::all(10.0))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create second child with fill size
-    let child2 = FlexContainerBuilder::new()
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
         .with_margin(Edges::all(20.0))
-        .build(&mut wgpu_ctx);
-    let child2_id = child2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    parent.add_child(child2);
-
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -789,61 +785,60 @@ fn test_margin_and_padding_layout() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
-    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
-    assert_eq!(child2_bounds.size.width, 320.0);
-    assert_eq!(child2_bounds.size.height, 240.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
+    assert_eq!(child2_id_bounds.size.width, 320.0);
+    assert_eq!(child2_id_bounds.size.height, 240.0);
 
     // Test child positions - in row layout
-    assert_eq!(child1_bounds.position.x, 20.0);
-    assert_eq!(child1_bounds.position.y, 20.0);
-    assert_eq!(child2_bounds.position.x, 150.0);
-    assert_eq!(child2_bounds.position.y, 30.0);
+    assert_eq!(child1_id_bounds.position.x, 20.0);
+    assert_eq!(child1_id_bounds.position.y, 20.0);
+    assert_eq!(child2_id_bounds.position.x, 150.0);
+    assert_eq!(child2_id_bounds.position.y, 30.0);
 }
 
 #[test]
 fn test_fractional_sizing_in_a_container() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::Center))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fractional size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fraction(0.3))
         .with_height(FlexValue::Fraction(0.5))
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create second child with fractional size
-    let child2 = FlexContainerBuilder::new()
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
         .with_width(FlexValue::Fraction(0.7))
         .with_height(FlexValue::Fraction(0.5))
-        .build(&mut wgpu_ctx);
-    let child2_id = child2.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    parent.add_child(child2);
-
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
     ctx.compute_layout();
@@ -852,8 +847,8 @@ fn test_fractional_sizing_in_a_container() {
 
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
-    let child2_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
 
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
@@ -862,108 +857,110 @@ fn test_fractional_sizing_in_a_container() {
     assert_eq!(parent_bounds.position.y, 250.0);
 
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 150.0);
-    assert_eq!(child1_bounds.size.height, 150.0);
-    assert_eq!(child2_bounds.size.width, 350.0);
-    assert_eq!(child2_bounds.size.height, 150.0);
-    assert_eq!(child1_bounds.position.x, 250.0);
-    assert_eq!(child1_bounds.position.y, 250.0);
-    assert_eq!(child2_bounds.position.x, 400.0);
-    assert_eq!(child2_bounds.position.y, 250.0);
+    assert_eq!(child1_id_bounds.size.width, 150.0);
+    assert_eq!(child1_id_bounds.size.height, 150.0);
+    assert_eq!(child2_id_bounds.size.width, 350.0);
+    assert_eq!(child2_id_bounds.size.height, 150.0);
+    assert_eq!(child1_id_bounds.position.x, 250.0);
+    assert_eq!(child1_id_bounds.position.y, 250.0);
+    assert_eq!(child2_id_bounds.position.x, 400.0);
+    assert_eq!(child2_id_bounds.position.y, 250.0);
 }
 
 #[test]
 fn test_offset_in_nested_container() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::Center))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fixed(100.0))
         .with_height(FlexValue::Fixed(100.0))
         .with_offset(ComponentOffset {
             x: FlexValue::Fixed(20.0),
             y: FlexValue::Fixed(20.0),
         })
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+
     // Force layout computation
     ctx.compute_layout();
     let computed_bounds = ctx.get_computed_bounds();
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
     assert_eq!(parent_bounds.position.x, 250.0);
     assert_eq!(parent_bounds.position.y, 250.0);
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 100.0);
-    assert_eq!(child1_bounds.size.height, 100.0);
-    assert_eq!(child1_bounds.position.x, 270.0);
-    assert_eq!(child1_bounds.position.y, 270.0);
+    assert_eq!(child1_id_bounds.size.width, 100.0);
+    assert_eq!(child1_id_bounds.size.height, 100.0);
+    assert_eq!(child1_id_bounds.position.x, 270.0);
+    assert_eq!(child1_id_bounds.position.y, 270.0);
 }
 
 #[test]
 fn test_offset_in_nested_container_with_flex_value() {
     let mut ctx = LayoutContext::default();
-    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
-    ctx.initialize(1000.0, 800.0);
+    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    ctx.world
+        .initialize_resources(wgpu_ctx.get_screen_size(), &wgpu_ctx.queue);
+    ctx.initialize(1000.0, 800.0, &wgpu_ctx.queue);
 
     // Create parent container with fixed size
-    let mut parent = FlexContainerBuilder::new()
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
         .with_width(FlexValue::Fixed(500.0))
         .with_height(FlexValue::Fixed(300.0))
         .with_direction(FlexDirection::Row)
         .with_position(Position::Absolute(Anchor::Center))
-        .build(&mut wgpu_ctx);
-    let parent_id = parent.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Create first child with fixed size
-    let child1 = FlexContainerBuilder::new()
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
         .with_width(FlexValue::Fill)
         .with_height(FlexValue::Fill)
         .with_offset(ComponentOffset {
             x: FlexValue::Fraction(0.5),
             y: FlexValue::Fraction(0.5),
         })
-        .build(&mut wgpu_ctx);
-    let child1_id = child1.id;
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    parent.add_child(child1);
-    // Add all components to context
-    ctx.add_component(parent);
+    ctx.world.add_child_to_parent(parent_id, child1_id);
+
     // Force layout computation
     ctx.compute_layout();
     let computed_bounds = ctx.get_computed_bounds();
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
-    let child1_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
     // Test parent bounds
     assert_eq!(parent_bounds.size.width, 500.0);
     assert_eq!(parent_bounds.size.height, 300.0);
     assert_eq!(parent_bounds.position.x, 250.0);
     assert_eq!(parent_bounds.position.y, 250.0);
     // Test child sizes
-    assert_eq!(child1_bounds.size.width, 500.0);
-    assert_eq!(child1_bounds.size.height, 300.0);
-    assert_eq!(child1_bounds.position.x, 500.0);
-    assert_eq!(child1_bounds.position.y, 400.0);
+    assert_eq!(child1_id_bounds.size.width, 500.0);
+    assert_eq!(child1_id_bounds.size.height, 300.0);
+    assert_eq!(child1_id_bounds.position.x, 500.0);
+    assert_eq!(child1_id_bounds.position.y, 400.0);
 }

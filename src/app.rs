@@ -4,10 +4,13 @@ use crate::{
     core::worker::{Worker, WorkerResponse},
     ui::{
         UiView, create_app_ui, create_login_ui,
-        ecs::integration::{
-            convert_layout_context_to_world, hybrid_draw, hybrid_update, sync_computed_bounds,
+        ecs::{
+            components::HierarchyComponent,
+            integration::{hybrid_draw, hybrid_update, sync_computed_bounds_and_screen_size},
+            resources::MousePositionResource,
+            systems::ComponentHoverSystem,
         },
-        layout::{self, ComponentPosition, EventType},
+        layout::{self, ComponentPosition},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -134,7 +137,7 @@ impl App<'_> {
                         if let Some(window) = &self.window {
                             window.set_maximized(!window.is_maximized());
                             // Reset hover states when window state changes
-                            self.layout_context.reset_all_hover_states();
+                            // self.layout_context.reset_all_hover_states();
                             return true;
                         }
                     }
@@ -142,7 +145,7 @@ impl App<'_> {
                         if let Some(window) = &self.window {
                             window.set_minimized(true);
                             // Reset hover states when window state changes
-                            self.layout_context.reset_all_hover_states();
+                            // self.layout_context.reset_all_hover_states();
                             return true;
                         }
                     }
@@ -222,6 +225,14 @@ impl App<'_> {
                     create_app_ui(wgpu_ctx, event_sender, layout_context);
                 }
             }
+            // sync z_index_manager with the child parent hierarchy's
+            layout_context
+                .world
+                .for_each_component::<HierarchyComponent, _>(|id, hierarchy| {
+                    layout_context
+                        .z_index_manager
+                        .register_component(id, hierarchy.parent);
+                });
 
             // Apply multiple viewport resizes to ensure correct positioning
             App::apply_layout_updates(wgpu_ctx, layout_context);
@@ -233,87 +244,87 @@ impl App<'_> {
     fn apply_layout_updates(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
         // Done 3 times to ensure components with FlexValue::Fit have their positions calculated correctly
         for _ in 0..3 {
-            layout_context.compute_layout_and_update_components(wgpu_ctx);
+            layout_context.compute_layout_and_update_components();
         }
     }
 
     /// Handles UI events and returns whether any components were affected
-    fn handle_ui_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        x: f64,
-        y: f64,
-        state: Option<winit::event::ElementState>,
-        button: Option<winit::event::MouseButton>,
-        scroll_delta: Option<f32>,
-    ) {
-        // Convert physical coordinates to logical coordinates for UI interactions
-        let mouse_position = ComponentPosition {
-            x: x as f32,
-            y: y as f32,
-        };
+    // fn handle_ui_event(
+    //     &mut self,
+    //     event_loop: &ActiveEventLoop,
+    //     x: f64,
+    //     y: f64,
+    //     state: Option<winit::event::ElementState>,
+    //     button: Option<winit::event::MouseButton>,
+    //     scroll_delta: Option<f32>,
+    // ) {
+    //     // Convert physical coordinates to logical coordinates for UI interactions
+    //     let mouse_position = ComponentPosition {
+    //         x: x as f32,
+    //         y: y as f32,
+    //     };
 
-        // Improved event detection logic
-        let event_type = if scroll_delta.is_some() {
-            // Prioritize scroll events over others when scroll_delta is provided
-            if let Some(delta) = scroll_delta {
-                if delta > 0.0 {
-                    EventType::ScrollDown
-                } else {
-                    EventType::ScrollUp
-                }
-            } else {
-                EventType::None
-            }
-        } else if button.is_some() {
-            // Mouse button events
-            if state == Some(ElementState::Pressed) {
-                EventType::Press
-            } else {
-                EventType::Release
-            }
-        } else if self.last_cursor_input.0 == Some(ElementState::Pressed) {
-            // This is a drag event - mouse is moving while button is pressed
-            EventType::Drag
-        } else if button.is_none() && state.is_none() {
-            // No button or scroll events - must be hover
-            EventType::Hover
-        } else {
-            EventType::None
-        };
+    //     // Improved event detection logic
+    //     let event_type = if scroll_delta.is_some() {
+    //         // Prioritize scroll events over others when scroll_delta is provided
+    //         if let Some(delta) = scroll_delta {
+    //             if delta > 0.0 {
+    //                 EventType::ScrollDown
+    //             } else {
+    //                 EventType::ScrollUp
+    //             }
+    //         } else {
+    //             EventType::None
+    //         }
+    //     } else if button.is_some() {
+    //         // Mouse button events
+    //         if state == Some(ElementState::Pressed) {
+    //             EventType::Press
+    //         } else {
+    //             EventType::Release
+    //         }
+    //     } else if self.last_cursor_input.0 == Some(ElementState::Pressed) {
+    //         // This is a drag event - mouse is moving while button is pressed
+    //         EventType::Drag
+    //     } else if button.is_none() && state.is_none() {
+    //         // No button or scroll events - must be hover
+    //         EventType::Hover
+    //     } else {
+    //         EventType::None
+    //     };
 
-        let input_event = layout::InputEvent {
-            event_type: event_type.clone(),
-            position: Some(mouse_position),
-            button,
-            key: None,
-            text: None,
-        };
+    //     let input_event = layout::InputEvent {
+    //         event_type: event_type.clone(),
+    //         position: Some(mouse_position),
+    //         button,
+    //         key: None,
+    //         text: None,
+    //     };
 
-        // Update the last known input state
-        if button.is_some() {
-            // Only update button state for actual button events
-            self.last_cursor_input = (state, mouse_position);
-        } else {
-            // For non-button events, preserve the button state but update position
-            self.last_cursor_input.1 = mouse_position;
-        }
+    //     // Update the last known input state
+    //     if button.is_some() {
+    //         // Only update button state for actual button events
+    //         self.last_cursor_input = (state, mouse_position);
+    //     } else {
+    //         // For non-button events, preserve the button state but update position
+    //         self.last_cursor_input.1 = mouse_position;
+    //     }
 
-        let affected_component = self.layout_context.handle_event(input_event);
+    //     let affected_component = self.layout_context.handle_event(input_event);
 
-        if let Some((_affected_component_id, _event_type, app_event)) = affected_component {
-            if app_event.is_some() {
-                if let Some(event_sender) = &self.event_sender {
-                    event_sender.send(app_event.unwrap()).unwrap_or_else(|e| {
-                        error!("Failed to send app event: {}", e);
-                    });
-                }
-            }
-        }
+    //     if let Some((_affected_component_id, _event_type, app_event)) = affected_component {
+    //         if app_event.is_some() {
+    //             if let Some(event_sender) = &self.event_sender {
+    //                 event_sender.send(app_event.unwrap()).unwrap_or_else(|e| {
+    //                     error!("Failed to send app event: {}", e);
+    //                 });
+    //             }
+    //         }
+    //     }
 
-        // Always check for events regardless of affected components
-        self.try_handle_app_event(event_loop);
-    }
+    //     // Always check for events regardless of affected components
+    //     self.try_handle_app_event(event_loop);
+    // }
 
     fn check_worker_responses(&mut self) {
         if let Some(worker) = &mut self.worker {
@@ -463,6 +474,7 @@ impl ApplicationHandler for App<'_> {
             self.layout_context.initialize(
                 wgpu_ctx.surface_config.width as f32,
                 wgpu_ctx.surface_config.height as f32,
+                &wgpu_ctx.queue,
             );
 
             // Create event channel
@@ -476,9 +488,6 @@ impl ApplicationHandler for App<'_> {
             // Start with login UI by default
             create_login_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
 
-            // Convert all components to ECS entities
-            convert_layout_context_to_world(&mut self.layout_context);
-
             self.wgpu_ctx = Some(wgpu_ctx);
 
             // Check for stored tokens as soon as the app starts
@@ -491,18 +500,23 @@ impl ApplicationHandler for App<'_> {
             // Draw the first frame before making the window visible
             if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
                 // Use hybrid update for animations
-                hybrid_update(&mut self.layout_context, wgpu_ctx, 0.0);
+                hybrid_update(
+                    &mut self.layout_context,
+                    self.frame_counter.get_frame_time(),
+                );
 
                 // Sync computed bounds to ECS
-                sync_computed_bounds(&mut self.layout_context);
+                sync_computed_bounds_and_screen_size(&mut self.layout_context, wgpu_ctx);
 
-                // Use hybrid draw method - now properly handles borrows internally
+                // Draw using hybrid approach (gradually transitioning to ECS)
                 hybrid_draw(&mut self.layout_context, wgpu_ctx);
 
-                // Now that we've drawn the first frame, make the window visible
-                if let Some(window) = &self.window {
-                    window.set_visible(true);
-                }
+                wgpu_ctx.text_handler.trim_atlas();
+            }
+
+            // Now that we've drawn the first frame, make the window visible
+            if let Some(window) = &self.window {
+                window.set_visible(true);
             }
         }
 
@@ -532,13 +546,7 @@ impl ApplicationHandler for App<'_> {
                 {
                     wgpu_ctx.resize((new_size.width, new_size.height));
                     self.layout_context.resize_viewport(wgpu_ctx);
-
-                    // Explicitly refresh all sliders to ensure proper visual sync after resize
-                    self.layout_context.refresh_all_sliders();
-
-                    // Ensure component updates are applied immediately
-                    self.layout_context.update_components(wgpu_ctx, 0.0);
-
+                    sync_computed_bounds_and_screen_size(&mut self.layout_context, wgpu_ctx);
                     window.request_redraw();
                 }
             }
@@ -555,12 +563,8 @@ impl ApplicationHandler for App<'_> {
                     // Use hybrid update for animations and state changes
                     hybrid_update(
                         &mut self.layout_context,
-                        wgpu_ctx,
                         self.frame_counter.get_frame_time(),
                     );
-
-                    // Sync computed bounds to ECS
-                    sync_computed_bounds(&mut self.layout_context);
 
                     // Draw using hybrid approach (gradually transitioning to ECS)
                     hybrid_draw(&mut self.layout_context, wgpu_ctx);
@@ -595,35 +599,39 @@ impl ApplicationHandler for App<'_> {
                     window.request_redraw();
                 }
 
-                if self.window.is_some() {
-                    self.handle_ui_event(event_loop, position.x, position.y, None, None, None);
-                }
+                let mouse_position_resource = self
+                    .layout_context
+                    .world
+                    .get_resource_mut::<MousePositionResource>()
+                    .expect("Expected MousePositionResource to exist");
+                mouse_position_resource.position = ComponentPosition {
+                    x: position.x as f32,
+                    y: position.y as f32,
+                };
+                self.layout_context.world.run_system(ComponentHoverSystem);
             }
-            WindowEvent::MouseInput { state, button, .. } => {
+            WindowEvent::MouseInput { state, .. } => {
                 if let Some((x, y)) = self.app_state.cursor_position {
                     match state {
                         winit::event::ElementState::Pressed => {
                             if let Some(direction) = self.get_resize_direction(x, y) {
                                 self.app_state.resize_state = Some(ResizeState { direction });
-                                return;
                             }
                         }
                         winit::event::ElementState::Released => {
                             if self.app_state.resize_state.is_some() {
                                 self.app_state.resize_state = None;
                                 self.update_resize_cursor(x, y);
-                                return;
                             }
                         }
                     }
-
-                    self.handle_ui_event(event_loop, x, y, Some(state), Some(button), None);
+                    // TODO: handle events
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 if let Some((x, y)) = self.app_state.cursor_position {
                     if let MouseScrollDelta::LineDelta(_, scroll_y) = delta {
-                        self.handle_ui_event(event_loop, x, y, None, None, Some(scroll_y));
+                        // TODO: handle scroll events
                     }
                 }
             }
@@ -631,16 +639,8 @@ impl ApplicationHandler for App<'_> {
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
                     self.last_cursor_input = (None, ComponentPosition { x: 0.0, y: 0.0 });
 
-                    // First reset all drag states
-                    self.layout_context.reset_all_drag_states(wgpu_ctx);
-
-                    // If the window regained focus, ensure sliders are properly refreshed
                     if focused {
-                        // Explicitly refresh all sliders to ensure visual sync
-                        self.layout_context.refresh_all_sliders();
-
-                        // Complete layout update and redraw
-                        self.layout_context.update_components(wgpu_ctx, 0.0);
+                        sync_computed_bounds_and_screen_size(&mut self.layout_context, wgpu_ctx);
                         wgpu_ctx.draw(&mut self.layout_context.world);
                         if let Some(window) = &self.window {
                             window.request_redraw();

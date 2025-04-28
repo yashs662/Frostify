@@ -36,7 +36,7 @@ keyring = { version = "3.6.2", features = [
     "apple-native",
     "linux-native",
 ] }
-smaa = { git = "https://github.com/yashs662/smaa-rs.git" }
+smaa = "0.17.0"
 clap = { version = "4.5.37", features = ["derive"] }
 librespot = "0.6.0"
 

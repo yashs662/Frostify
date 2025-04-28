@@ -4740,8 +4740,9 @@ dependencies = [
 
 [[package]]
 name = "smaa"
-version = "0.16.0"
-source = "git+https://github.com/yashs662/smaa-rs.git#013884177fef9297e5aa815223bb91384efc6cfe"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6e225b6cf6b68bd6faa7ae35d30653fb1501a5c745f2d8cb3902d0f0b8b689d"
 dependencies = [
  "wgpu",
 ]

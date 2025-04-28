@@ -24,6 +24,8 @@ use crate::{
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
+use super::layout::ClipBounds;
+
 /// Defines the position of the border relative to the component edges
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[allow(dead_code)]
@@ -65,7 +67,7 @@ pub struct Component {
     pub shadow_offset: (f32, f32),
     pub shadow_blur: f32,
     pub shadow_opacity: f32,
-    pub clip_bounds: Option<(Bounds, bool, bool)>, // (bounds, clip_x, clip_y)
+    pub clip_bounds: Option<ClipBounds>,
     pub clip_self: bool, // Whether this component should be clipped by its parent
     pub track_bounds: Option<Bounds>, // For slider components - stores the track bounds
 }
@@ -275,16 +277,16 @@ impl Component {
         let y = position.y;
 
         // Check if clipped
-        if let Some((clip_bounds, clip_x, clip_y)) = &self.clip_bounds {
-            if *clip_x
-                && (x < clip_bounds.position.x
-                    || x > clip_bounds.position.x + clip_bounds.size.width)
+        if let Some(clip_bounds) = &self.clip_bounds {
+            if clip_bounds.clip_x
+                && (x < clip_bounds.bounds.position.x
+                    || x > clip_bounds.bounds.position.x + clip_bounds.bounds.size.width)
             {
                 return false;
             }
-            if *clip_y
-                && (y < clip_bounds.position.y
-                    || y > clip_bounds.position.y + clip_bounds.size.height)
+            if clip_bounds.clip_y
+                && (y < clip_bounds.bounds.position.y
+                    || y > clip_bounds.bounds.position.y + clip_bounds.bounds.size.height)
             {
                 return false;
             }
@@ -871,27 +873,26 @@ impl Component {
             )
         };
 
-        let (clip_bounds, clip_enabled) =
-            if let Some((clip_bounds, clip_x, clip_y)) = &self.clip_bounds {
-                (
-                    [
-                        clip_bounds.position.x,
-                        clip_bounds.position.y,
-                        clip_bounds.position.x + clip_bounds.size.width,
-                        clip_bounds.position.y + clip_bounds.size.height,
-                    ],
-                    [
-                        if *clip_x { 1.0 } else { 0.0 },
-                        if *clip_y { 1.0 } else { 0.0 },
-                    ],
-                )
-            } else {
-                // Default to full screen with no clipping
-                (
-                    [0.0, 0.0, self.screen_size.width, self.screen_size.height],
-                    [0.0, 0.0],
-                )
-            };
+        let (clip_bounds, clip_enabled) = if let Some(clip_bounds) = &self.clip_bounds {
+            (
+                [
+                    clip_bounds.bounds.position.x,
+                    clip_bounds.bounds.position.y,
+                    clip_bounds.bounds.position.x + clip_bounds.bounds.size.width,
+                    clip_bounds.bounds.position.y + clip_bounds.bounds.size.height,
+                ],
+                [
+                    if clip_bounds.clip_x { 1.0 } else { 0.0 },
+                    if clip_bounds.clip_y { 1.0 } else { 0.0 },
+                ],
+            )
+        } else {
+            // Default to full screen with no clipping
+            (
+                [0.0, 0.0, self.screen_size.width, self.screen_size.height],
+                [0.0, 0.0],
+            )
+        };
 
         ComponentBufferData {
             color,

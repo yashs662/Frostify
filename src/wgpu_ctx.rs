@@ -1,5 +1,11 @@
 use crate::{
-    ui::{layout::ComponentSize, text_renderer::TextHandler},
+    ui::{
+        ecs::{
+            integration::update_frosted_glass_with_frame_texture, resources::RenderGroupsResource,
+        },
+        layout::Size,
+        text_renderer::TextHandler,
+    },
     utils::create_unified_pipeline,
 };
 use smaa::{SmaaMode, SmaaTarget};
@@ -264,8 +270,8 @@ impl<'window> WgpuCtx<'window> {
         self.blit_bind_group = None;
     }
 
-    pub fn get_screen_size(&self) -> ComponentSize {
-        ComponentSize {
+    pub fn get_screen_size(&self) -> Size {
+        Size {
             width: self.surface_config.width as f32,
             height: self.surface_config.height as f32,
         }
@@ -273,6 +279,11 @@ impl<'window> WgpuCtx<'window> {
 
     /// Draw the UI using the ECS system approach
     pub fn draw(&mut self, world: &mut crate::ui::ecs::World) {
+        // check if we have any thing to draw
+        if world.is_empty() {
+            log::warn!("Tried to draw an empty world");
+            return;
+        }
         let surface_texture = if let Some(surface) = &self.surface {
             surface
                 .get_current_texture()
@@ -320,90 +331,12 @@ impl<'window> WgpuCtx<'window> {
         let surface_height = self.surface_config.height;
 
         // Get the render groups resource and clone it to avoid borrowing issues
-        let render_groups = if let Some(render_groups_resource) =
-            world.get_resource::<crate::ui::ecs::systems::RenderGroupsResource>()
-        {
-            render_groups_resource.groups.clone()
-        } else {
-            Vec::new()
-        };
+        let render_groups = world
+            .get_resource::<RenderGroupsResource>()
+            .cloned()
+            .expect("RenderGroupsResource not found")
+            .groups;
 
-        // First phase: Update all frosted glass components before rendering
-        if let Some(frame_view) = frame_sample_view {
-            // Collect all frosted glass entities from render groups
-            let mut frosted_glass_entities = Vec::new();
-            for render_group in &render_groups {
-                if render_group.is_frosted_glass {
-                    frosted_glass_entities.extend(render_group.entity_ids.iter().copied());
-                }
-            }
-
-            // Update all frosted glass components with frame texture
-            for entity_id in frosted_glass_entities {
-                // Get the required components and data
-                if let (Some(render_data), Some(_frosted_glass)) = (
-                    world.get_component::<crate::ui::ecs::components::RenderDataComponent>(
-                        entity_id,
-                    ),
-                    world.get_component::<crate::ui::ecs::components::FrostedGlassComponent>(
-                        entity_id,
-                    ),
-                ) {
-                    // Extract resources needed to create a new bind group
-                    if let (Some(render_data_buffer), Some(sampler)) =
-                        (&render_data.render_data_buffer, &render_data.sampler)
-                    {
-                        // Create bind group layout with the unified layout entries
-                        let bind_group_layout =
-                            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                                entries: crate::constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-                                label: Some(
-                                    format!(
-                                        "{} Updated ECS Frosted Glass Bind Group Layout",
-                                        entity_id
-                                    )
-                                    .as_str(),
-                                ),
-                            });
-
-                        // Create new bind group with the captured frame texture
-                        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            layout: &bind_group_layout,
-                            entries: &[
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: render_data_buffer.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: wgpu::BindingResource::TextureView(frame_view),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 2,
-                                    resource: wgpu::BindingResource::Sampler(sampler),
-                                },
-                            ],
-                            label: Some(
-                                format!("{} Updated ECS Frosted Glass Bind Group", entity_id)
-                                    .as_str(),
-                            ),
-                        });
-
-                        // Update the bind group in the component
-                        if let Some(render_data_mut) = world.get_component_mut::<crate::ui::ecs::components::RenderDataComponent>(entity_id) {
-                            render_data_mut.bind_group = Some(bind_group);
-                        }
-
-                        // Mark that the component no longer needs a frame update
-                        if let Some(frosted_glass_mut) = world.get_component_mut::<crate::ui::ecs::components::FrostedGlassComponent>(entity_id) {
-                            frosted_glass_mut.needs_frame_update = false;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Second phase: Rendering using the updated components
         // Process each render group
         for (idx, render_group) in render_groups.iter().enumerate() {
             let load_op = if idx == 0 {
@@ -427,6 +360,12 @@ impl<'window> WgpuCtx<'window> {
                 for (frosted_idx, entity_id) in render_group.entity_ids.iter().enumerate() {
                     // Create a render pass for this frosted glass component
                     {
+                        if let Some(frame_view) = frame_sample_view {
+                            update_frosted_glass_with_frame_texture(
+                                world, *entity_id, frame_view, device,
+                            );
+                        }
+
                         let mut render_pass =
                             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                                 label: Some("Frosted Glass Render Pass"),
@@ -505,10 +444,9 @@ impl<'window> WgpuCtx<'window> {
                     } else {
                         // Render each entity manually
                         for &entity_id in &render_group.entity_ids {
-                            if let (Some(visual), Some(_bounds), Some(render_data)) = (
+                            if let (Some(visual), Some(render_data)) = (
                                 world.get_component::<crate::ui::ecs::components::VisualComponent>(entity_id),
-                                world.get_component::<crate::ui::ecs::components::BoundsComponent>(entity_id),
-                                world.get_component::<crate::ui::ecs::components::RenderDataComponent>(entity_id)
+                                world.get_component::<crate::ui::ecs::components::RenderDataComponent>(entity_id),
                             ) {
                                 // Skip if not visible
                                 if !visual.is_visible {
@@ -519,7 +457,7 @@ impl<'window> WgpuCtx<'window> {
                                 if let Some(bind_group) = &render_data.bind_group {
                                     render_pass.set_pipeline(&app_pipelines.unified_pipeline);
                                     render_pass.set_bind_group(0, bind_group, &[]);
-                                    render_pass.draw(0..6, 0..1);
+                                    render_pass.draw(0..3, 0..1);
                                 }
                             }
                         }
@@ -550,7 +488,7 @@ impl<'window> WgpuCtx<'window> {
 
             render_pass.set_pipeline(blit_pipeline);
             render_pass.set_bind_group(0, bind_group, &[]);
-            render_pass.draw(0..6, 0..1); // Draw two triangles (a quad)
+            render_pass.draw(0..3, 0..1);
         }
 
         // Submit main rendering commands

@@ -1,16 +1,16 @@
+use super::ecs::EntityId;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct ZIndexManager {
     /// Base z-index assigned to each component
-    base_indices: HashMap<Uuid, i32>,
+    base_indices: HashMap<EntityId, i32>,
     /// Manual adjustment applied to component (relative to siblings)
-    adjustments: HashMap<Uuid, i32>,
+    adjustments: HashMap<EntityId, i32>,
     /// Component hierarchy mapping (child -> parent)
-    hierarchy: HashMap<Uuid, Option<Uuid>>,
+    hierarchy: HashMap<EntityId, Option<EntityId>>,
     /// Cache of computed absolute z-indices
-    computed_indices: HashMap<Uuid, i32>,
+    computed_indices: HashMap<EntityId, i32>,
     /// Z-index increment between hierarchy levels
     level_increment: i32,
     /// Whether the z-indices need to be recomputed
@@ -44,7 +44,7 @@ impl ZIndexManager {
     }
 
     /// Register a component and its parent relationship
-    pub fn register_component(&mut self, component_id: Uuid, parent_id: Option<Uuid>) {
+    pub fn register_component(&mut self, component_id: EntityId, parent_id: Option<EntityId>) {
         self.hierarchy.insert(component_id, parent_id);
 
         // Only set base index if not already set
@@ -54,7 +54,7 @@ impl ZIndexManager {
     }
 
     /// Set a manual z-index adjustment for a component (relative to siblings)
-    pub fn set_adjustment(&mut self, component_id: Uuid, adjustment: i32) {
+    pub fn set_adjustment(&mut self, component_id: EntityId, adjustment: i32) {
         self.adjustments.insert(component_id, adjustment);
         self.dirty = true;
     }
@@ -64,7 +64,7 @@ impl ZIndexManager {
         self.computed_indices.clear();
 
         // Find root components (those without parents)
-        let root_components: Vec<Uuid> = self
+        let root_components: Vec<EntityId> = self
             .hierarchy
             .iter()
             .filter_map(|(id, parent_id)| if parent_id.is_none() { Some(*id) } else { None })
@@ -79,7 +79,7 @@ impl ZIndexManager {
     }
 
     /// Recursively compute z-index for a component and its descendants
-    fn compute_component_z_index(&mut self, component_id: Uuid, depth: i32) {
+    fn compute_component_z_index(&mut self, component_id: EntityId, depth: i32) {
         // Calculate absolute z-index:
         // depth * level_increment + base_index + adjustment
         let base = self.base_indices.get(&component_id).cloned().unwrap_or(0);
@@ -90,7 +90,7 @@ impl ZIndexManager {
         self.computed_indices.insert(component_id, absolute_z_index);
 
         // Find and process all children
-        let children: Vec<Uuid> = self
+        let children: Vec<EntityId> = self
             .hierarchy
             .iter()
             .filter_map(|(id, parent)| {
@@ -109,13 +109,13 @@ impl ZIndexManager {
     }
 
     /// Update rendering order based on z-indices
-    pub fn sort_render_order(&mut self) -> Vec<Uuid> {
+    pub fn sort_render_order(&mut self) -> Vec<EntityId> {
         if self.dirty {
             self.compute_all_z_indices();
         }
 
         // Create a list of (id, z-index) pairs for all components
-        let mut component_z_indices: Vec<(Uuid, i32)> = self
+        let mut component_z_indices: Vec<(EntityId, i32)> = self
             .computed_indices
             .iter()
             .map(|(id, z_index)| (*id, *z_index))

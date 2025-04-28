@@ -1,8 +1,10 @@
-use crate::ui::component::{BackgroundGradientConfig, GradientType};
+// use crate::ui::component::{BackgroundGradientConfig, GradientType};
 use colorgrad::Gradient;
 
+use super::ecs::{GradientType, builders::background::BackgroundGradientConfig};
+
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Color {
     AliceBlue,
     AntiqueWhite,
@@ -145,7 +147,7 @@ impl Color {
         colorgrad::Color::from_linear_rgba(r, g, b, a)
     }
 
-    // Method to create a 2D gradient texture for more complex gradients
+    /// Method to create a 2D gradient texture
     pub fn generate_2d_gradient_texture(
         gradient_config: BackgroundGradientConfig,
         width: u32,
@@ -252,7 +254,7 @@ impl Color {
         ])
     }
 
-    // Helper to convert a gradient to a WGPU texture
+    /// Helper to convert a gradient to a WGPU texture
     pub fn create_gradient_texture(
         device: &wgpu::Device,
         queue: &wgpu::Queue,

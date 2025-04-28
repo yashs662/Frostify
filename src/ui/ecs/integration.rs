@@ -1,231 +1,143 @@
-use crate::ui::{
-    component::{Component, ComponentConfig, ComponentType},
-    ecs::{
-        EntityId, World,
-        components::{
-            AnimationComponent, BoundsComponent, FrostedGlassComponent, HierarchyComponent,
-            IdentityComponent, InteractionComponent, LayoutComponent, RenderDataComponent,
-            SliderComponent, TransformComponent, VisualComponent,
+use wgpu::wgc::device;
+
+use crate::{
+    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+    ui::{
+        ecs::{
+            components::{BoundsComponent, RenderDataComponent, TextComponent},
+            resources::{RenderOrderResource, ViewportResource, WgpuQueueResource},
+            systems::create_component_buffer_data,
         },
-        resources::{RenderOrderResource, ViewportResource},
+        layout::LayoutContext,
+        text_renderer::OptionalTextUpdateData,
     },
-    layout::LayoutContext,
+    wgpu_ctx::WgpuCtx,
 };
 
-pub fn convert_component_to_entity(component: &Component, world: &mut World) -> EntityId {
-    let entity_id = component.id;
-
-    // Create entity with the same UUID
-    world.create_entity();
-
-    // Add identity component
-    world.add_component(
-        entity_id,
-        IdentityComponent {
-            id: entity_id,
-            debug_name: component.debug_name.clone(),
-            component_type: component.component_type,
-        },
-    );
-
-    // Add transform component
-    world.add_component(
-        entity_id,
-        TransformComponent {
-            size: component.transform.size.clone(),
-            offset: component.transform.offset.clone(),
-            position_type: component.transform.position_type,
-            z_index: component.transform.z_index,
-            border_radius: component.transform.border_radius,
-            max_scale_factor: component.transform.max_scale_factor,
-            min_scale_factor: component.transform.min_scale_factor,
-            scale_factor: component.transform.scale_factor,
-            scale_anchor: component.transform.scale_anchor,
-        },
-    );
-
-    // Add layout component
-    world.add_component(
-        entity_id,
-        LayoutComponent {
-            layout: component.layout.clone(),
-        },
-    );
-
-    // Add hierarchy component
-    world.add_component(
-        entity_id,
-        HierarchyComponent {
-            parent: component.get_parent_id(),
-            children: component.get_all_children_ids(),
-        },
-    );
-
-    // Add visual component
-    world.add_component(
-        entity_id,
-        VisualComponent {
-            component_type: component.component_type,
-            border_width: component.border_width,
-            border_color: component.border_color,
-            border_position: component.border_position,
-            shadow_color: component.shadow_color,
-            shadow_offset: component.shadow_offset,
-            shadow_blur: component.shadow_blur,
-            shadow_opacity: component.shadow_opacity,
-            is_visible: component.layout.visible,
-        },
-    );
-
-    // Add bounds component
-    world.add_component(
-        entity_id,
-        BoundsComponent {
-            computed_bounds: component.computed_bounds,
-            screen_size: component.screen_size,
-            clip_bounds: component.clip_bounds,
-            clip_self: component.clip_self,
-        },
-    );
-
-    // Add interaction component
-    world.add_component(
-        entity_id,
-        InteractionComponent {
-            is_clickable: component.is_clickable(),
-            is_draggable: component.is_draggable(),
-            is_hoverable: component.is_hoverable(),
-            is_hovered: component.is_hovered(),
-            click_event: component.get_click_event().cloned(),
-            drag_event: component.get_drag_event().cloned(),
-        },
-    );
-
-    // Add animation component
-    world.add_component(
-        entity_id,
-        AnimationComponent {
-            animations: component.animations.clone(),
-            needs_update: component.needs_update(),
-        },
-    );
-
-    // Add render data component with GPU resources
-    world.add_component(
-        entity_id,
-        RenderDataComponent {
-            render_data_buffer: component.get_render_data_buffer().cloned(),
-            bind_group: component.get_bind_group().cloned(),
-            sampler: component.get_sampler().cloned(),
-        },
-    );
-
-    // If it's a frosted glass component, add specialized FrostedGlassComponent
-    if component.component_type == ComponentType::FrostedGlass {
-        if let Some(ComponentConfig::FrostedGlass(config)) = &component.config {
-            world.add_component(
-                entity_id,
-                FrostedGlassComponent {
-                    tint_color: config.tint_color,
-                    blur_radius: config.blur_radius,
-                    opacity: config.opacity,
-                    tint_intensity: config.tint_intensity,
-                    needs_frame_update: true,
-                },
-            );
-        }
-    }
-
-    // If it's a slider component, add SliderComponent data
-    if component.is_a_slider() {
-        if let Some(slider_data) = component.get_slider_data() {
-            world.add_component(
-                entity_id,
-                SliderComponent {
-                    value: slider_data.value,
-                    min: slider_data.min,
-                    max: slider_data.max,
-                    step: slider_data.step,
-                    thumb_id: slider_data.thumb_id,
-                    track_fill_id: slider_data.track_fill_id,
-                    track_bounds: component.get_track_bounds(),
-                    needs_update: component.needs_update(),
-                    is_dragging: slider_data.is_dragging,
-                },
-            );
-        }
-    }
-
-    entity_id
-}
-
-pub fn convert_layout_context_to_world(layout_context: &mut LayoutContext) {
-    // Add resources
-    layout_context.world.add_resource(ViewportResource {
-        size: layout_context.viewport_size,
-    });
-
-    // Convert all components
-    for (id, component) in layout_context.components.iter() {
-        convert_component_to_entity(component, &mut layout_context.world);
-    }
-}
+use super::{EntityId, World, systems::AnimationSystem};
 
 // Hybrid update method that runs ECS systems first, then updates traditional components
-pub fn hybrid_update(
-    layout_context: &mut LayoutContext,
-    wgpu_ctx: &mut crate::wgpu_ctx::WgpuCtx,
-    frame_time: f32,
-) {
+pub fn hybrid_update(layout_context: &mut LayoutContext, frame_time: f32) {
     // Run ECS systems directly on the world contained in layout_context
     {
         let world = &mut layout_context.world;
-        world.run_system(crate::ui::ecs::systems::AnimationSystem { frame_time });
+        world
+            .run_system::<crate::ui::ecs::systems::AnimationSystem>(AnimationSystem { frame_time });
     }
-
-    // First collect animation data from ECS in a separate step
-    let mut component_updates = Vec::new();
-    {
-        let world = &layout_context.world;
-        for (entity_id, anim_comp) in world.query::<AnimationComponent>() {
-            if anim_comp.needs_update {
-                if let Some(transform) = world.get_component::<TransformComponent>(entity_id) {
-                    component_updates.push((entity_id, transform.scale_factor));
-                }
-            }
-        }
-    }
-
-    // Then apply the updates to components in a separate step
-    for (entity_id, scale_factor) in component_updates {
-        if let Some(component) = layout_context.get_component_mut(&entity_id) {
-            component.transform.scale_factor = scale_factor;
-            component.update(wgpu_ctx, frame_time);
-        }
-    }
-
-    // Cleanup any removed entities
-    layout_context.world.cleanup();
 }
 
-// Sync computed bounds from LayoutContext to ECS
-pub fn sync_computed_bounds(layout_context: &mut LayoutContext) {
-    // Sync bounds back to ECS
-    for (id, bounds) in layout_context.computed_bounds.iter() {
-        if let Some(bounds_comp) = layout_context
-            .world
-            .get_component_mut::<BoundsComponent>(*id)
-        {
-            bounds_comp.computed_bounds = *bounds;
-        }
-    }
+// TODO: Reduce the number of syncs as much as possible
+pub fn sync_computed_bounds_and_screen_size(
+    layout_context: &mut LayoutContext,
+    wgpu_ctx: &mut WgpuCtx,
+) {
+    layout_context
+        .world
+        .for_each_component_mut::<BoundsComponent, _>(|id, bounds_comp| {
+            if let Some(computed_bounds) = layout_context.computed_bounds.get(&id) {
+                bounds_comp.computed_bounds = *computed_bounds;
+                bounds_comp.screen_size = layout_context.viewport_size;
+            }
+        });
+
+    let device_queue = layout_context
+        .world
+        .get_resource::<WgpuQueueResource>()
+        .expect("expected WgpuQueueResource to exist")
+        .clone();
+
+    layout_context
+        .world
+        .for_each_component::<RenderDataComponent, _>(|id, render_data_comp| {
+            device_queue.queue.write_buffer(
+                render_data_comp
+                    .render_data_buffer
+                    .as_ref()
+                    .expect("RenderDataComponent should have a valid render data buffer"),
+                0,
+                bytemuck::cast_slice(&[create_component_buffer_data(&layout_context.world, id)]),
+            );
+        });
+
+    layout_context
+        .world
+        .for_each_component::<TextComponent, _>(|id, text_comp| {
+            if let Some(text_bounds) = layout_context.computed_bounds.get(&id) {
+                wgpu_ctx
+                    .text_handler
+                    .update((id, OptionalTextUpdateData::new().with_bounds(*text_bounds)));
+            }
+        });
+
+    log::debug!("Syncing computed bounds and screen size");
 }
 
 // Update viewport resource in ECS when viewport changes
 pub fn update_global_viewport_resource(layout_context: &mut LayoutContext) {
-    if let Some(viewport_resource) = layout_context.world.get_resource_mut::<ViewportResource>() {
+    let viewport_resource = layout_context
+        .world
+        .get_resource_mut::<ViewportResource>()
+        .expect("expected ViewportResource to exist");
+    {
         viewport_resource.size = layout_context.viewport_size;
     }
+}
+
+pub fn update_frosted_glass_with_frame_texture(
+    world: &mut World,
+    entity_id: EntityId,
+    frame_texture_view: &wgpu::TextureView,
+    device: &wgpu::Device,
+) {
+    // let render_data_buffer = match component.get_render_data_buffer() {
+    //     Some(buffer) => buffer,
+    //     None => {
+    //         error!("No render data buffer found for frosted glass component");
+    //         return false;
+    //     }
+    // };
+
+    let render_comp = world
+        .get_component_mut::<RenderDataComponent>(entity_id)
+        .expect("expected RenderDataComponent to exist to update frosted glass");
+
+    let sampler = render_comp
+        .sampler
+        .as_ref()
+        .expect("expected sampler to exist in render_comp for frosted glass");
+
+    // Create unified bind group layout compatible with the shader
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+        label: Some(format!("{} Unified Bind Group Layout", entity_id).as_str()),
+    });
+
+    // Create bind group with all required resources
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &bind_group_layout,
+        entries: &[
+            // Component uniform data
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: render_comp.render_data_buffer.as_ref()
+                    .expect("expected render data buffer to exist for updating frame texture to frosted glass")
+                    .as_entire_binding(),
+            },
+            // Texture view
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&frame_texture_view),
+            },
+            // Sampler
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+        label: Some(format!("{} Unified Bind Group", entity_id).as_str()),
+    });
+
+    render_comp.bind_group = Some(bind_group);
 }
 
 // Sync render order from LayoutContext to ECS
@@ -234,28 +146,15 @@ pub fn sync_render_order(layout_context: &mut LayoutContext) {
     let render_order = layout_context.get_render_order().clone();
 
     // Update or create the render order resource in the world
-    layout_context
+    let render_order_resource = layout_context
         .world
-        .add_resource(RenderOrderResource { render_order });
+        .get_resource_mut::<RenderOrderResource>()
+        .expect("expected RenderOrderResource to exist");
+    render_order_resource.render_order = render_order;
 }
 
 // Hybrid draw method that avoids multiple mutable borrows
 pub fn hybrid_draw(layout_context: &mut LayoutContext, wgpu_ctx: &mut crate::wgpu_ctx::WgpuCtx) {
-    // First ensure all render data is synced within layout_context
-    {
-        for (id, component) in &layout_context.components {
-            if let Some(render_data_comp) = layout_context
-                .world
-                .get_component_mut::<RenderDataComponent>(*id)
-            {
-                // Update render data if component has GPU resources
-                render_data_comp.render_data_buffer = component.get_render_data_buffer().cloned();
-                render_data_comp.bind_group = component.get_bind_group().cloned();
-                render_data_comp.sampler = component.get_sampler().cloned();
-            }
-        }
-    }
-
     // Sync the render order from layout context to ECS world
     sync_render_order(layout_context);
 
