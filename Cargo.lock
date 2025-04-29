@@ -12,6 +12,7 @@ dependencies = [
  "colored",
  "colorgrad",
  "env_logger",
+ "frostify_derive",
  "glyphon",
  "image",
  "keyring",
@@ -1333,6 +1334,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "frostify_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

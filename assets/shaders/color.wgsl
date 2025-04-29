@@ -28,6 +28,7 @@ struct ComponentUniform {
     shadow_blur: f32,           // Shadow blur intensity
     shadow_opacity: f32,        // Shadow opacity
     clip_bounds: vec4<f32>,     // Clipping bounds (min_x, min_y, max_x, max_y)
+    clip_border_radius: vec4<f32>, // Clipping border radius (top-left, top-right, bottom-left, bottom-right)
     clip_enabled: vec2<f32>,    // Whether clipping is enabled (x, y)
 }
 
@@ -359,14 +360,73 @@ fn simple_shadow(pixel_pos: vec2<f32>, shadow_pos: vec2<f32>, shadow_size: vec2<
     return clamp(1.0 - dist_to_shape / max(0.001, blur), 0.0, 1.0);
 }
 
+fn is_inside_rounded_rect(pos: vec2<f32>, rect_min: vec2<f32>, rect_max: vec2<f32>, radii: vec4<f32>) -> bool {
+    // Early exit for points clearly inside the non-rounded part
+    if (pos.x >= rect_min.x + radii.x && pos.x <= rect_max.x - radii.y &&
+        pos.y >= rect_min.y + radii.x && pos.y <= rect_max.y - radii.z) {
+        return true;
+    }
+    
+    // Get corner centers
+    let tl_center = vec2<f32>(rect_min.x + radii.x, rect_min.y + radii.x);
+    let tr_center = vec2<f32>(rect_max.x - radii.y, rect_min.y + radii.y);
+    let bl_center = vec2<f32>(rect_min.x + radii.z, rect_max.y - radii.z);
+    let br_center = vec2<f32>(rect_max.x - radii.w, rect_max.y - radii.w);
+    
+    // Check corners using squared distances
+    if (pos.x <= tl_center.x && pos.y <= tl_center.y) {
+        let dist_sq = dot(pos - tl_center, pos - tl_center);
+        return dist_sq <= radii.x * radii.x;
+    }
+    if (pos.x >= tr_center.x && pos.y <= tr_center.y) {
+        let dist_sq = dot(pos - tr_center, pos - tr_center);
+        return dist_sq <= radii.y * radii.y;
+    }
+    if (pos.x <= bl_center.x && pos.y >= bl_center.y) {
+        let dist_sq = dot(pos - bl_center, pos - bl_center);
+        return dist_sq <= radii.z * radii.z;
+    }
+    if (pos.x >= br_center.x && pos.y >= br_center.y) {
+        let dist_sq = dot(pos - br_center, pos - br_center);
+        return dist_sq <= radii.w * radii.w;
+    }
+    
+    // In the non-corner regions, check against rect bounds
+    return pos.x >= rect_min.x && pos.x <= rect_max.x && 
+           pos.y >= rect_min.y && pos.y <= rect_max.y;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let pixel_coords = uv_to_pixels(in.uv);
     
     // Early clip test - avoid all calculations if outside clip region
-    if ((component.clip_enabled.x > 0.5 && (pixel_coords.x < component.clip_bounds.x || pixel_coords.x > component.clip_bounds.z)) ||
-        (component.clip_enabled.y > 0.5 && (pixel_coords.y < component.clip_bounds.y || pixel_coords.y > component.clip_bounds.w))) {
-        discard;
+    if (component.clip_enabled.x > 0.5 || component.clip_enabled.y > 0.5) {
+        // Check if we need to use rounded clipping
+        let use_rounded_clip = component.clip_border_radius.x > 0.0 || 
+                               component.clip_border_radius.y > 0.0 || 
+                               component.clip_border_radius.z > 0.0 || 
+                               component.clip_border_radius.w > 0.0;
+                               
+        if (use_rounded_clip) {
+            // Use rounded rectangle clipping
+            let inside_clip = is_inside_rounded_rect(
+                pixel_coords,
+                vec2<f32>(component.clip_bounds.x, component.clip_bounds.y),
+                vec2<f32>(component.clip_bounds.z, component.clip_bounds.w),
+                component.clip_border_radius
+            );
+            
+            if (!inside_clip) {
+                discard;
+            }
+        } else {
+            // Use original rectangular clipping
+            if ((component.clip_enabled.x > 0.5 && (pixel_coords.x < component.clip_bounds.x || pixel_coords.x > component.clip_bounds.z)) ||
+                (component.clip_enabled.y > 0.5 && (pixel_coords.y < component.clip_bounds.y || pixel_coords.y > component.clip_bounds.w))) {
+                discard;
+            }
+        }
     }
     
     // Early exit for pixels outside outer bounds - no shadow calculation needed

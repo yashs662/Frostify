@@ -21,6 +21,7 @@ use super::{
 };
 
 pub mod background;
+pub mod button;
 pub mod container;
 pub mod image;
 pub mod text;
@@ -147,11 +148,6 @@ pub trait EntityBuilder: Sized {
         self
     }
 
-    fn with_event_sender(mut self, sender: UnboundedSender<AppEvent>) -> Self {
-        self.common_props().event_sender = Some(sender);
-        self
-    }
-
     fn with_click_event(mut self, event: AppEvent) -> Self {
         self.common_props().click_event = Some(event);
         self
@@ -211,7 +207,10 @@ pub fn add_common_components(
 
         let animation = Animation::new(animation_config.clone());
         // check if animation component already exists
-        if let Some(animation_comp) = world.get_component_mut::<AnimationComponent>(entity_id) {
+        if let Some(animation_comp) = world
+            .components
+            .get_component_mut::<AnimationComponent>(entity_id)
+        {
             animation_comp.animations.push(animation);
         } else {
             // Create a new animation component if it doesn't exist
@@ -299,8 +298,8 @@ pub fn add_common_components(
                 .iter()
                 .any(|a| a.when == AnimationWhen::Hover),
             is_hovered: false,
-            click_event: props.click_event.clone(),
-            drag_event: props.drag_event.clone(),
+            click_event: props.click_event,
+            drag_event: props.drag_event,
         },
     );
 }

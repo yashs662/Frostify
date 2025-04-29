@@ -1,5 +1,3 @@
-use wgpu::wgc::device;
-
 use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
@@ -42,6 +40,7 @@ pub fn sync_computed_bounds_and_screen_size(
 
     let device_queue = layout_context
         .world
+        .resources
         .get_resource::<WgpuQueueResource>()
         .expect("expected WgpuQueueResource to exist")
         .clone();
@@ -76,6 +75,7 @@ pub fn sync_computed_bounds_and_screen_size(
 pub fn update_global_viewport_resource(layout_context: &mut LayoutContext) {
     let viewport_resource = layout_context
         .world
+        .resources
         .get_resource_mut::<ViewportResource>()
         .expect("expected ViewportResource to exist");
     {
@@ -98,6 +98,7 @@ pub fn update_frosted_glass_with_frame_texture(
     // };
 
     let render_comp = world
+        .components
         .get_component_mut::<RenderDataComponent>(entity_id)
         .expect("expected RenderDataComponent to exist to update frosted glass");
 
@@ -126,12 +127,12 @@ pub fn update_frosted_glass_with_frame_texture(
             // Texture view
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(&frame_texture_view),
+                resource: wgpu::BindingResource::TextureView(frame_texture_view),
             },
             // Sampler
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::Sampler(&sampler),
+                resource: wgpu::BindingResource::Sampler(sampler),
             },
         ],
         label: Some(format!("{} Unified Bind Group", entity_id).as_str()),
@@ -148,6 +149,7 @@ pub fn sync_render_order(layout_context: &mut LayoutContext) {
     // Update or create the render order resource in the world
     let render_order_resource = layout_context
         .world
+        .resources
         .get_resource_mut::<RenderOrderResource>()
         .expect("expected RenderOrderResource to exist");
     render_order_resource.render_order = render_order;

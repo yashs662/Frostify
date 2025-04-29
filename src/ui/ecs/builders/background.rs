@@ -65,7 +65,7 @@ impl BackgroundBuilder {
         }
     }
 
-    pub fn with_linear_gradient(background_gradient_config: BackgroundGradientConfig) -> Self {
+    pub fn with_gradient(background_gradient_config: BackgroundGradientConfig) -> Self {
         Self {
             common: EntityBuilderProps::default(),
             background_type: BackgroundType::Gradient(background_gradient_config),

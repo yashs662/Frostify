@@ -332,6 +332,7 @@ impl<'window> WgpuCtx<'window> {
 
         // Get the render groups resource and clone it to avoid borrowing issues
         let render_groups = world
+            .resources
             .get_resource::<RenderGroupsResource>()
             .cloned()
             .expect("RenderGroupsResource not found")
@@ -388,12 +389,16 @@ impl<'window> WgpuCtx<'window> {
 
                         // Extract entity data
                         if let (Some(_bounds), Some(render_data)) = (
-                            world.get_component::<crate::ui::ecs::components::BoundsComponent>(
-                                *entity_id,
-                            ),
-                            world.get_component::<crate::ui::ecs::components::RenderDataComponent>(
-                                *entity_id,
-                            ),
+                            world
+                                .components
+                                .get_component::<crate::ui::ecs::components::BoundsComponent>(
+                                    *entity_id,
+                                ),
+                            world
+                                .components
+                                .get_component::<crate::ui::ecs::components::RenderDataComponent>(
+                                    *entity_id,
+                                ),
                         ) {
                             // Simple rendering
                             if let Some(bind_group) = &render_data.bind_group {
@@ -445,8 +450,8 @@ impl<'window> WgpuCtx<'window> {
                         // Render each entity manually
                         for &entity_id in &render_group.entity_ids {
                             if let (Some(visual), Some(render_data)) = (
-                                world.get_component::<crate::ui::ecs::components::VisualComponent>(entity_id),
-                                world.get_component::<crate::ui::ecs::components::RenderDataComponent>(entity_id),
+                                world.components.get_component::<crate::ui::ecs::components::VisualComponent>(entity_id),
+                                world.components.get_component::<crate::ui::ecs::components::RenderDataComponent>(entity_id),
                             ) {
                                 // Skip if not visible
                                 if !visual.is_visible {

@@ -1,12 +1,12 @@
+use frostify_derive::EcsComponent;
+
 use super::{EcsComponent, EntityId, GradientColorStop, GradientType, builders::image::ScaleMode};
 use crate::ui::{
     color::Color,
     layout::{BorderRadius, ClipBounds, ComponentOffset, Layout, Position, Size},
 };
-use std::any::Any;
 
-// Transform Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct TransformComponent {
     pub size: crate::ui::layout::LayoutSize,
     pub offset: ComponentOffset,
@@ -18,21 +18,18 @@ pub struct TransformComponent {
     pub scale_anchor: crate::ui::layout::Anchor,
 }
 
-// Layout Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct LayoutComponent {
     pub layout: Layout,
 }
 
-// Hierarchy Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct HierarchyComponent {
     pub parent: Option<EntityId>,
     pub children: Vec<EntityId>,
 }
 
-// Visual Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct VisualComponent {
     pub component_type: crate::ui::ecs::ComponentType,
     pub border_width: f32,
@@ -46,8 +43,7 @@ pub struct VisualComponent {
     pub is_visible: bool,
 }
 
-// Bounds Component
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, EcsComponent)]
 pub struct BoundsComponent {
     pub computed_bounds: crate::ui::layout::Bounds,
     pub screen_size: Size,
@@ -55,8 +51,7 @@ pub struct BoundsComponent {
     pub clip_self: bool,
 }
 
-// Interaction Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct InteractionComponent {
     pub is_clickable: bool,
     pub is_clicked: bool,
@@ -68,96 +63,19 @@ pub struct InteractionComponent {
 }
 
 // Animation Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct AnimationComponent {
     pub animations: Vec<crate::ui::animation::Animation>,
 }
 
-// Identity Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct IdentityComponent {
     pub id: EntityId,
     pub debug_name: String,
     pub component_type: crate::ui::ecs::ComponentType,
 }
 
-// Implement EcsComponent for all components
-impl EcsComponent for TransformComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-impl EcsComponent for LayoutComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-impl EcsComponent for HierarchyComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-impl EcsComponent for VisualComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-impl EcsComponent for BoundsComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-impl EcsComponent for InteractionComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-impl EcsComponent for AnimationComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-impl EcsComponent for IdentityComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-// Special component types for specific behaviors
-
-// Slider Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct SliderComponent {
     pub value: f32,
     pub min: f32,
@@ -169,50 +87,19 @@ pub struct SliderComponent {
     pub needs_update: bool,
     pub is_dragging: bool,
 }
-
-impl EcsComponent for SliderComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-// Render Data Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct RenderDataComponent {
     pub render_data_buffer: Option<wgpu::Buffer>,
     pub bind_group: Option<wgpu::BindGroup>,
     pub sampler: Option<wgpu::Sampler>,
 }
 
-impl EcsComponent for RenderDataComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-// Color Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct ColorComponent {
     pub color: Color,
 }
 
-impl EcsComponent for ColorComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-// Gradient Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct GradientComponent {
     pub color_stops: Vec<GradientColorStop>,
     pub gradient_type: GradientType,
@@ -221,17 +108,7 @@ pub struct GradientComponent {
     pub radius: Option<f32>,
 }
 
-impl EcsComponent for GradientComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-// Frosted Glass Component
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct FrostedGlassComponent {
     pub tint_color: Color,
     pub blur_radius: f32,
@@ -239,17 +116,7 @@ pub struct FrostedGlassComponent {
     pub tint_intensity: f32,
 }
 
-impl EcsComponent for FrostedGlassComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-// Text Component - specialized component for text rendering
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct TextComponent {
     pub text: String,
     pub font_size: f32,
@@ -258,30 +125,11 @@ pub struct TextComponent {
     pub fit_to_size: bool,
 }
 
-impl EcsComponent for TextComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-// Image Component - specialized component for image rendering
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EcsComponent)]
 pub struct ImageComponent {
     pub image_path: String,
     pub scale_mode: ScaleMode,
     pub original_width: u32,
     pub original_height: u32,
     pub fit_to_size: bool,
-}
-
-impl EcsComponent for ImageComponent {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 }

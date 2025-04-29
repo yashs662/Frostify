@@ -14,13 +14,29 @@ use crate::{
 
 use super::add_common_components;
 
+pub struct TextConfig {
+    pub text: String,
+    pub font_size: f32,
+    pub line_height_multiplier: f32,
+    pub color: Color,
+    pub fit_to_size: bool,
+}
+
+impl Default for TextConfig {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            font_size: 16.0,
+            line_height_multiplier: 1.5,
+            color: Color::Black,
+            fit_to_size: false,
+        }
+    }
+}
+
 pub struct TextBuilder {
     common: EntityBuilderProps,
-    text: String,
-    font_size: f32,
-    line_height_multiplier: f32,
-    color: Color,
-    fit_to_size: bool,
+    config: TextConfig,
 }
 
 impl EntityBuilder for TextBuilder {
@@ -34,36 +50,32 @@ impl TextBuilder {
     pub fn new() -> Self {
         Self {
             common: EntityBuilderProps::default(),
-            text: String::new(),
-            font_size: 16.0,
-            line_height_multiplier: 1.5,
-            color: Color::Black,
-            fit_to_size: false,
+            config: TextConfig::default(),
         }
     }
 
     pub fn with_text(mut self, text: String) -> Self {
-        self.text = text;
+        self.config.text = text;
         self
     }
 
     pub fn with_font_size(mut self, font_size: f32) -> Self {
-        self.font_size = font_size;
+        self.config.font_size = font_size;
         self
     }
 
     pub fn with_line_height(mut self, line_height: f32) -> Self {
-        self.line_height_multiplier = line_height;
+        self.config.line_height_multiplier = line_height;
         self
     }
 
     pub fn with_color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.config.color = color;
         self
     }
 
     pub fn set_fit_to_size(mut self) -> Self {
-        self.fit_to_size = true;
+        self.config.fit_to_size = true;
         self
     }
 
@@ -105,22 +117,22 @@ impl TextBuilder {
         world.add_component(
             entity_id,
             TextComponent {
-                text: self.text.clone(),
-                font_size: self.font_size,
-                line_height_multiplier: self.line_height_multiplier,
-                color: self.color,
-                fit_to_size: self.fit_to_size,
+                text: self.config.text.clone(),
+                font_size: self.config.font_size,
+                line_height_multiplier: self.config.line_height_multiplier,
+                color: self.config.color,
+                fit_to_size: self.config.fit_to_size,
             },
         );
 
         // Configure
         wgpu_ctx.text_handler.register_text(
             entity_id,
-            self.text,
-            self.font_size,
-            self.line_height_multiplier,
+            self.config.text.clone(),
+            self.config.font_size,
+            self.config.line_height_multiplier,
             Bounds::default(),
-            self.color,
+            self.config.color,
         );
 
         entity_id

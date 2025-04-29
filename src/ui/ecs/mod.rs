@@ -1,12 +1,15 @@
 use components::{HierarchyComponent, IdentityComponent};
 use resources::{
-    MousePositionResource, RenderGroupsResource, RenderOrderResource, ViewportResource,
-    WgpuQueueResource,
+    EventSenderResource, MouseResource, RenderGroupsResource, RenderOrderResource,
+    ViewportResource, WgpuQueueResource,
 };
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
+
+use crate::app::AppEvent;
 
 use super::color::Color;
 use super::layout::{ComponentPosition, Size};
@@ -71,9 +74,10 @@ pub struct RenderBufferData {
     pub shadow_blur: f32,        // Shadow blur radius
     pub shadow_opacity: f32,     // Shadow opacity
     // Clipping bounds
-    pub clip_bounds: [f32; 4],  // (min_x, min_y, max_x, max_y)
-    pub clip_enabled: [f32; 2], // (clip_x, clip_y) as 0.0 or 1.0
-    pub _padding3: [f32; 2],    // Padding for alignment
+    pub clip_bounds: [f32; 4],        // (min_x, min_y, max_x, max_y)
+    pub clip_border_radius: [f32; 4], // (top-left, top-right, bottom-left, bottom-right)
+    pub clip_enabled: [f32; 2],       // (clip_x, clip_y) as 0.0 or 1.0
+    pub _padding3: [f32; 8],          // Padding for alignment
 }
 
 #[allow(dead_code)]
@@ -107,19 +111,88 @@ pub trait EcsResource: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
+pub struct EcsComponents {
+    inner: HashMap<TypeId, HashMap<EntityId, Box<dyn EcsComponent>>>,
+}
+
+impl EcsComponents {
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
+
+    pub fn get_component<T: EcsComponent + 'static>(&self, entity_id: EntityId) -> Option<&T> {
+        let type_id = TypeId::of::<T>();
+        self.inner
+            .get(&type_id)
+            .and_then(|entity_map| entity_map.get(&entity_id))
+            .and_then(|boxed_component| boxed_component.as_any().downcast_ref::<T>())
+    }
+
+    pub fn get_component_mut<T: EcsComponent + 'static>(
+        &mut self,
+        entity_id: EntityId,
+    ) -> Option<&mut T> {
+        let type_id = TypeId::of::<T>();
+        self.inner
+            .get_mut(&type_id)
+            .and_then(|entity_map| entity_map.get_mut(&entity_id))
+            .and_then(|boxed_component| boxed_component.as_any_mut().downcast_mut::<T>())
+    }
+
+    pub fn entry(&mut self, type_id: TypeId) -> &mut HashMap<EntityId, Box<dyn EcsComponent>> {
+        self.inner.entry(type_id).or_default()
+    }
+
+    pub fn get(&self, type_id: &TypeId) -> Option<&HashMap<EntityId, Box<dyn EcsComponent>>> {
+        self.inner.get(type_id)
+    }
+}
+
+pub struct EcsResources {
+    inner: HashMap<TypeId, Box<dyn EcsResource>>,
+}
+
+impl EcsResources {
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
+    pub fn get_resource<T: EcsResource + 'static>(&self) -> Option<&T> {
+        let type_id = TypeId::of::<T>();
+        self.inner
+            .get(&type_id)
+            .and_then(|boxed_resource| boxed_resource.as_any().downcast_ref::<T>())
+    }
+
+    pub fn get_resource_mut<T: EcsResource + 'static>(&mut self) -> Option<&mut T> {
+        let type_id = TypeId::of::<T>();
+        self.inner
+            .get_mut(&type_id)
+            .and_then(|boxed_resource| boxed_resource.as_any_mut().downcast_mut::<T>())
+    }
+}
+
 // World - main ECS container
 pub struct World {
     entities: Vec<EntityId>,
-    components: HashMap<TypeId, HashMap<EntityId, Box<dyn EcsComponent>>>,
-    resources: HashMap<TypeId, Box<dyn EcsResource>>,
+    pub components: EcsComponents,
+    pub resources: EcsResources,
 }
 
 impl Debug for World {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("World")
             .field("entities", &self.entities)
-            .field("components", &self.components.keys())
-            .field("resources", &self.resources.keys())
+            .field("components", &self.components.inner.keys())
+            .field("resources", &self.resources.inner.keys())
             .finish()
     }
 }
@@ -134,8 +207,14 @@ impl World {
     pub fn new() -> Self {
         Self {
             entities: Vec::new(),
-            components: HashMap::new(),
-            resources: HashMap::new(),
+            components: EcsComponents::new(),
+            resources: EcsResources::new(),
+        }
+    }
+
+    pub fn queue_event(&mut self, event: AppEvent) {
+        if let Some(resource) = self.resources.get_resource_mut::<EventSenderResource>() {
+            resource.event_sender.send(event).ok();
         }
     }
 
@@ -143,14 +222,21 @@ impl World {
         self.entities.is_empty()
     }
 
-    pub fn initialize_resources(&mut self, viewport_size: Size, queue: &wgpu::Queue) {
+    pub fn initialize_resources(
+        &mut self,
+        viewport_size: Size,
+        queue: &wgpu::Queue,
+        event_sender: &UnboundedSender<AppEvent>,
+    ) {
         self.add_resource(WgpuQueueResource {
             queue: std::sync::Arc::new(queue.clone()),
         });
         self.add_resource(ViewportResource {
             size: viewport_size,
         });
-
+        self.add_resource(EventSenderResource {
+            event_sender: event_sender.clone(),
+        });
         self.initialize_resetable_resources();
     }
 
@@ -159,19 +245,23 @@ impl World {
             render_order: Vec::new(),
         });
         self.add_resource(RenderGroupsResource { groups: Vec::new() });
-        self.add_resource(MousePositionResource {
+        self.add_resource(MouseResource {
             position: ComponentPosition::default(),
+            is_pressed: false,
+            is_released: false,
+            is_dragging: false,
+            press_position: None,
         });
     }
 
     fn reset_resources(&mut self) {
-        if let Some(resource) = self.get_resource_mut::<RenderOrderResource>() {
+        if let Some(resource) = self.resources.get_resource_mut::<RenderOrderResource>() {
             resource.render_order.clear();
         }
-        if let Some(resource) = self.get_resource_mut::<RenderGroupsResource>() {
+        if let Some(resource) = self.resources.get_resource_mut::<RenderGroupsResource>() {
             resource.groups.clear();
         }
-        if let Some(resource) = self.get_resource_mut::<MousePositionResource>() {
+        if let Some(resource) = self.resources.get_resource_mut::<MouseResource>() {
             resource.position = ComponentPosition::default();
         }
 
@@ -224,47 +314,21 @@ impl World {
             panic!("Entity already has a component of this type");
         }
         let type_id = TypeId::of::<T>();
-        let entity_map = self.components.entry(type_id).or_default();
+        let entity_map = self.components.entry(type_id);
         entity_map.insert(entity_id, Box::new(component));
     }
 
-    pub fn get_component<T: EcsComponent + 'static>(&self, entity_id: EntityId) -> Option<&T> {
+    pub fn remove_component<T: EcsComponent>(&mut self, entity_id: EntityId) {
         let type_id = TypeId::of::<T>();
-        self.components
-            .get(&type_id)
-            .and_then(|entity_map| entity_map.get(&entity_id))
-            .and_then(|boxed_component| boxed_component.as_any().downcast_ref::<T>())
-    }
-
-    pub fn get_component_mut<T: EcsComponent + 'static>(
-        &mut self,
-        entity_id: EntityId,
-    ) -> Option<&mut T> {
-        let type_id = TypeId::of::<T>();
-        self.components
-            .get_mut(&type_id)
-            .and_then(|entity_map| entity_map.get_mut(&entity_id))
-            .and_then(|boxed_component| boxed_component.as_any_mut().downcast_mut::<T>())
+        if let Some(entity_map) = self.components.inner.get_mut(&type_id) {
+            entity_map.remove(&entity_id);
+        }
     }
 
     pub fn add_resource<T: EcsResource>(&mut self, resource: T) {
         log::trace!("Adding resource: {:?}", std::any::type_name::<T>());
         let type_id = TypeId::of::<T>();
-        self.resources.insert(type_id, Box::new(resource));
-    }
-
-    pub fn get_resource<T: EcsResource + 'static>(&self) -> Option<&T> {
-        let type_id = TypeId::of::<T>();
-        self.resources
-            .get(&type_id)
-            .and_then(|boxed_resource| boxed_resource.as_any().downcast_ref::<T>())
-    }
-
-    pub fn get_resource_mut<T: EcsResource + 'static>(&mut self) -> Option<&mut T> {
-        let type_id = TypeId::of::<T>();
-        self.resources
-            .get_mut(&type_id)
-            .and_then(|boxed_resource| boxed_resource.as_any_mut().downcast_mut::<T>())
+        self.resources.inner.insert(type_id, Box::new(resource));
     }
 
     pub fn run_system<S: EcsSystem>(&mut self, mut system: S) {
@@ -276,7 +340,7 @@ impl World {
         mut f: F,
     ) {
         let type_id = TypeId::of::<T>();
-        if let Some(entity_map) = self.components.get_mut(&type_id) {
+        if let Some(entity_map) = self.components.inner.get_mut(&type_id) {
             for (entity_id, component) in entity_map {
                 if let Some(typed_component) = component.as_any_mut().downcast_mut::<T>() {
                     f(*entity_id, typed_component);
@@ -377,6 +441,7 @@ impl World {
     pub fn add_child_to_parent(&mut self, parent_id: EntityId, child_id: EntityId) {
         // Update the child's parent reference
         let hierarchy = self
+            .components
             .get_component_mut::<HierarchyComponent>(child_id)
             .expect("Child entity must have a HierarchyComponent");
         {
@@ -385,6 +450,7 @@ impl World {
 
         // Add the child to the parent's children list
         let hierarchy = self
+            .components
             .get_component_mut::<HierarchyComponent>(parent_id)
             .expect("Parent entity must have a HierarchyComponent");
         {

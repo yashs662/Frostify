@@ -7,10 +7,10 @@ use crate::{
         ecs::{
             components::HierarchyComponent,
             integration::{hybrid_draw, hybrid_update, sync_computed_bounds_and_screen_size},
-            resources::MousePositionResource,
-            systems::ComponentHoverSystem,
+            resources::MouseResource,
+            systems::{ComponentHoverSystem, MouseInputSystem},
         },
-        layout::{self, ComponentPosition},
+        layout::{self, ComponentPosition, Size},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -24,7 +24,7 @@ use winit::{
     window::{CursorIcon, Icon, ResizeDirection, Theme, Window, WindowId},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum AppEvent {
     Close,
     Maximize,
@@ -219,10 +219,10 @@ impl App<'_> {
             layout_context.clear();
             match view {
                 UiView::Login => {
-                    create_login_ui(wgpu_ctx, event_sender, layout_context);
+                    create_login_ui(wgpu_ctx, layout_context);
                 }
                 UiView::Home => {
-                    create_app_ui(wgpu_ctx, event_sender, layout_context);
+                    create_app_ui(wgpu_ctx, layout_context);
                 }
             }
             // sync z_index_manager with the child parent hierarchy's
@@ -469,24 +469,24 @@ impl ApplicationHandler for App<'_> {
 
             self.window = Some(window.clone());
             let mut wgpu_ctx = WgpuCtx::new(window.clone());
-
-            // Initialize layout context before creating UI
-            self.layout_context.initialize(
-                wgpu_ctx.surface_config.width as f32,
-                wgpu_ctx.surface_config.height as f32,
-                &wgpu_ctx.queue,
-            );
-
+            let viewport_size = Size {
+                width: wgpu_ctx.surface_config.width as f32,
+                height: wgpu_ctx.surface_config.height as f32,
+            };
             // Create event channel
             let (event_tx, event_rx) = unbounded_channel();
             self.event_sender = Some(event_tx.clone());
             self.event_receiver = Some(event_rx);
 
+            // Initialize layout context before creating UI
+            self.layout_context
+                .initialize(viewport_size, &wgpu_ctx.queue, &event_tx);
+
             // Initialize the worker thread
             self.worker = Some(Worker::new());
 
             // Start with login UI by default
-            create_login_ui(&mut wgpu_ctx, event_tx, &mut self.layout_context);
+            create_login_ui(&mut wgpu_ctx, &mut self.layout_context);
 
             self.wgpu_ctx = Some(wgpu_ctx);
 
@@ -551,7 +551,6 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::RedrawRequested => {
-                // Always check for worker responses during loading phase
                 if self.app_state.is_checking_auth
                     || self.app_state.current_view == Some(UiView::Login)
                 {
@@ -573,7 +572,7 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 // request redraw after drawing - do this if we have any animations to continuously draw,
-                // if not focused limit to 30fps else allow winit to do vsync
+                // if not focused limit to BACKGROUND_FPS else allow winit to do vsync
                 if let Some(window) = &self.window {
                     if !window.has_focus() {
                         self.frame_counter.limit_fps(BACKGROUND_FPS);
@@ -599,19 +598,39 @@ impl ApplicationHandler for App<'_> {
                     window.request_redraw();
                 }
 
-                let mouse_position_resource = self
+                let mouse_resource = self
                     .layout_context
                     .world
-                    .get_resource_mut::<MousePositionResource>()
-                    .expect("Expected MousePositionResource to exist");
-                mouse_position_resource.position = ComponentPosition {
+                    .resources
+                    .get_resource_mut::<MouseResource>()
+                    .expect("Expected MouseResource to exist");
+                let curr_pos = ComponentPosition {
                     x: position.x as f32,
                     y: position.y as f32,
                 };
+
+                // Only update dragging state if mouse is currently pressed
+                if mouse_resource.is_pressed {
+                    if let Some(press_pos) = mouse_resource.press_position {
+                        // Only set dragging flag if we've moved at least a few pixels
+                        let dx = curr_pos.x - press_pos.x;
+                        let dy = curr_pos.y - press_pos.y;
+                        let distance_squared = dx * dx + dy * dy;
+
+                        if distance_squared > 4.0 {
+                            // Threshold to avoid accidental drags
+                            mouse_resource.is_dragging = true;
+                        }
+                    }
+                }
+
+                mouse_resource.position = curr_pos;
                 self.layout_context.world.run_system(ComponentHoverSystem);
             }
             WindowEvent::MouseInput { state, .. } => {
                 if let Some((x, y)) = self.app_state.cursor_position {
+                    let is_pressed = state == ElementState::Pressed;
+                    let is_released = state == ElementState::Released;
                     match state {
                         winit::event::ElementState::Pressed => {
                             if let Some(direction) = self.get_resize_direction(x, y) {
@@ -625,7 +644,28 @@ impl ApplicationHandler for App<'_> {
                             }
                         }
                     }
-                    // TODO: handle events
+                    let mouse_resource = self
+                        .layout_context
+                        .world
+                        .resources
+                        .get_resource_mut::<MouseResource>()
+                        .expect("Expected MouseResource to exist");
+                    mouse_resource.position = ComponentPosition {
+                        x: x as f32,
+                        y: y as f32,
+                    };
+                    mouse_resource.is_pressed = is_pressed;
+                    mouse_resource.is_released = is_released;
+                    if is_pressed {
+                        mouse_resource.press_position = Some(ComponentPosition {
+                            x: x as f32,
+                            y: y as f32,
+                        });
+                    } else {
+                        mouse_resource.press_position = None;
+                        mouse_resource.is_dragging = false;
+                    }
+                    self.layout_context.world.run_system(MouseInputSystem);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -647,6 +687,20 @@ impl ApplicationHandler for App<'_> {
                         }
                     }
                 }
+            }
+            WindowEvent::CursorLeft { .. } | WindowEvent::CursorEntered { .. } => {
+                if let Some(window) = &self.window {
+                    window.set_cursor(CursorIcon::Default);
+                }
+
+                // reset mouse resource
+                let mouse_resource = self
+                    .layout_context
+                    .world
+                    .resources
+                    .get_resource_mut::<MouseResource>()
+                    .expect("Expected MouseResource to exist");
+                *mouse_resource = MouseResource::default();
             }
             _ => (),
         }

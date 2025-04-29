@@ -1,80 +1,44 @@
-// ViewportResource
-
 use super::{EcsResource, EntityId, systems::RenderGroup};
-use crate::ui::layout::{ComponentPosition, Size};
-use std::any::Any;
+use crate::{
+    app::AppEvent,
+    ui::layout::{ComponentPosition, Size},
+};
+use frostify_derive::EcsResource;
+use tokio::sync::mpsc::UnboundedSender;
 
+#[derive(EcsResource)]
 pub struct ViewportResource {
     pub size: Size,
 }
 
-impl EcsResource for ViewportResource {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
 // New resource to store the render order from layout context
+#[derive(EcsResource)]
 pub struct RenderOrderResource {
     pub render_order: Vec<EntityId>,
 }
 
-impl EcsResource for RenderOrderResource {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
 // Resource for WGPU device and queue access
-#[derive(Clone)]
+#[derive(Clone, EcsResource)]
 pub struct WgpuQueueResource {
     pub queue: std::sync::Arc<wgpu::Queue>,
 }
 
-impl EcsResource for WgpuQueueResource {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
 // Resource to store render groups
-#[derive(Clone)]
+#[derive(Clone, EcsResource)]
 pub struct RenderGroupsResource {
     pub groups: Vec<RenderGroup>,
 }
 
-impl EcsResource for RenderGroupsResource {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-}
-
-pub struct MousePositionResource {
+#[derive(EcsResource, Default)]
+pub struct MouseResource {
     pub position: ComponentPosition,
+    pub is_pressed: bool,
+    pub is_released: bool,
+    pub is_dragging: bool,
+    pub press_position: Option<ComponentPosition>,
 }
 
-impl EcsResource for MousePositionResource {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+#[derive(EcsResource)]
+pub struct EventSenderResource {
+    pub event_sender: UnboundedSender<AppEvent>,
 }

@@ -1,13 +1,6 @@
-use crate::{
-    ui::{
-        // component::{Component, ComponentType},
-        // component_update::CanProvideUpdates,
-        // components::slider::SliderBehavior,
-        z_index_manager::ZIndexManager,
-    },
-    wgpu_ctx::WgpuCtx,
-};
+use crate::{app::AppEvent, ui::z_index_manager::ZIndexManager, wgpu_ctx::WgpuCtx};
 use std::collections::BTreeMap;
+use tokio::sync::mpsc::UnboundedSender;
 use winit::event::MouseButton;
 
 use super::ecs::{
@@ -57,6 +50,7 @@ pub struct ClipBounds {
     pub bounds: Bounds,
     pub clip_x: bool,
     pub clip_y: bool,
+    pub border_radius: BorderRadius,
 }
 
 // FlexDirection enum
@@ -162,36 +156,6 @@ pub enum Anchor {
     BottomRight,
 }
 
-// ComponentTransform struct
-#[derive(Debug, Clone)]
-pub struct ComponentTransform {
-    pub size: LayoutSize,
-    pub offset: ComponentOffset,
-    pub position_type: Position,
-    pub z_index: i32,
-    pub border_radius: BorderRadius,
-    pub max_scale_factor: f32,
-    pub min_scale_factor: f32,
-    pub scale_factor: f32,
-    pub scale_anchor: Anchor,
-}
-
-impl Default for ComponentTransform {
-    fn default() -> Self {
-        Self {
-            size: LayoutSize::default(),
-            offset: ComponentOffset::default(),
-            position_type: Position::default(),
-            z_index: 0,
-            border_radius: BorderRadius::zero(),
-            max_scale_factor: 1.0,
-            min_scale_factor: 1.0,
-            scale_factor: 1.0,
-            scale_anchor: Anchor::default(),
-        }
-    }
-}
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct LayoutSize {
@@ -262,8 +226,6 @@ pub enum Overflow {
 #[derive(Debug, Default)]
 pub struct LayoutContext {
     pub world: World,
-    // pub components: BTreeMap<EntityId, Component>,
-    // root_component_ids: Vec<EntityId>,
     pub computed_bounds: BTreeMap<EntityId, Bounds>,
     pub viewport_size: Size,
     render_order: Vec<EntityId>,
@@ -651,10 +613,15 @@ struct SpacingData<'a> {
 
 // Layout Context implementation
 impl LayoutContext {
-    pub fn initialize(&mut self, width: f32, height: f32, wgpu_queue: &wgpu::Queue) {
-        self.viewport_size = Size { width, height };
+    pub fn initialize(
+        &mut self,
+        viewport_size: Size,
+        wgpu_queue: &wgpu::Queue,
+        event_sender: &UnboundedSender<AppEvent>,
+    ) {
+        self.viewport_size = viewport_size;
         self.world
-            .initialize_resources(self.viewport_size, wgpu_queue);
+            .initialize_resources(self.viewport_size, wgpu_queue, event_sender);
         update_global_viewport_resource(self);
         self.initialized = true;
         self.compute_layout();
@@ -801,8 +768,10 @@ impl LayoutContext {
     fn compute_component_layout(&mut self, component_id: &EntityId, parent_bounds: Option<Bounds>) {
         let (Some(transform_comp), Some(heirarchy_comp)) = (
             self.world
+                .components
                 .get_component::<TransformComponent>(*component_id),
             self.world
+                .components
                 .get_component::<HierarchyComponent>(*component_id),
         ) else {
             panic!("Expected TransformComponent and HierarchyComponent to exist to compute layout");
@@ -832,10 +801,17 @@ impl LayoutContext {
 
         // Determine clip bounds based on parent's overflow settings
         let clip_bounds = if let Some(parent_id) = &heirarchy_comp.parent {
-            if let Some(parent) = self.world.get_component::<LayoutComponent>(*parent_id) {
+            if let (Some(parent_layout_comp), Some(parent_visual_comp)) = (
+                self.world
+                    .components
+                    .get_component::<LayoutComponent>(*parent_id),
+                self.world
+                    .components
+                    .get_component::<VisualComponent>(*parent_id),
+            ) {
                 // Use parent bounds as clip bounds when overflow is hidden
-                if parent.layout.overflow_x == Overflow::Hidden
-                    || parent.layout.overflow_y == Overflow::Hidden
+                if parent_layout_comp.layout.overflow_x == Overflow::Hidden
+                    || parent_layout_comp.layout.overflow_y == Overflow::Hidden
                 {
                     let parent_bounds = self
                         .computed_bounds
@@ -845,31 +821,32 @@ impl LayoutContext {
                     let content_space = Bounds {
                         position: ComponentPosition {
                             x: parent_bounds.position.x
-                                + parent.layout.padding.left
-                                + parent.layout.border.left,
+                                + parent_layout_comp.layout.padding.left
+                                + parent_layout_comp.layout.border.left,
                             y: parent_bounds.position.y
-                                + parent.layout.padding.top
-                                + parent.layout.border.top,
+                                + parent_layout_comp.layout.padding.top
+                                + parent_layout_comp.layout.border.top,
                         },
                         size: Size {
                             width: parent_bounds.size.width
-                                - (parent.layout.padding.left
-                                    + parent.layout.padding.right
-                                    + parent.layout.border.left
-                                    + parent.layout.border.right),
+                                - (parent_layout_comp.layout.padding.left
+                                    + parent_layout_comp.layout.padding.right
+                                    + parent_layout_comp.layout.border.left
+                                    + parent_layout_comp.layout.border.right),
                             height: parent_bounds.size.height
-                                - (parent.layout.padding.top
-                                    + parent.layout.padding.bottom
-                                    + parent.layout.border.top
-                                    + parent.layout.border.bottom),
+                                - (parent_layout_comp.layout.padding.top
+                                    + parent_layout_comp.layout.padding.bottom
+                                    + parent_layout_comp.layout.border.top
+                                    + parent_layout_comp.layout.border.bottom),
                         },
                     };
 
                     // Store clip bounds with parent's overflow setting
                     Some(ClipBounds {
                         bounds: content_space,
-                        clip_x: parent.layout.overflow_x == Overflow::Hidden,
-                        clip_y: parent.layout.overflow_y == Overflow::Hidden,
+                        clip_x: parent_layout_comp.layout.overflow_x == Overflow::Hidden,
+                        clip_y: parent_layout_comp.layout.overflow_y == Overflow::Hidden,
+                        border_radius: parent_visual_comp.border_radius,
                     })
                 } else {
                     None
@@ -884,17 +861,26 @@ impl LayoutContext {
         // Pass the clip bounds to the component only if it should be clipped
         if let Some(component) = self
             .world
+            .components
             .get_component_mut::<BoundsComponent>(*component_id)
         {
             if component.clip_self {
                 component.clip_bounds = clip_bounds;
+                log::debug!(
+                    "clip_bounds for component {}: {:?}",
+                    component_id,
+                    component.clip_bounds
+                );
             } else {
                 // If this component doesn't clip itself, clear any clip bounds
                 component.clip_bounds = None;
             }
         }
 
-        let Some(identity_comp) = self.world.get_component::<IdentityComponent>(*component_id)
+        let Some(identity_comp) = self
+            .world
+            .components
+            .get_component::<IdentityComponent>(*component_id)
         else {
             panic!("Expected IdentityComponent to exist to compute layout")
         };
@@ -1098,7 +1084,11 @@ impl LayoutContext {
     ) -> Bounds {
         if let Position::Grid(row, col) = transform_comp.position_type {
             if let Some(parent_id) = &heirarchy_comp.parent {
-                if let Some(parent) = self.world.get_component::<LayoutComponent>(*parent_id) {
+                if let Some(parent) = self
+                    .world
+                    .components
+                    .get_component::<LayoutComponent>(*parent_id)
+                {
                     if let Some(grid) = &parent.layout.grid {
                         // Calculate cell position and size
                         let mut x = available_space.position.x;
@@ -1154,15 +1144,18 @@ impl LayoutContext {
     fn layout_children(&mut self, parent_id: &EntityId, parent_bounds: Bounds) {
         let parent_layout_comp = self
             .world
+            .components
             .get_component::<LayoutComponent>(*parent_id)
             .cloned()
             .expect("Expected LayoutComponent to exist to compute layout");
         let visual_comp = self
             .world
+            .components
             .get_component::<VisualComponent>(*parent_id)
             .expect("Expected VisualComponent to exist to compute layout");
         let heirarchy_comp = self
             .world
+            .components
             .get_component::<HierarchyComponent>(*parent_id)
             .expect("Expected HierarchyComponent to exist to compute layout");
 
@@ -1198,8 +1191,14 @@ impl LayoutContext {
             .children
             .iter()
             .filter_map(|child_id| {
-                let layout_comp = self.world.get_component::<LayoutComponent>(*child_id);
-                let transform_comp = self.world.get_component::<TransformComponent>(*child_id);
+                let layout_comp = self
+                    .world
+                    .components
+                    .get_component::<LayoutComponent>(*child_id);
+                let transform_comp = self
+                    .world
+                    .components
+                    .get_component::<TransformComponent>(*child_id);
                 if layout_comp.is_none() || transform_comp.is_none() {
                     return None;
                 }
@@ -1305,7 +1304,11 @@ impl LayoutContext {
         let (start_pos, spacing_between) = self.calculate_spacing(spacing_data);
 
         // Update max scroll value if container is scrollable
-        if let Some(component) = self.world.get_component_mut::<LayoutComponent>(*parent_id) {
+        if let Some(component) = self
+            .world
+            .components
+            .get_component_mut::<LayoutComponent>(*parent_id)
+        {
             if component.layout.is_scrollable {
                 // Calculate total content size
                 let additional_flex_space = space_per_flex_unit * total_flex_grow;
@@ -1330,16 +1333,19 @@ impl LayoutContext {
         }
 
         // Get scroll position for this container
-        let scroll_offset =
-            if let Some(component) = self.world.get_component::<LayoutComponent>(*parent_id) {
-                if component.layout.is_scrollable {
-                    component.layout.scroll_position
-                } else {
-                    0.0
-                }
+        let scroll_offset = if let Some(component) = self
+            .world
+            .components
+            .get_component::<LayoutComponent>(*parent_id)
+        {
+            if component.layout.is_scrollable {
+                component.layout.scroll_position
             } else {
                 0.0
-            };
+            }
+        } else {
+            0.0
+        };
 
         // Layout flex children with scroll offset
         let mut current_main = start_pos - scroll_offset;

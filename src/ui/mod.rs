@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::{
     app::AppEvent,
     ui::layout::{FlexDirection, FlexValue},
@@ -10,23 +8,24 @@ use animation::{
 };
 use color::Color;
 use ecs::{
-    GradientColorStop, GradientType,
+    EntityId, GradientColorStop, GradientType,
     builders::{
         EntityBuilder,
-        background::{BackgroundColorConfig, BackgroundGradientConfig, FrostedGlassConfig},
+        background::{
+            BackgroundBuilder, BackgroundColorConfig, BackgroundGradientConfig, FrostedGlassConfig,
+        },
+        button::ButtonBuilder,
+        container::ContainerBuilder,
+        image::{ImageBuilder, ScaleMode},
         text::TextBuilder,
     },
 };
-// use components::background::BackgroundBuilder;
 use layout::{AlignItems, Anchor, BorderRadius, Edges, JustifyContent};
-use tokio::sync::mpsc::UnboundedSender;
+use std::time::Duration;
 
 pub mod animation;
 pub mod asset;
 pub mod color;
-// pub mod component;
-// pub mod component_update;
-// pub mod components;
 pub mod ecs;
 pub mod img_utils;
 pub mod layout;
@@ -40,143 +39,145 @@ pub enum UiView {
     Home,
 }
 
-// pub trait Configurable {
-//     fn configure(
-//         component: &mut Component,
-//         config: ComponentConfig,
-//         wgpu_ctx: &mut WgpuCtx,
-//     ) -> Vec<ComponentMetaData>;
-// }
+pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
+    let main_container_id = ContainerBuilder::new()
+        .with_debug_name("Login Page Main Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
 
-// pub trait Positionable {
-//     fn set_position(component: &mut Component, wgpu_ctx: &mut WgpuCtx, bounds: Bounds);
-// }
+    let login_background_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+        color_stops: vec![
+            GradientColorStop {
+                color: Color::Crimson,
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::MidnightBlue,
+                position: 1.0,
+            },
+        ],
+        angle: 90.0,
+        gradient_type: GradientType::Linear,
+        center: None,
+        radius: None,
+    })
+    .with_debug_name("Login Page Background")
+    .with_fixed_position(Anchor::Center)
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
 
-pub fn create_login_ui(
-    wgpu_ctx: &mut WgpuCtx,
-    event_tx: UnboundedSender<AppEvent>,
-    layout_context: &mut layout::LayoutContext,
-) {
-    // let mut main_container = FlexContainerBuilder::new()
-    //     .with_debug_name("Main Container")
-    //     .with_direction(FlexDirection::Column)
-    //     .build(wgpu_ctx);
+    let nav_bar_container_id = create_nav_bar(wgpu_ctx, layout_context);
 
-    // // Background
-    // let background = BackgroundBuilder::with_linear_gradient(
-    //     vec![
-    //         GradientColorStop {
-    //             color: Color::Crimson,
-    //             position: 0.0,
-    //         },
-    //         GradientColorStop {
-    //             color: Color::MidnightBlue,
-    //             position: 1.0,
-    //         },
-    //     ],
-    //     90.0,
-    // )
-    // .with_debug_name("Background")
-    // .with_fixed_position(Anchor::Center)
-    // .build(wgpu_ctx);
+    layout_context
+        .world
+        .add_child_to_parent(main_container_id, login_background_id);
+    layout_context
+        .world
+        .add_child_to_parent(main_container_id, nav_bar_container_id);
 
-    // let nav_bar_container = create_nav_bar(wgpu_ctx, event_tx.clone());
+    let sub_container_id = ContainerBuilder::new()
+        .with_debug_name("Login Page Sub Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
 
-    // main_container.add_child(nav_bar_container);
-    // main_container.add_child(background);
+    // Welcome label
+    let welcome_text_id = TextBuilder::new()
+        .with_debug_name("Welcome Text")
+        .with_text("Welcome to Frostify".to_string())
+        .with_font_size(24.0)
+        .with_color(Color::White)
+        .with_line_height(1.0)
+        .set_fit_to_size()
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
 
-    // let mut sub_container = FlexContainerBuilder::new()
-    //     .with_debug_name("Sub Container")
-    //     .with_direction(FlexDirection::Column)
-    //     .with_align_items(AlignItems::Center)
-    //     .with_justify_content(JustifyContent::Center)
-    //     .build(wgpu_ctx);
+    // Logo
+    let logo_id = ImageBuilder::new("frostify_logo.png")
+        .with_scale_mode(ScaleMode::Contain)
+        .with_size(100, 100)
+        .with_margin(Edges::vertical(10.0))
+        .with_debug_name("Logo")
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
 
-    // // Welcome label
-    // let welcome_label = ButtonBuilder::new()
-    //     .with_sub_component(ButtonSubComponent::Text(TextConfig {
-    //         text: "Welcome to Frostify".to_string(),
-    //         font_size: 24.0,
-    //         color: Color::White,
-    //         line_height: 1.0,
-    //     }))
-    //     .with_size(FlexValue::Fill, FlexValue::Fixed(30.0))
-    //     .set_fit_to_size()
-    //     .with_debug_name("Welcome Label")
-    //     .build(wgpu_ctx);
+    // Login button
+    let login_button_id = ButtonBuilder::new()
+        .with_debug_name("Login Button")
+        .with_size(FlexValue::Fixed(200.0), FlexValue::Fixed(50.0))
+        .with_margin(Edges::all(10.0))
+        .with_border_radius(BorderRadius::all(5.0))
+        .with_border(1.0, Color::White)
+        .with_background_frosted_glass(FrostedGlassConfig {
+            tint_color: Color::Black,
+            blur_radius: 5.0,
+            opacity: 1.0,
+            tint_intensity: 0.5,
+        })
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::FrostedGlassTint {
+                from: Color::Black,
+                to: Color::Crimson,
+            },
+            when: AnimationWhen::Hover,
+        })
+        .with_text("Login with Spotify".to_string())
+        .with_text_color(Color::White)
+        .with_click_event(AppEvent::Login)
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Scale {
+                from: 1.0,
+                to: 1.05,
+                anchor: Anchor::Center,
+            },
+            when: AnimationWhen::Hover,
+        })
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
 
-    // // Logo
-    // let logo = ImageBuilder::new("frostify_logo.png")
-    //     .with_scale_mode(ScaleMode::Contain)
-    //     .with_size(FlexValue::Fixed(100.0), FlexValue::Fixed(100.0))
-    //     .with_margin(Edges::vertical(10.0))
-    //     .with_debug_name("Logo")
-    //     .build(wgpu_ctx);
+    layout_context
+        .world
+        .add_child_to_parent(sub_container_id, welcome_text_id);
+    layout_context
+        .world
+        .add_child_to_parent(sub_container_id, logo_id);
+    layout_context
+        .world
+        .add_child_to_parent(sub_container_id, login_button_id);
 
-    // // Login button
-    // let login_button = ButtonBuilder::new()
-    //     .with_sub_component(ButtonSubComponent::FrostedGlass {
-    //         tint_color: Color::Black,
-    //         blur_radius: 5.0,
-    //         opacity: 1.0,
-    //         tint_intensity: 0.5,
-    //     })
-    //     .with_sub_component(ButtonSubComponent::Text(TextConfig {
-    //         text: "Login with Spotify".to_string(),
-    //         font_size: 16.0,
-    //         color: Color::White,
-    //         line_height: 1.0,
-    //     }))
-    //     .with_border_radius(BorderRadius::all(5.0))
-    //     .with_animation(AnimationConfig {
-    //         duration: Duration::from_millis(200),
-    //         easing: EasingFunction::EaseOutExpo,
-    //         direction: AnimationDirection::Alternate,
-    //         animation_type: AnimationType::FrostedGlassTint {
-    //             from: Color::Black,
-    //             to: Color::Crimson,
-    //         },
-    //         when: AnimationWhen::Hover,
-    //     })
-    //     // TODO: un-comment this once scale anchors are working
-    //     // .with_animation(AnimationConfig {
-    //     //     duration: Duration::from_millis(200),
-    //     //     easing: EasingFunction::EaseOutExpo,
-    //     //     direction: AnimationDirection::Alternate,
-    //     //     animation_type: AnimationType::Scale {
-    //     //         from: 1.0,
-    //     //         to: 1.02,
-    //     //     },
-    //     //     when: AnimationWhen::Hover,
-    //     // })
-    //     .with_border(1.0, Color::White)
-    //     .with_margin(Edges::all(10.0))
-    //     .with_size(200.0, 50.0)
-    //     .with_debug_name("Login Button")
-    //     .with_click_event(AppEvent::Login)
-    //     .with_event_sender(event_tx.clone())
-    //     .build(wgpu_ctx);
-
-    // sub_container.add_child(welcome_label);
-    // sub_container.add_child(logo);
-    // sub_container.add_child(login_button);
-
-    // main_container.add_child(sub_container);
-
-    // layout_context.add_component(main_container);
-
-    // convert_layout_context_to_world(layout_context);
-    create_app_ui(wgpu_ctx, event_tx, layout_context);
+    layout_context
+        .world
+        .add_child_to_parent(main_container_id, sub_container_id);
 }
 
-pub fn create_app_ui(
-    wgpu_ctx: &mut WgpuCtx,
-    event_tx: UnboundedSender<AppEvent>,
-    layout_context: &mut layout::LayoutContext,
-) {
-    // Main container
-    use ecs::builders::{background::BackgroundBuilder, container::ContainerBuilder};
-
+pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
     // Main container
     let main_container_id = ContainerBuilder::new()
         .with_debug_name("Main Container")
@@ -204,7 +205,7 @@ pub fn create_app_ui(
     // let background_color_id = BackgroundBuilder::with_color(BackgroundColorConfig {
     //     color: Color::Crimson,
     // })
-    let background_color_id = BackgroundBuilder::with_linear_gradient(BackgroundGradientConfig {
+    let background_color_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
         color_stops: vec![
             GradientColorStop {
                 color: Color::Crimson,
@@ -258,9 +259,9 @@ pub fn create_app_ui(
 
     let frosted_glass_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
         tint_color: Color::Cyan,
-        blur_radius: 20.0,
-        opacity: 0.5,
-        tint_intensity: 1.0,
+        blur_radius: 3.0,
+        opacity: 1.0,
+        tint_intensity: 0.5,
     })
     .with_debug_name("Frosted Glass")
     .with_size(400, 400)
@@ -276,6 +277,16 @@ pub fn create_app_ui(
             from: 1.0,
             to: 1.5,
             anchor: Anchor::Center,
+        },
+        when: AnimationWhen::Hover,
+    })
+    .with_animation(AnimationConfig {
+        duration: Duration::from_millis(200),
+        easing: EasingFunction::EaseOutExpo,
+        direction: AnimationDirection::Alternate,
+        animation_type: AnimationType::FrostedGlassTint {
+            from: Color::Cyan,
+            to: Color::Crimson,
         },
         when: AnimationWhen::Hover,
     })
@@ -298,6 +309,21 @@ pub fn create_app_ui(
     layout_context
         .world
         .add_child_to_parent(main_container_id, fill_background_id);
+
+    // Image test
+    let image_id = ImageBuilder::new("test.png")
+        .with_size(200, 200)
+        .with_border_radius(BorderRadius::all(20.0))
+        .with_debug_name("Image Test")
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
+
+    layout_context
+        .world
+        .add_child_to_parent(main_container_id, image_id);
 
     // // Background
     // let background = ImageBuilder::new("test.png")
@@ -432,120 +458,151 @@ pub fn create_app_ui(
     // convert_layout_context_to_world(layout_context);
 }
 
-// fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -> Component {
-//     // Nav bar container
-//     let mut nav_bar_container = FlexContainerBuilder::new()
-//         .with_debug_name("Nav Bar Container")
-//         .with_size(FlexValue::Fill, FlexValue::Fixed(64.0))
-//         .with_direction(FlexDirection::Row)
-//         .with_align_items(AlignItems::Center)
-//         .with_justify_content(JustifyContent::End)
-//         .with_padding(Edges::all(10.0))
-//         .build(wgpu_ctx);
+fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) -> EntityId {
+    let nav_bar_container_id = ContainerBuilder::new()
+        .with_debug_name("Nav Bar Container")
+        .with_size(FlexValue::Fill, FlexValue::Fixed(64.0))
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::End)
+        .with_padding(Edges::all(10.0))
+        .with_drag_event(AppEvent::DragWindow)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
 
-//     let nav_bar_background = BackgroundBuilder::with_frosted_glass(Color::Black, 20.0, 1.0, 0.5)
-//         .with_debug_name("Nav Bar Background")
-//         .with_border_radius(BorderRadius::all(5.0))
-//         .with_border(1.0, Color::DarkGray.darken(0.05))
-//         .with_fixed_position(Anchor::Center)
-//         .with_drag_event(AppEvent::DragWindow)
-//         .with_event_sender(event_tx.clone())
-//         .build(wgpu_ctx);
+    let nav_bar_background_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
+        tint_color: Color::Black,
+        blur_radius: 2.0,
+        opacity: 1.0,
+        tint_intensity: 0.5,
+    })
+    .with_debug_name("Nav Bar Background")
+    .with_border(1.0, Color::DarkGray.darken(0.05))
+    .with_border_radius(BorderRadius::all(5.0))
+    .with_fixed_position(Anchor::Center)
+    .with_drag_event(AppEvent::DragWindow)
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
 
-//     // Nav buttons container
-//     let mut nav_buttons_container = FlexContainerBuilder::new()
-//         .with_debug_name("Nav Buttons Container")
-//         .with_direction(FlexDirection::Row)
-//         .with_align_items(AlignItems::Center)
-//         .with_justify_content(JustifyContent::SpaceBetween)
-//         .with_width(FlexValue::Fixed(128.0))
-//         .with_margin(Edges::all(5.0))
-//         .with_parent(nav_bar_container.id)
-//         .build(wgpu_ctx);
+    let nav_buttons_container_id = ContainerBuilder::new()
+        .with_debug_name("Nav Buttons Container")
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::SpaceBetween)
+        .with_width(FlexValue::Fixed(128.0))
+        .with_margin(Edges::all(5.0))
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
 
-//     // Minimize button
-//     // let minimize_button = ButtonBuilder::new()
-//     //     .with_sub_component(ButtonSubComponent::Image(ImageConfig {
-//     //         file_name: "minimize.png".to_string(),
-//     //         scale_mode: ScaleMode::Contain,
-//     //     }))
-//     //     .with_animation(AnimationConfig {
-//     //         duration: Duration::from_millis(200),
-//     //         easing: EasingFunction::EaseOutExpo,
-//     //         direction: AnimationDirection::Alternate,
-//     //         animation_type: AnimationType::Color {
-//     //             from: Color::Transparent,
-//     //             to: Color::DarkGray,
-//     //         },
-//     //         when: AnimationWhen::Hover,
-//     //     })
-//     //     .with_border_radius(BorderRadius::all(4.0))
-//     //     .set_fit_to_size()
-//     //     .with_content_padding(Edges::all(2.0))
-//     //     .with_debug_name("Minimize Button")
-//     //     .with_click_event(AppEvent::Minimize)
-//     //     .with_event_sender(event_tx.clone())
-//     //     .build(wgpu_ctx);
+    // Minimize button
+    let minimize_button_id = ButtonBuilder::new()
+        .with_debug_name("Minimize Button")
+        .with_content_padding(Edges::all(5.0))
+        .with_size(FlexValue::Fixed(30.0), FlexValue::Fixed(30.0))
+        .with_border_radius(BorderRadius::all(4.0))
+        .with_click_event(AppEvent::Minimize)
+        .with_background_color(BackgroundColorConfig {
+            color: Color::Transparent,
+        })
+        .with_foreground_image("minimize.png")
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Color {
+                from: Color::Transparent,
+                to: Color::DarkGray,
+            },
+            when: AnimationWhen::Hover,
+        })
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
 
-//     // // Maximize button
-//     // let maximize_button = ButtonBuilder::new()
-//     //     .with_sub_component(ButtonSubComponent::Image(ImageConfig {
-//     //         file_name: "maximize.png".to_string(),
-//     //         scale_mode: ScaleMode::Contain,
-//     //     }))
-//     //     .with_animation(AnimationConfig {
-//     //         duration: Duration::from_millis(200),
-//     //         easing: EasingFunction::EaseOutExpo,
-//     //         direction: AnimationDirection::Alternate,
-//     //         animation_type: AnimationType::Color {
-//     //             from: Color::Transparent,
-//     //             to: Color::DarkGray,
-//     //         },
-//     //         when: AnimationWhen::Hover,
-//     //     })
-//     //     .with_border_radius(BorderRadius::all(4.0))
-//     //     .set_fit_to_size()
-//     //     .with_content_padding(Edges::all(2.0))
-//     //     .with_debug_name("Maximize Button")
-//     //     .with_click_event(AppEvent::Maximize)
-//     //     .with_event_sender(event_tx.clone())
-//     //     .build(wgpu_ctx);
+    // Maximize button
+    let maximize_button_id = ButtonBuilder::new()
+        .with_debug_name("Maximize Button")
+        .with_content_padding(Edges::all(5.0))
+        .with_size(FlexValue::Fixed(30.0), FlexValue::Fixed(30.0))
+        .with_border_radius(BorderRadius::all(4.0))
+        .with_click_event(AppEvent::Maximize)
+        .with_background_color(BackgroundColorConfig {
+            color: Color::Transparent,
+        })
+        .with_foreground_image("maximize.png")
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Color {
+                from: Color::Transparent,
+                to: Color::DarkGray,
+            },
+            when: AnimationWhen::Hover,
+        })
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
 
-//     // Close button
-//     let close_button = ButtonBuilder::new()
-//         .with_sub_component(ButtonSubComponent::Image(ImageConfig {
-//             file_name: "close.png".to_string(),
-//             scale_mode: ScaleMode::Contain,
-//         }))
-//         .with_animation(AnimationConfig {
-//             duration: Duration::from_millis(200),
-//             easing: EasingFunction::EaseOutExpo,
-//             direction: AnimationDirection::Alternate,
-//             animation_type: AnimationType::Color {
-//                 from: Color::Transparent,
-//                 to: Color::Red,
-//             },
-//             when: AnimationWhen::Hover,
-//         })
-//         .with_border_radius(BorderRadius::all(4.0))
-//         .set_fit_to_size()
-//         .with_content_padding(Edges::all(2.0))
-//         .with_debug_name("Close Button")
-//         .with_click_event(AppEvent::Close)
-//         .with_event_sender(event_tx.clone())
-//         .build(wgpu_ctx);
+    // Close button
+    let close_button_id = ButtonBuilder::new()
+        .with_debug_name("Close Button")
+        .with_size(FlexValue::Fixed(30.0), FlexValue::Fixed(30.0))
+        .with_content_padding(Edges::all(5.0))
+        .with_border_radius(BorderRadius::all(4.0))
+        .with_click_event(AppEvent::Close)
+        .with_background_color(BackgroundColorConfig {
+            color: Color::Transparent,
+        })
+        .with_foreground_image("close.png")
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Color {
+                from: Color::Transparent,
+                to: Color::Red,
+            },
+            when: AnimationWhen::Hover,
+        })
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
 
-//     // Add children to the nav buttons container
-//     // nav_buttons_container.add_child(minimize_button);
-//     // nav_buttons_container.add_child(maximize_button);
-//     nav_buttons_container.add_child(close_button);
+    // Add buttons to the nav buttons container
+    layout_context
+        .world
+        .add_child_to_parent(nav_buttons_container_id, minimize_button_id);
+    layout_context
+        .world
+        .add_child_to_parent(nav_buttons_container_id, maximize_button_id);
+    layout_context
+        .world
+        .add_child_to_parent(nav_buttons_container_id, close_button_id);
 
-//     // Add children to the nav bar container
-//     nav_bar_container.add_child(nav_buttons_container);
-//     nav_bar_container.add_child(nav_bar_background);
+    // add the nav buttons container to the nav bar container
+    layout_context
+        .world
+        .add_child_to_parent(nav_bar_container_id, nav_bar_background_id);
+    layout_context
+        .world
+        .add_child_to_parent(nav_bar_container_id, nav_buttons_container_id);
 
-//     nav_bar_container
-// }
+    nav_bar_container_id
+}
 
 // fn create_player_bar(wgpu_ctx: &mut WgpuCtx, event_tx: UnboundedSender<AppEvent>) -> Component {
 //     // Player container

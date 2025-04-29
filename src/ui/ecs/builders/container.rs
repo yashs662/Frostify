@@ -46,6 +46,14 @@ impl ContainerBuilder {
         }
     }
 
+    pub fn with_external_common_props(mut self, common: EntityBuilderProps) -> Self {
+        // ignore any animations in the common props
+        let mut ext_common = common.clone();
+        ext_common.animations = vec![];
+        self.common = ext_common;
+        self
+    }
+
     pub fn with_direction(mut self, direction: FlexDirection) -> Self {
         self.direction = direction;
         self

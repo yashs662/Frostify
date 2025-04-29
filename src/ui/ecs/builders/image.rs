@@ -40,7 +40,7 @@ impl Default for ScaleMode {
 
 pub struct ImageBuilder {
     common: EntityBuilderProps,
-    image_path: String,
+    file_name: String,
     scale_mode: ScaleMode,
     fit_to_size: bool,
 }
@@ -53,18 +53,13 @@ impl EntityBuilder for ImageBuilder {
 
 #[allow(dead_code)]
 impl ImageBuilder {
-    pub fn new() -> Self {
+    pub fn new(file_name: &str) -> Self {
         Self {
             common: EntityBuilderProps::default(),
-            image_path: String::new(),
+            file_name: file_name.to_string(),
             scale_mode: ScaleMode::default(),
             fit_to_size: false,
         }
-    }
-
-    pub fn with_image_path(mut self, image_path: String) -> Self {
-        self.image_path = image_path;
-        self
     }
 
     pub fn with_scale_mode(mut self, scale_mode: ScaleMode) -> Self {
@@ -112,11 +107,11 @@ impl ImageBuilder {
         world.add_component(entity_id, LayoutComponent { layout });
 
         // Configure
-        let img_loader = RgbaImg::new(self.image_path.as_str());
+        let img_loader = RgbaImg::new(self.file_name.as_str());
         let img = if let Err(img_load_err) = img_loader {
             panic!(
                 "Failed to load image file: {}, error: {}",
-                self.image_path, img_load_err
+                self.file_name, img_load_err
             );
         } else {
             img_loader.unwrap()
@@ -125,7 +120,7 @@ impl ImageBuilder {
         world.add_component(
             entity_id,
             ImageComponent {
-                image_path: self.image_path.clone(),
+                image_path: self.file_name.clone(),
                 original_width: img.width,
                 original_height: img.height,
                 scale_mode: self.scale_mode,

@@ -26,7 +26,6 @@ pub struct CommonBuilderProps {
     pub border_position: Option<BorderPosition>,
     pub border_radius: Option<BorderRadius>,
     pub fit_to_size: bool,
-    pub event_sender: Option<UnboundedSender<AppEvent>>,
     pub click_event: Option<AppEvent>,
     pub drag_event: Option<AppEvent>,
     pub animation: Option<AnimationConfig>,
@@ -129,11 +128,6 @@ pub trait ComponentBuilder: Sized {
 
     fn set_fit_to_size(mut self) -> Self {
         self.common_props().fit_to_size = true;
-        self
-    }
-
-    fn with_event_sender(mut self, sender: UnboundedSender<AppEvent>) -> Self {
-        self.common_props().event_sender = Some(sender);
         self
     }
 

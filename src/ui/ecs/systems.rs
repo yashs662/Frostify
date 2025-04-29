@@ -1,4 +1,4 @@
-use super::resources::{MousePositionResource, RenderGroupsResource};
+use super::resources::{MouseResource, RenderGroupsResource};
 use crate::ui::{
     animation::{AnimationDirection, AnimationType, AnimationWhen},
     color::Color,
@@ -46,6 +46,7 @@ impl EcsSystem for AnimationSystem {
 
                 // Get interaction state if this component is interactive
                 let (is_hovered, is_clicked) = world
+                    .components
                     .get_component::<InteractionComponent>(entity_id)
                     .map(|interaction| (interaction.is_hovered, interaction.is_clicked))
                     .unwrap_or((false, false));
@@ -95,7 +96,7 @@ impl EcsSystem for AnimationSystem {
 
                     // Apply easing to the calculated raw progress
                     let eased_progress = animation.config.easing.compute(raw_progress);
-                    let should_process = should_animate_forward || raw_progress > 0.0;
+                    let should_process = should_animate_forward || animation.progress > 0.0;
 
                     if !should_process {
                         continue;
@@ -106,7 +107,7 @@ impl EcsSystem for AnimationSystem {
                         AnimationType::Scale { from, to, .. } => {
                             let scale = from + (to - from) * eased_progress;
                             let transform =
-                                world.get_component::<TransformComponent>(entity_id).expect(
+                                world.components.get_component::<TransformComponent>(entity_id).expect(
                                     "Expected TransformComponent to be present, while trying to update scale animation",
                                 );
                             if (transform.scale_factor - scale).abs() > 0.001 {
@@ -144,18 +145,20 @@ impl EcsSystem for AnimationSystem {
         }
 
         let mut updated_render_datas = Vec::new();
-
         // Second pass: Apply all collected updates and calculate new render buffer data
         for update in updates {
             match update.update_type {
                 AnimationUpdateType::Scale { scale_factor } => {
-                    if let Some(transform) =
-                        world.get_component_mut::<TransformComponent>(update.entity_id)
+                    if let Some(transform) = world
+                        .components
+                        .get_component_mut::<TransformComponent>(update.entity_id)
                     {
                         transform.scale_factor = scale_factor;
                     }
                     if let Some(AnimationComponent { animations, .. }) =
-                        world.get_component_mut::<AnimationComponent>(update.entity_id)
+                        world
+                            .components
+                            .get_component_mut::<AnimationComponent>(update.entity_id)
                     {
                         if update.animation_index < animations.len() {
                             // Update the raw progress value, not the eased one
@@ -164,13 +167,16 @@ impl EcsSystem for AnimationSystem {
                     }
                 }
                 AnimationUpdateType::Color { color } => {
-                    if let Some(color_component) =
-                        world.get_component_mut::<ColorComponent>(update.entity_id)
+                    if let Some(color_component) = world
+                        .components
+                        .get_component_mut::<ColorComponent>(update.entity_id)
                     {
                         color_component.color = color;
                     }
                     if let Some(AnimationComponent { animations, .. }) =
-                        world.get_component_mut::<AnimationComponent>(update.entity_id)
+                        world
+                            .components
+                            .get_component_mut::<AnimationComponent>(update.entity_id)
                     {
                         if update.animation_index < animations.len() {
                             // Update the raw progress value, not the eased one
@@ -179,13 +185,16 @@ impl EcsSystem for AnimationSystem {
                     }
                 }
                 AnimationUpdateType::FrostedGlass { tint_color } => {
-                    if let Some(frosted_glass) =
-                        world.get_component_mut::<FrostedGlassComponent>(update.entity_id)
+                    if let Some(frosted_glass) = world
+                        .components
+                        .get_component_mut::<FrostedGlassComponent>(update.entity_id)
                     {
                         frosted_glass.tint_color = tint_color;
                     }
                     if let Some(AnimationComponent { animations, .. }) =
-                        world.get_component_mut::<AnimationComponent>(update.entity_id)
+                        world
+                            .components
+                            .get_component_mut::<AnimationComponent>(update.entity_id)
                     {
                         if update.animation_index < animations.len() {
                             // Update the raw progress value, not the eased one
@@ -193,6 +202,20 @@ impl EcsSystem for AnimationSystem {
                         }
                     }
                 }
+            }
+
+            // Note: Special Case for TextComponent as it doesn't have a render
+            // data component it is handled in the TextRenderer
+
+            if world
+                .components
+                .get_component::<TextComponent>(update.entity_id)
+                .is_some()
+            {
+                log::warn!(
+                    "TextComponent does not have a render data component, skipping animation update"
+                );
+                continue;
             }
 
             updated_render_datas.push((
@@ -203,13 +226,15 @@ impl EcsSystem for AnimationSystem {
 
         // Third pass: Update render data buffers
         let device_queue = world
+            .resources
             .get_resource::<WgpuQueueResource>()
             .expect("Expected WgpuQueueResource to be present, while updating animation");
 
         for (entity_id, render_data) in updated_render_datas {
             let render_data_comp = world
+                .components
                 .get_component::<RenderDataComponent>(entity_id)
-                .expect("Expected RenderDataComponent to be present, while updating animation");
+                .expect("Expected RenderDataComponent to be present for entity, while updating animation");
 
             device_queue.queue.write_buffer(
                 render_data_comp
@@ -237,6 +262,7 @@ impl EcsSystem for RenderPrepareSystem {
     fn run(&mut self, world: &mut World) {
         // Get the render order from the resource, if available
         let render_order_resource = world
+            .resources
             .get_resource::<RenderOrderResource>()
             .expect("Expected RenderOrderResource to be present, while trying to get render order");
         let render_order = &render_order_resource.render_order;
@@ -251,7 +277,10 @@ impl EcsSystem for RenderPrepareSystem {
 
         for component_id in render_order {
             // Get visual and identity components
-            let Some(identity) = world.get_component::<IdentityComponent>(*component_id) else {
+            let Some(identity) = world
+                .components
+                .get_component::<IdentityComponent>(*component_id)
+            else {
                 log::error!(
                     "Failed to get IdentityComponent for entity: {}",
                     component_id
@@ -259,7 +288,10 @@ impl EcsSystem for RenderPrepareSystem {
                 continue;
             };
 
-            let Some(visual) = world.get_component::<VisualComponent>(*component_id) else {
+            let Some(visual) = world
+                .components
+                .get_component::<VisualComponent>(*component_id)
+            else {
                 log::error!("Failed to get VisualComponent for entity: {}", component_id);
                 continue;
             };
@@ -297,6 +329,7 @@ impl EcsSystem for RenderPrepareSystem {
 
         // Store render groups as a resource
         let render_groups_resource = world
+            .resources
             .get_resource_mut::<RenderGroupsResource>()
             .expect("Expected RenderGroupsResource to be present");
         render_groups_resource.groups = render_groups;
@@ -309,8 +342,9 @@ impl EcsSystem for ComponentHoverSystem {
     fn run(&mut self, world: &mut World) {
         // Get the mouse position from the resource
         let mouse_position = world
-            .get_resource::<MousePositionResource>()
-            .expect("Expected MousePositionResource to be present");
+            .resources
+            .get_resource::<MouseResource>()
+            .expect("Expected MouseResource to be present");
 
         let interactive_entities =
             world.query_combined_3::<BoundsComponent, InteractionComponent, VisualComponent>();
@@ -334,6 +368,71 @@ impl EcsSystem for ComponentHoverSystem {
         world.for_each_component_mut::<InteractionComponent, _>(|id, interaction_comp| {
             interaction_comp.is_hovered = hovered_entities.contains(&id);
         });
+    }
+}
+
+pub struct MouseInputSystem;
+
+impl EcsSystem for MouseInputSystem {
+    fn run(&mut self, world: &mut World) {
+        // Get the mouse position from the resource
+        let mouse_resource = world
+            .resources
+            .get_resource::<MouseResource>()
+            .expect("Expected MouseResource to be present");
+
+        let render_order_resource = world
+            .resources
+            .get_resource::<RenderOrderResource>()
+            .expect("Expected RenderOrderResource to be present, while trying to get render order");
+
+        let interactive_entities =
+            world.query_combined_3::<BoundsComponent, InteractionComponent, VisualComponent>();
+
+        let mut entities_interacted_with = Vec::new();
+
+        for (entity_id, bounds_comp, interaction_comp, visual_comp) in interactive_entities {
+            if visual_comp.is_visible
+                && is_hit(
+                    bounds_comp.computed_bounds,
+                    bounds_comp.clip_bounds,
+                    mouse_resource.position,
+                )
+            {
+                // get index of the entity in the render order
+                let index = render_order_resource
+                    .render_order
+                    .iter()
+                    .position(|id| *id == entity_id)
+                    .expect("Expected clicked entity to be in the render order");
+
+                // Handle click events
+                if interaction_comp.is_clickable && mouse_resource.is_released {
+                    entities_interacted_with.push((
+                        entity_id,
+                        interaction_comp
+                            .click_event
+                            .expect("expected clickable entity to have click event"),
+                        index,
+                    ));
+                }
+
+                if interaction_comp.is_draggable && mouse_resource.is_pressed {
+                    if let Some(drag_event) = interaction_comp.drag_event {
+                        entities_interacted_with.push((entity_id, drag_event, index));
+                    }
+                }
+            }
+        }
+
+        // send the event for the entity that has the highest z index
+        if let Some((entity_id, app_event, _)) = entities_interacted_with
+            .iter()
+            .max_by_key(|(_, _, index)| *index)
+        {
+            log::debug!("Sending event: {:?} for entity: {}", app_event, entity_id);
+            world.queue_event(*app_event);
+        }
     }
 }
 
@@ -370,12 +469,15 @@ fn is_hit(
 pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> RenderBufferData {
     // Necessary components for rendering
     let bounds_comp = world
+        .components
         .get_component::<BoundsComponent>(entity_id)
         .expect("Failed to get BoundsComponent");
     let visual_comp = world
+        .components
         .get_component::<VisualComponent>(entity_id)
         .expect("Failed to get VisualComponent");
     let identity_comp = world
+        .components
         .get_component::<IdentityComponent>(entity_id)
         .expect("Failed to get IdentityComponent");
 
@@ -393,12 +495,14 @@ pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> Rende
     let (color, blur_radius, opacity, tint_intensity) = match identity_comp.component_type {
         ComponentType::BackgroundColor => {
             let color_comp = world
+                .components
                 .get_component::<ColorComponent>(entity_id)
                 .expect("BackgroundColor Type Component should have ColorComponent");
             (color_comp.color.value(), 0.0, 1.0, 0.0)
         }
         ComponentType::FrostedGlass => {
             let frosted_glass_comp = world
+                .components
                 .get_component::<FrostedGlassComponent>(entity_id)
                 .expect("FrostedGlass Type Component should have FrostedGlassComponent");
             (
@@ -549,31 +653,39 @@ pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> Rende
         )
     };
 
-    let (clip_bounds, clip_enabled) = if let Some(clip_bounds) = &bounds_comp.clip_bounds {
-        (
-            [
-                clip_bounds.bounds.position.x,
-                clip_bounds.bounds.position.y,
-                clip_bounds.bounds.position.x + clip_bounds.bounds.size.width,
-                clip_bounds.bounds.position.y + clip_bounds.bounds.size.height,
-            ],
-            [
-                if clip_bounds.clip_x { 1.0 } else { 0.0 },
-                if clip_bounds.clip_y { 1.0 } else { 0.0 },
-            ],
-        )
-    } else {
-        // Default to full screen with no clipping
-        (
-            [
-                0.0,
-                0.0,
-                bounds_comp.screen_size.width,
-                bounds_comp.screen_size.height,
-            ],
-            [0.0, 0.0],
-        )
-    };
+    let (clip_bounds, clip_border_radius, clip_enabled) =
+        if let Some(clip_bounds) = &bounds_comp.clip_bounds {
+            (
+                [
+                    clip_bounds.bounds.position.x,
+                    clip_bounds.bounds.position.y,
+                    clip_bounds.bounds.position.x + clip_bounds.bounds.size.width,
+                    clip_bounds.bounds.position.y + clip_bounds.bounds.size.height,
+                ],
+                [
+                    clip_bounds.border_radius.top_left,
+                    clip_bounds.border_radius.top_right,
+                    clip_bounds.border_radius.bottom_left,
+                    clip_bounds.border_radius.bottom_right,
+                ],
+                [
+                    if clip_bounds.clip_x { 1.0 } else { 0.0 },
+                    if clip_bounds.clip_y { 1.0 } else { 0.0 },
+                ],
+            )
+        } else {
+            // Default to full screen with no clipping
+            (
+                [
+                    0.0,
+                    0.0,
+                    bounds_comp.screen_size.width,
+                    bounds_comp.screen_size.height,
+                ],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0],
+            )
+        };
 
     RenderBufferData {
         color,
@@ -614,7 +726,8 @@ pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> Rende
         shadow_blur: visual_comp.shadow_blur,
         shadow_opacity: visual_comp.shadow_opacity,
         clip_bounds,
+        clip_border_radius,
         clip_enabled,
-        _padding3: [0.0; 2],
+        _padding3: [0.0; 8],
     }
 }
