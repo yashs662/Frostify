@@ -10,10 +10,9 @@ use crate::{
         z_index_manager::ZIndexManager,
     },
 };
-use tokio::sync::mpsc::UnboundedSender;
 
 use super::{
-    ComponentType, EntityId, World,
+    EntityId, World,
     components::{
         AnimationComponent, BoundsComponent, HierarchyComponent, InteractionComponent,
         TransformComponent, VisualComponent,
@@ -42,7 +41,6 @@ pub struct EntityBuilderProps {
     pub border_position: Option<BorderPosition>,
     pub border_radius: Option<BorderRadius>,
     pub fit_to_size: bool,
-    pub event_sender: Option<UnboundedSender<AppEvent>>,
     pub click_event: Option<AppEvent>,
     pub drag_event: Option<AppEvent>,
     pub animations: Vec<AnimationConfig>,
@@ -188,7 +186,6 @@ pub fn add_common_components(
     z_index_manager: &mut ZIndexManager,
     entity_id: EntityId,
     props: &EntityBuilderProps,
-    component_type: ComponentType,
 ) {
     let mut min_scale_factor = 1.0;
     let mut max_scale_factor = 1.0;
@@ -262,7 +259,6 @@ pub fn add_common_components(
     world.add_component(
         entity_id,
         VisualComponent {
-            component_type,
             border_width: props.border_width.unwrap_or(0.0),
             border_color: props.border_color.unwrap_or(Color::Transparent),
             border_position: props.border_position.unwrap_or_default(),

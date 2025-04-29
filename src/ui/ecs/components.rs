@@ -31,7 +31,6 @@ pub struct HierarchyComponent {
 
 #[derive(Debug, Clone, EcsComponent)]
 pub struct VisualComponent {
-    pub component_type: crate::ui::ecs::ComponentType,
     pub border_width: f32,
     pub border_color: Color,
     pub border_position: crate::ui::ecs::BorderPosition,
@@ -70,7 +69,6 @@ pub struct AnimationComponent {
 
 #[derive(Debug, Clone, EcsComponent)]
 pub struct IdentityComponent {
-    pub id: EntityId,
     pub debug_name: String,
     pub component_type: crate::ui::ecs::ComponentType,
 }

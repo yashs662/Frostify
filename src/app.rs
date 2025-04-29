@@ -235,96 +235,18 @@ impl App<'_> {
                 });
 
             // Apply multiple viewport resizes to ensure correct positioning
-            App::apply_layout_updates(wgpu_ctx, layout_context);
+            App::apply_layout_updates(layout_context);
             app_state.current_view = Some(view);
         }
     }
 
     /// Helper method to apply multiple viewport resizes to ensure proper layout
-    fn apply_layout_updates(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
+    fn apply_layout_updates(layout_context: &mut layout::LayoutContext) {
         // Done 3 times to ensure components with FlexValue::Fit have their positions calculated correctly
         for _ in 0..3 {
             layout_context.compute_layout_and_update_components();
         }
     }
-
-    /// Handles UI events and returns whether any components were affected
-    // fn handle_ui_event(
-    //     &mut self,
-    //     event_loop: &ActiveEventLoop,
-    //     x: f64,
-    //     y: f64,
-    //     state: Option<winit::event::ElementState>,
-    //     button: Option<winit::event::MouseButton>,
-    //     scroll_delta: Option<f32>,
-    // ) {
-    //     // Convert physical coordinates to logical coordinates for UI interactions
-    //     let mouse_position = ComponentPosition {
-    //         x: x as f32,
-    //         y: y as f32,
-    //     };
-
-    //     // Improved event detection logic
-    //     let event_type = if scroll_delta.is_some() {
-    //         // Prioritize scroll events over others when scroll_delta is provided
-    //         if let Some(delta) = scroll_delta {
-    //             if delta > 0.0 {
-    //                 EventType::ScrollDown
-    //             } else {
-    //                 EventType::ScrollUp
-    //             }
-    //         } else {
-    //             EventType::None
-    //         }
-    //     } else if button.is_some() {
-    //         // Mouse button events
-    //         if state == Some(ElementState::Pressed) {
-    //             EventType::Press
-    //         } else {
-    //             EventType::Release
-    //         }
-    //     } else if self.last_cursor_input.0 == Some(ElementState::Pressed) {
-    //         // This is a drag event - mouse is moving while button is pressed
-    //         EventType::Drag
-    //     } else if button.is_none() && state.is_none() {
-    //         // No button or scroll events - must be hover
-    //         EventType::Hover
-    //     } else {
-    //         EventType::None
-    //     };
-
-    //     let input_event = layout::InputEvent {
-    //         event_type: event_type.clone(),
-    //         position: Some(mouse_position),
-    //         button,
-    //         key: None,
-    //         text: None,
-    //     };
-
-    //     // Update the last known input state
-    //     if button.is_some() {
-    //         // Only update button state for actual button events
-    //         self.last_cursor_input = (state, mouse_position);
-    //     } else {
-    //         // For non-button events, preserve the button state but update position
-    //         self.last_cursor_input.1 = mouse_position;
-    //     }
-
-    //     let affected_component = self.layout_context.handle_event(input_event);
-
-    //     if let Some((_affected_component_id, _event_type, app_event)) = affected_component {
-    //         if app_event.is_some() {
-    //             if let Some(event_sender) = &self.event_sender {
-    //                 event_sender.send(app_event.unwrap()).unwrap_or_else(|e| {
-    //                     error!("Failed to send app event: {}", e);
-    //                 });
-    //             }
-    //         }
-    //     }
-
-    //     // Always check for events regardless of affected components
-    //     self.try_handle_app_event(event_loop);
-    // }
 
     fn check_worker_responses(&mut self) {
         if let Some(worker) = &mut self.worker {

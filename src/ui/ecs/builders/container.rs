@@ -125,13 +125,7 @@ impl ContainerBuilder {
             "Debug name is required for all components, tried to create a container without it.",
         ), ComponentType::Container);
 
-        add_common_components(
-            world,
-            z_index_manager,
-            entity_id,
-            &self.common,
-            ComponentType::Container,
-        );
+        add_common_components(world, z_index_manager, entity_id, &self.common);
 
         // Create layout and set container-specific properties
         let mut layout = Layout::new();

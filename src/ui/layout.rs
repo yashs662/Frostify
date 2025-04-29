@@ -739,7 +739,10 @@ impl LayoutContext {
             self.compute_component_layout(id, None);
         }
 
-        log::debug!("Computed bounds for {} components", self.computed_bounds.len());
+        log::debug!(
+            "Computed bounds for {} components",
+            self.computed_bounds.len()
+        );
 
         // Use the z-index manager to determine render order
         self.render_order = self.z_index_manager.sort_render_order();
@@ -1337,8 +1340,7 @@ impl LayoutContext {
             current_main += margin_before;
 
             let (main_size, cross_size) = self.calculate_child_sizes(
-                &layout_comp,
-                &transform_comp,
+                (&layout_comp, &transform_comp),
                 is_row,
                 content_space,
                 space_per_flex_unit,
@@ -1542,14 +1544,14 @@ impl LayoutContext {
 
     fn calculate_child_sizes(
         &self,
-        child_layout_comp: &LayoutComponent,
-        child_transform_comp: &TransformComponent,
+        child_components: (&LayoutComponent, &TransformComponent),
         is_row: bool,
         content_space: Bounds,
         space_per_flex_unit: f32,
         num_flex_items: usize,
         num_auto_sized: usize,
     ) -> (f32, f32) {
+        let (child_layout_comp, child_transform_comp) = child_components;
         // Calculate available space after accounting for margins
         let main_axis_available = if is_row {
             content_space.size.width

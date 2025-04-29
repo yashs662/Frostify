@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::app::AppEvent;
 
 use super::color::Color;
-use super::layout::{ComponentPosition, Size};
+use super::layout::Size;
 
 pub mod builders;
 pub mod components;
@@ -269,7 +269,6 @@ impl World {
         self.add_component(
             entity_id,
             IdentityComponent {
-                id: entity_id,
                 debug_name: debug_name.clone(),
                 component_type,
             },
@@ -311,13 +310,6 @@ impl World {
         entity_map.insert(entity_id, Box::new(component));
     }
 
-    pub fn remove_component<T: EcsComponent>(&mut self, entity_id: EntityId) {
-        let type_id = TypeId::of::<T>();
-        if let Some(entity_map) = self.components.inner.get_mut(&type_id) {
-            entity_map.remove(&entity_id);
-        }
-    }
-
     pub fn add_resource<T: EcsResource>(&mut self, resource: T) {
         log::trace!("Adding resource: {:?}", std::any::type_name::<T>());
         let type_id = TypeId::of::<T>();
@@ -351,19 +343,6 @@ impl World {
                 }
             }
         }
-    }
-
-    pub fn query<T: EcsComponent + 'static>(&self) -> Vec<(EntityId, &T)> {
-        let type_id = TypeId::of::<T>();
-        let mut result = Vec::new();
-        if let Some(entity_map) = self.components.get(&type_id) {
-            for (entity_id, component) in entity_map {
-                if let Some(typed_component) = component.as_any().downcast_ref::<T>() {
-                    result.push((*entity_id, typed_component));
-                }
-            }
-        }
-        result
     }
 
     pub fn query_combined_2<T: EcsComponent + 'static, U: EcsComponent + 'static>(

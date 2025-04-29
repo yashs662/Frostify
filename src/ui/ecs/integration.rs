@@ -60,7 +60,7 @@ pub fn sync_computed_bounds_and_screen_size(
 
     layout_context
         .world
-        .for_each_component::<TextComponent, _>(|id, text_comp| {
+        .for_each_component::<TextComponent, _>(|id, _| {
             if let Some(text_bounds) = layout_context.computed_bounds.get(&id) {
                 wgpu_ctx
                     .text_handler

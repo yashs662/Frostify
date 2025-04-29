@@ -98,13 +98,7 @@ impl BackgroundBuilder {
             component_type,
         );
 
-        add_common_components(
-            world,
-            z_index_manager,
-            entity_id,
-            &self.common,
-            component_type,
-        );
+        add_common_components(world, z_index_manager, entity_id, &self.common);
 
         // Add layout component
         let mut layout = Layout::new();

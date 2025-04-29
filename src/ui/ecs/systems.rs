@@ -354,24 +354,24 @@ impl EcsSystem for ComponentHoverSystem {
 
         for (entity_id, bounds_comp, interaction_comp, visual_comp) in interactive_entities {
             // Check if the entity is visible
-            if visual_comp.is_visible {
-                if is_hit(
+            if visual_comp.is_visible
+                && is_hit(
                     bounds_comp.computed_bounds,
                     bounds_comp.clip_bounds,
                     mouse_resource.position,
-                ) {
-                    if interaction_comp.is_hoverable {
-                        hovered_entities.push(entity_id);
-                    }
+                )
+            {
+                if interaction_comp.is_hoverable {
+                    hovered_entities.push(entity_id);
+                }
 
-                    if mouse_resource.is_dragging && interaction_comp.is_draggable {
-                        dragged_entities.push((
-                            entity_id,
-                            interaction_comp
-                                .drag_event
-                                .expect("expected draggable entity to have drag event"),
-                        ));
-                    }
+                if mouse_resource.is_dragging && interaction_comp.is_draggable {
+                    dragged_entities.push((
+                        entity_id,
+                        interaction_comp
+                            .drag_event
+                            .expect("expected draggable entity to have drag event"),
+                    ));
                 }
             }
         }

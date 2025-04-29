@@ -88,13 +88,7 @@ impl ImageBuilder {
                 .expect("Debug name is required for all components, tried to create an image component without it."),
             component_type
         );
-        add_common_components(
-            world,
-            z_index_manager,
-            entity_id,
-            &self.common,
-            component_type,
-        );
+        add_common_components(world, z_index_manager, entity_id, &self.common);
 
         // Add layout component
         let mut layout = Layout::new();
