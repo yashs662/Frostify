@@ -178,6 +178,11 @@ impl EcsResources {
             .get_mut(&type_id)
             .and_then(|boxed_resource| boxed_resource.as_any_mut().downcast_mut::<T>())
     }
+
+    pub fn remove_resource<T: EcsResource + 'static>(&mut self) {
+        let type_id = TypeId::of::<T>();
+        self.inner.remove(&type_id);
+    }
 }
 
 // World - main ECS container
@@ -213,9 +218,12 @@ impl World {
     }
 
     pub fn queue_event(&mut self, event: AppEvent) {
-        if let Some(resource) = self.resources.get_resource_mut::<EventSenderResource>() {
-            resource.event_sender.send(event).ok();
-        }
+        self.resources
+            .get_resource_mut::<EventSenderResource>()
+            .expect("Expected EventSenderResource to exist")
+            .event_sender
+            .send(event)
+            .ok();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -241,30 +249,15 @@ impl World {
     }
 
     fn initialize_resetable_resources(&mut self) {
-        self.add_resource(RenderOrderResource {
-            render_order: Vec::new(),
-        });
-        self.add_resource(RenderGroupsResource { groups: Vec::new() });
-        self.add_resource(MouseResource {
-            position: ComponentPosition::default(),
-            is_pressed: false,
-            is_released: false,
-            is_dragging: false,
-            press_position: None,
-        });
+        self.add_resource(RenderOrderResource::default());
+        self.add_resource(RenderGroupsResource::default());
+        self.add_resource(MouseResource::default());
     }
 
     fn reset_resources(&mut self) {
-        if let Some(resource) = self.resources.get_resource_mut::<RenderOrderResource>() {
-            resource.render_order.clear();
-        }
-        if let Some(resource) = self.resources.get_resource_mut::<RenderGroupsResource>() {
-            resource.groups.clear();
-        }
-        if let Some(resource) = self.resources.get_resource_mut::<MouseResource>() {
-            resource.position = ComponentPosition::default();
-        }
-
+        self.resources.remove_resource::<RenderOrderResource>();
+        self.resources.remove_resource::<RenderGroupsResource>();
+        self.resources.remove_resource::<MouseResource>();
         self.initialize_resetable_resources();
     }
 

@@ -341,7 +341,7 @@ pub struct ComponentHoverSystem;
 impl EcsSystem for ComponentHoverSystem {
     fn run(&mut self, world: &mut World) {
         // Get the mouse position from the resource
-        let mouse_position = world
+        let mouse_resource = world
             .resources
             .get_resource::<MouseResource>()
             .expect("Expected MouseResource to be present");
@@ -350,17 +350,28 @@ impl EcsSystem for ComponentHoverSystem {
             world.query_combined_3::<BoundsComponent, InteractionComponent, VisualComponent>();
 
         let mut hovered_entities = Vec::new();
+        let mut dragged_entities = Vec::new();
 
         for (entity_id, bounds_comp, interaction_comp, visual_comp) in interactive_entities {
             // Check if the entity is visible
-            if visual_comp.is_visible && interaction_comp.is_hoverable {
-                // Check if the mouse is within the bounds of the entity
+            if visual_comp.is_visible {
                 if is_hit(
                     bounds_comp.computed_bounds,
                     bounds_comp.clip_bounds,
-                    mouse_position.position,
+                    mouse_resource.position,
                 ) {
-                    hovered_entities.push(entity_id);
+                    if interaction_comp.is_hoverable {
+                        hovered_entities.push(entity_id);
+                    }
+
+                    if mouse_resource.is_dragging && interaction_comp.is_draggable {
+                        dragged_entities.push((
+                            entity_id,
+                            interaction_comp
+                                .drag_event
+                                .expect("expected draggable entity to have drag event"),
+                        ));
+                    }
                 }
             }
         }
@@ -368,6 +379,35 @@ impl EcsSystem for ComponentHoverSystem {
         world.for_each_component_mut::<InteractionComponent, _>(|id, interaction_comp| {
             interaction_comp.is_hovered = hovered_entities.contains(&id);
         });
+
+        if !dragged_entities.is_empty() {
+            let render_order_resource = world
+                .resources
+                .get_resource::<RenderOrderResource>()
+                .expect(
+                    "Expected RenderOrderResource to be present, while trying to get render order",
+                );
+
+            // Get the entity with the highest z index
+            let (entity_id, drag_event) = dragged_entities
+                .iter()
+                .max_by_key(|(id, _)| {
+                    render_order_resource
+                        .render_order
+                        .iter()
+                        .position(|e| e == id)
+                        .unwrap_or(usize::MAX)
+                })
+                .expect("Expected at least one entity to be dragged");
+
+            // Send the drag event
+            log::debug!(
+                "Sending drag event: {:?} for entity: {}",
+                drag_event,
+                entity_id
+            );
+            world.queue_event(*drag_event);
+        }
     }
 }
 
@@ -415,12 +455,6 @@ impl EcsSystem for MouseInputSystem {
                             .expect("expected clickable entity to have click event"),
                         index,
                     ));
-                }
-
-                if interaction_comp.is_draggable && mouse_resource.is_pressed {
-                    if let Some(drag_event) = interaction_comp.drag_event {
-                        entities_interacted_with.push((entity_id, drag_event, index));
-                    }
                 }
             }
         }

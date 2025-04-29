@@ -128,6 +128,7 @@ impl App<'_> {
     fn try_handle_app_event(&mut self, event_loop: &ActiveEventLoop) -> bool {
         if let Some(receiver) = &mut self.event_receiver {
             if let Ok(event) = receiver.try_recv() {
+                log::debug!("Received app event: {:?}", event);
                 match event {
                     AppEvent::Close => {
                         event_loop.exit();
@@ -212,7 +213,6 @@ impl App<'_> {
         wgpu_ctx: &mut Option<WgpuCtx>,
         layout_context: &mut layout::LayoutContext,
         app_state: &mut AppState,
-        event_sender: UnboundedSender<AppEvent>,
         view: UiView,
     ) {
         if let Some(wgpu_ctx) = wgpu_ctx {
@@ -343,7 +343,6 @@ impl App<'_> {
                             &mut self.wgpu_ctx,
                             &mut self.layout_context,
                             &mut self.app_state,
-                            self.event_sender.as_ref().unwrap().clone(),
                             UiView::Home,
                         );
 
@@ -366,7 +365,6 @@ impl App<'_> {
                             &mut self.wgpu_ctx,
                             &mut self.layout_context,
                             &mut self.app_state,
-                            self.event_sender.as_ref().unwrap().clone(),
                             UiView::Home,
                         );
                     }
@@ -380,7 +378,6 @@ impl App<'_> {
                                 &mut self.wgpu_ctx,
                                 &mut self.layout_context,
                                 &mut self.app_state,
-                                self.event_sender.as_ref().unwrap().clone(),
                                 UiView::Login,
                             );
                         }
@@ -475,6 +472,7 @@ impl ApplicationHandler for App<'_> {
             };
             // Create event channel
             let (event_tx, event_rx) = unbounded_channel();
+            log::debug!("created event channel");
             self.event_sender = Some(event_tx.clone());
             self.event_receiver = Some(event_rx);
 
@@ -555,8 +553,8 @@ impl ApplicationHandler for App<'_> {
                     || self.app_state.current_view == Some(UiView::Login)
                 {
                     self.check_worker_responses();
-                    self.try_handle_app_event(event_loop);
                 }
+                self.try_handle_app_event(event_loop);
 
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
                     // Use hybrid update for animations and state changes
@@ -616,9 +614,7 @@ impl ApplicationHandler for App<'_> {
                         let dx = curr_pos.x - press_pos.x;
                         let dy = curr_pos.y - press_pos.y;
                         let distance_squared = dx * dx + dy * dy;
-
                         if distance_squared > 4.0 {
-                            // Threshold to avoid accidental drags
                             mouse_resource.is_dragging = true;
                         }
                     }

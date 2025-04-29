@@ -739,30 +739,11 @@ impl LayoutContext {
             self.compute_component_layout(id, None);
         }
 
-        self.debug_log_computed_bounds();
+        log::debug!("Computed bounds for {} components", self.computed_bounds.len());
 
         // Use the z-index manager to determine render order
         self.render_order = self.z_index_manager.sort_render_order();
         sync_render_order(self);
-    }
-
-    fn debug_log_computed_bounds(&self) {
-        let identity_query: Vec<(EntityId, &IdentityComponent)> =
-            self.world.query::<IdentityComponent>();
-        log::debug!(
-            "Computed bounds for {} components",
-            self.computed_bounds.len()
-        );
-        for (id, bounds) in &self.computed_bounds {
-            log::debug!(
-                "Component: {:?}, Bounds: {:#?}",
-                identity_query
-                    .iter()
-                    .find(|(entity_id, _)| *entity_id == *id)
-                    .map(|(_, c)| c.debug_name.clone()),
-                bounds
-            );
-        }
     }
 
     fn compute_component_layout(&mut self, component_id: &EntityId, parent_bounds: Option<Bounds>) {
@@ -866,11 +847,6 @@ impl LayoutContext {
         {
             if component.clip_self {
                 component.clip_bounds = clip_bounds;
-                log::debug!(
-                    "clip_bounds for component {}: {:?}",
-                    component_id,
-                    component.clip_bounds
-                );
             } else {
                 // If this component doesn't clip itself, clear any clip bounds
                 component.clip_bounds = None;

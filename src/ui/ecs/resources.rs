@@ -12,7 +12,7 @@ pub struct ViewportResource {
 }
 
 // New resource to store the render order from layout context
-#[derive(EcsResource)]
+#[derive(EcsResource, Default)]
 pub struct RenderOrderResource {
     pub render_order: Vec<EntityId>,
 }
@@ -24,7 +24,7 @@ pub struct WgpuQueueResource {
 }
 
 // Resource to store render groups
-#[derive(Clone, EcsResource)]
+#[derive(Clone, EcsResource, Default)]
 pub struct RenderGroupsResource {
     pub groups: Vec<RenderGroup>,
 }
