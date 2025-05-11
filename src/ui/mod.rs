@@ -37,6 +37,42 @@ pub enum UiView {
     #[default]
     Login,
     Home,
+    Test,
+}
+
+pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
+    let main_container_id = ContainerBuilder::new()
+        .with_debug_name("Test UI Main Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    let nav_bar_id = create_nav_bar(wgpu_ctx, layout_context);
+
+    layout_context
+        .world
+        .add_child_to_parent(main_container_id, nav_bar_id);
+
+    let sample_text = TextBuilder::new()
+        .with_debug_name("Sample Text")
+        .with_text("This is a test text".to_string())
+        .with_font_size(24.0)
+        .with_color(Color::White)
+        .with_line_height(1.0)
+        .set_fit_to_size()
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
+
+    layout_context
+        .world
+        .add_child_to_parent(main_container_id, sample_text);
 }
 
 pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {

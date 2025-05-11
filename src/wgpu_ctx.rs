@@ -1,12 +1,5 @@
 use crate::{
-    ui::{
-        ecs::{
-            integration::update_frosted_glass_with_frame_texture, resources::RenderGroupsResource,
-        },
-        layout::Size,
-        text_renderer::TextHandler,
-    },
-    utils::create_unified_pipeline,
+    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES, ui::{ecs::{components::RenderDataComponent, resources::RenderGroupsResource, EntityId, World}, layout::Size, text_renderer::TextHandler}, utils::create_unified_pipeline
 };
 use smaa::{SmaaMode, SmaaTarget};
 use std::sync::Arc;
@@ -694,4 +687,54 @@ impl<'window> WgpuCtx<'window> {
             );
         }
     }
+}
+
+fn update_frosted_glass_with_frame_texture(
+    world: &mut World,
+    entity_id: EntityId,
+    frame_view: &wgpu::TextureView,
+    device: &wgpu::Device,
+) {
+    let render_comp = world
+        .components
+        .get_component_mut::<RenderDataComponent>(entity_id)
+        .expect("expected RenderDataComponent to exist to update frosted glass");
+
+    let sampler = render_comp
+        .sampler
+        .as_ref()
+        .expect("expected sampler to exist in render_comp for frosted glass");
+
+    // Create unified bind group layout compatible with the shader
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+        label: Some(format!("{} Unified Bind Group Layout", entity_id).as_str()),
+    });
+
+    // Create bind group with all required resources
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &bind_group_layout,
+        entries: &[
+            // Component uniform data
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: render_comp.render_data_buffer.as_ref()
+                    .expect("expected render data buffer to exist for updating frame texture to frosted glass")
+                    .as_entire_binding(),
+            },
+            // Texture view
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(frame_view),
+            },
+            // Sampler
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+        label: Some(format!("{} Unified Bind Group", entity_id).as_str()),
+    });
+
+    render_comp.bind_group = Some(bind_group);
 }

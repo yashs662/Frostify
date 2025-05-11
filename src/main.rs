@@ -1,7 +1,7 @@
-#![cfg_attr(
-    all(target_os = "windows", not(debug_assertions),),
-    windows_subsystem = "windows"
-)]
+// #![cfg_attr(
+//     all(target_os = "windows", not(debug_assertions),),
+//     windows_subsystem = "windows"
+// )]
 
 use crate::{app::App, ui::asset};
 use clap::Parser;
@@ -31,6 +31,9 @@ struct Args {
     /// Reset stored login data
     #[arg(long, short, action = clap::ArgAction::SetTrue, help = "Reset Frostify config")]
     reset: bool,
+    /// Ui test mode
+    #[arg(long, short, action = clap::ArgAction::SetTrue, help = "Run in UI test mode")]
+    ui_test: bool,
 }
 
 fn main() -> Result<(), EventLoopError> {
@@ -49,6 +52,10 @@ fn main() -> Result<(), EventLoopError> {
                 return Ok(());
             }
         }
+    }
+
+    if args.ui_test {
+        println!("{}", "Running in UI test mode".purple());
     }
 
     // Initialize assets before creating the event loop
@@ -90,10 +97,10 @@ fn main() -> Result<(), EventLoopError> {
     #[cfg(debug_assertions)]
     builder.filter_module("Frostify", LevelFilter::Trace);
     #[cfg(not(debug_assertions))]
-    builder.filter_module("Frostify", LevelFilter::Warn);
+    builder.filter_module("Frostify", LevelFilter::Trace);
 
     builder.init();
 
-    let mut app = App::default();
+    let mut app = App::new(args.ui_test);
     event_loop.run_app(&mut app)
 }

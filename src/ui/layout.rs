@@ -1,4 +1,17 @@
-use crate::{app::AppEvent, ui::z_index_manager::ZIndexManager, wgpu_ctx::WgpuCtx};
+use crate::{
+    app::AppEvent,
+    ui::{
+        ecs::{
+            components::{RenderDataComponent, TextComponent},
+            resources::{RenderOrderResource, WgpuQueueResource},
+            systems::create_component_buffer_data,
+        },
+        text_renderer::OptionalTextUpdateData,
+        z_index_manager::ZIndexManager,
+    },
+    wgpu_ctx::WgpuCtx,
+};
+use frostify_derive::time_function;
 use std::collections::BTreeMap;
 use tokio::sync::mpsc::UnboundedSender;
 use winit::event::MouseButton;
@@ -9,7 +22,7 @@ use super::ecs::{
         BoundsComponent, HierarchyComponent, IdentityComponent, LayoutComponent,
         TransformComponent, VisualComponent,
     },
-    integration::{sync_render_order, update_global_viewport_resource},
+    systems::AnimationSystem,
 };
 
 #[derive(Debug, Clone)]
@@ -228,7 +241,6 @@ pub struct LayoutContext {
     pub world: World,
     pub computed_bounds: BTreeMap<EntityId, Bounds>,
     pub viewport_size: Size,
-    render_order: Vec<EntityId>,
     initialized: bool,
     pub z_index_manager: ZIndexManager,
 }
@@ -616,21 +628,19 @@ impl LayoutContext {
     pub fn initialize(
         &mut self,
         viewport_size: Size,
-        wgpu_queue: &wgpu::Queue,
+        wgpu_ctx: &mut WgpuCtx,
         event_sender: &UnboundedSender<AppEvent>,
     ) {
         self.viewport_size = viewport_size;
         self.world
-            .initialize_resources(self.viewport_size, wgpu_queue, event_sender);
-        update_global_viewport_resource(self);
+            .initialize_resources(&wgpu_ctx.queue, event_sender);
+        self.compute_layout_and_sync(wgpu_ctx);
         self.initialized = true;
-        self.compute_layout();
     }
 
     pub fn clear(&mut self) {
         self.world.reset();
         self.computed_bounds.clear();
-        self.render_order.clear();
         self.z_index_manager.clear();
     }
 
@@ -639,83 +649,18 @@ impl LayoutContext {
         &self.computed_bounds
     }
 
-    // pub fn update_components(&mut self, wgpu_ctx: &mut WgpuCtx, frame_time: f32) {
-    //     let mut updates = Vec::new();
-    //     let mut needs_relayout = false;
-    //     // First pass: collect all updates from components
-    //     for (_id, component) in self.components.iter_mut() {
-    //         // Update component state and check for update requests
-    //         if component.needs_update() && component.update(wgpu_ctx, frame_time) {
-    //             needs_relayout = true;
-    //         }
-
-    //         // If component provides updates, collect them
-    //         if component.has_updates() {
-    //             if let Some(update_data) = component.get_update_data() {
-    //                 updates.push(update_data);
-    //                 component.reset_update_state();
-    //             }
-    //         }
-
-    //         // Special case for sliders - store current bounds
-    //         if component.is_a_slider() {
-    //             component.update_track_bounds(component.computed_bounds);
-    //         }
-    //     }
-
-    //     // Second pass: apply collected updates
-    //     for update in updates {
-    //         // Find the target component and apply the update
-    //         if let Some(target_component) = self.components.get_mut(&update.target_id()) {
-    //             update.apply(target_component, wgpu_ctx);
-    //         }
-
-    //         // Also apply to any additional target components
-    //         for additional_id in update.additional_target_ids() {
-    //             if let Some(additional_target) = self.components.get_mut(&additional_id) {
-    //                 update.apply(additional_target, wgpu_ctx);
-    //             }
-    //         }
-    //     }
-
-    //     if needs_relayout {
-    //         self.compute_layout_and_update_components(wgpu_ctx);
-    //     }
-    // }
-
-    pub fn get_render_order(&self) -> &Vec<EntityId> {
-        &self.render_order
-    }
-
-    pub fn compute_layout_and_update_components(&mut self) {
-        let mut re_layout_required = true;
-        let mut re_layout_attempts = 0;
-        let max_re_layout_attempts = 5;
-
-        while re_layout_required && re_layout_attempts < max_re_layout_attempts {
-            re_layout_required = false;
-            re_layout_attempts += 1;
-
-            // Compute layout for all components
-            self.compute_layout();
-
-            self.world
-                .for_each_component_mut::<BoundsComponent, _>(|id, bounds_comp| {
-                    if let Some(computed_bounds) = self.computed_bounds.get(&id) {
-                        bounds_comp.computed_bounds = *computed_bounds;
-                    }
-                });
-
-            // TODO: resize to metadata?
-        }
+    pub fn update_components(&mut self, frame_time: f32) {
+        self.world
+            .run_system::<AnimationSystem>(AnimationSystem { frame_time });
     }
 
     pub fn resize_viewport(&mut self, wgpu_ctx: &mut WgpuCtx) {
         self.viewport_size = wgpu_ctx.get_screen_size();
-        self.compute_layout_and_update_components();
+        self.compute_layout_and_sync(wgpu_ctx);
     }
 
-    pub fn compute_layout(&mut self) {
+    #[time_function]
+    pub fn compute_layout_and_sync(&mut self, wgpu_ctx: &mut WgpuCtx) {
         if !self.initialized {
             log::error!("Attempting to compute layout before initialization");
             return;
@@ -744,9 +689,51 @@ impl LayoutContext {
             self.computed_bounds.len()
         );
 
+        // Sync computed bounds with the world
+        self.world
+            .for_each_component_mut::<BoundsComponent, _>(|id, bounds_comp| {
+                if let Some(computed_bounds) = self.computed_bounds.get(&id) {
+                    bounds_comp.computed_bounds = *computed_bounds;
+                    bounds_comp.screen_size = self.viewport_size;
+                }
+            });
+
+        // Update text components with new bounds
+        self.world.for_each_component::<TextComponent, _>(|id, _| {
+            if let Some(text_bounds) = self.computed_bounds.get(&id) {
+                wgpu_ctx
+                    .text_handler
+                    .update((id, OptionalTextUpdateData::new().with_bounds(*text_bounds)));
+            }
+        });
+
+        // Update render data buffers
+        let device_queue = self
+            .world
+            .resources
+            .get_resource::<WgpuQueueResource>()
+            .expect("expected WgpuQueueResource to exist")
+            .clone();
+
+        self.world
+            .for_each_component::<RenderDataComponent, _>(|id, render_data_comp| {
+                device_queue.queue.write_buffer(
+                    render_data_comp
+                        .render_data_buffer
+                        .as_ref()
+                        .expect("RenderDataComponent should have a valid render data buffer"),
+                    0,
+                    bytemuck::cast_slice(&[create_component_buffer_data(&self.world, id)]),
+                );
+            });
+
         // Use the z-index manager to determine render order
-        self.render_order = self.z_index_manager.sort_render_order();
-        sync_render_order(self);
+        let render_order_resource = self
+            .world
+            .resources
+            .get_resource_mut::<RenderOrderResource>()
+            .expect("expected RenderOrderResource to exist");
+        render_order_resource.render_order = self.z_index_manager.sort_render_order();
     }
 
     fn compute_component_layout(&mut self, component_id: &EntityId, parent_bounds: Option<Bounds>) {

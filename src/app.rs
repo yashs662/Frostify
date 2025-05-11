@@ -3,12 +3,11 @@ use crate::{
     constants::{BACKGROUND_FPS, WINDOW_RESIZE_BORDER_WIDTH},
     core::worker::{Worker, WorkerResponse},
     ui::{
-        UiView, create_app_ui, create_login_ui,
+        UiView, create_app_ui, create_login_ui, create_test_ui,
         ecs::{
             components::HierarchyComponent,
-            integration::{hybrid_draw, hybrid_update, sync_computed_bounds_and_screen_size},
             resources::MouseResource,
-            systems::{ComponentHoverSystem, MouseInputSystem},
+            systems::{ComponentHoverResetSystem, ComponentHoverSystem, MouseInputSystem},
         },
         layout::{self, ComponentPosition, Size},
     },
@@ -46,8 +45,8 @@ pub struct App<'window> {
     event_receiver: Option<UnboundedReceiver<AppEvent>>,
     layout_context: layout::LayoutContext,
     app_state: AppState,
+    app_config: AppConfig,
     worker: Option<Worker>,
-    last_cursor_input: (Option<ElementState>, ComponentPosition),
     frame_counter: FrameCounter,
 }
 
@@ -58,6 +57,11 @@ pub struct AppState {
     current_view: Option<UiView>,
     is_checking_auth: bool,
     cursor_position: Option<(f64, f64)>,
+}
+
+#[derive(Default)]
+pub struct AppConfig {
+    pub ui_test_mode: bool,
 }
 
 struct FrameCounter {
@@ -125,6 +129,12 @@ struct ResizeState {
 }
 
 impl App<'_> {
+    pub fn new(ui_test_mode: bool) -> Self {
+        Self {
+            app_config: AppConfig { ui_test_mode },
+            ..Default::default()
+        }
+    }
     fn try_handle_app_event(&mut self, event_loop: &ActiveEventLoop) -> bool {
         if let Some(receiver) = &mut self.event_receiver {
             if let Ok(event) = receiver.try_recv() {
@@ -137,16 +147,18 @@ impl App<'_> {
                     AppEvent::Maximize => {
                         if let Some(window) = &self.window {
                             window.set_maximized(!window.is_maximized());
-                            // Reset hover states when window state changes
-                            // self.layout_context.reset_all_hover_states();
+                            self.layout_context
+                                .world
+                                .run_system(ComponentHoverResetSystem);
                             return true;
                         }
                     }
                     AppEvent::Minimize => {
                         if let Some(window) = &self.window {
                             window.set_minimized(true);
-                            // Reset hover states when window state changes
-                            // self.layout_context.reset_all_hover_states();
+                            self.layout_context
+                                .world
+                                .run_system(ComponentHoverResetSystem);
                             return true;
                         }
                     }
@@ -224,6 +236,9 @@ impl App<'_> {
                 UiView::Home => {
                     create_app_ui(wgpu_ctx, layout_context);
                 }
+                UiView::Test => {
+                    create_test_ui(wgpu_ctx, layout_context);
+                }
             }
             // sync z_index_manager with the child parent hierarchy's
             layout_context
@@ -235,16 +250,8 @@ impl App<'_> {
                 });
 
             // Apply multiple viewport resizes to ensure correct positioning
-            App::apply_layout_updates(layout_context);
+            layout_context.compute_layout_and_sync(wgpu_ctx);
             app_state.current_view = Some(view);
-        }
-    }
-
-    /// Helper method to apply multiple viewport resizes to ensure proper layout
-    fn apply_layout_updates(layout_context: &mut layout::LayoutContext) {
-        // Done 3 times to ensure components with FlexValue::Fit have their positions calculated correctly
-        for _ in 0..3 {
-            layout_context.compute_layout_and_update_components();
         }
     }
 
@@ -394,21 +401,36 @@ impl ApplicationHandler for App<'_> {
             };
             // Create event channel
             let (event_tx, event_rx) = unbounded_channel();
-            log::debug!("created event channel");
             self.event_sender = Some(event_tx.clone());
             self.event_receiver = Some(event_rx);
 
             // Initialize layout context before creating UI
             self.layout_context
-                .initialize(viewport_size, &wgpu_ctx.queue, &event_tx);
-
-            // Initialize the worker thread
-            self.worker = Some(Worker::new());
-
-            // Start with login UI by default
-            create_login_ui(&mut wgpu_ctx, &mut self.layout_context);
+                .initialize(viewport_size, &mut wgpu_ctx, &event_tx);
 
             self.wgpu_ctx = Some(wgpu_ctx);
+
+            // Initialize the worker thread
+            if !self.app_config.ui_test_mode {
+                self.worker = Some(Worker::new());
+            }
+
+            // Start with login UI by default
+            if self.app_config.ui_test_mode {
+                App::change_view(
+                    &mut self.wgpu_ctx,
+                    &mut self.layout_context,
+                    &mut self.app_state,
+                    UiView::Test,
+                );
+            } else {
+                App::change_view(
+                    &mut self.wgpu_ctx,
+                    &mut self.layout_context,
+                    &mut self.app_state,
+                    UiView::Login,
+                );
+            }
 
             // Check for stored tokens as soon as the app starts
             if let Some(worker) = &self.worker {
@@ -419,18 +441,10 @@ impl ApplicationHandler for App<'_> {
 
             // Draw the first frame before making the window visible
             if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                // Use hybrid update for animations
-                hybrid_update(
-                    &mut self.layout_context,
-                    self.frame_counter.get_frame_time(),
-                );
+                self.layout_context
+                    .update_components(self.frame_counter.get_frame_time());
 
-                // Sync computed bounds to ECS
-                sync_computed_bounds_and_screen_size(&mut self.layout_context, wgpu_ctx);
-
-                // Draw using hybrid approach (gradually transitioning to ECS)
-                hybrid_draw(&mut self.layout_context, wgpu_ctx);
-
+                wgpu_ctx.draw(&mut self.layout_context.world);
                 wgpu_ctx.text_handler.trim_atlas();
             }
 
@@ -466,7 +480,6 @@ impl ApplicationHandler for App<'_> {
                 {
                     wgpu_ctx.resize((new_size.width, new_size.height));
                     self.layout_context.resize_viewport(wgpu_ctx);
-                    sync_computed_bounds_and_screen_size(&mut self.layout_context, wgpu_ctx);
                     window.request_redraw();
                 }
             }
@@ -479,15 +492,12 @@ impl ApplicationHandler for App<'_> {
                 self.try_handle_app_event(event_loop);
 
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    // Use hybrid update for animations and state changes
-                    hybrid_update(
-                        &mut self.layout_context,
-                        self.frame_counter.get_frame_time(),
-                    );
+                    self.layout_context
+                        .update_components(self.frame_counter.get_frame_time());
 
-                    // Draw using hybrid approach (gradually transitioning to ECS)
-                    hybrid_draw(&mut self.layout_context, wgpu_ctx);
-
+                    // Draw using ECS
+                    wgpu_ctx.draw(&mut self.layout_context.world);
+                    // TODO: Do we need to trim the atlas here?
                     wgpu_ctx.text_handler.trim_atlas();
                 }
 
@@ -595,10 +605,7 @@ impl ApplicationHandler for App<'_> {
             }
             WindowEvent::Focused(focused) => {
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    self.last_cursor_input = (None, ComponentPosition { x: 0.0, y: 0.0 });
-
                     if focused {
-                        sync_computed_bounds_and_screen_size(&mut self.layout_context, wgpu_ctx);
                         wgpu_ctx.draw(&mut self.layout_context.world);
                         if let Some(window) = &self.window {
                             window.request_redraw();
@@ -619,6 +626,11 @@ impl ApplicationHandler for App<'_> {
                     .get_resource_mut::<MouseResource>()
                     .expect("Expected MouseResource to exist");
                 *mouse_resource = MouseResource::default();
+
+                // reset hover state
+                self.layout_context
+                    .world
+                    .run_system(ComponentHoverResetSystem);
             }
             _ => (),
         }

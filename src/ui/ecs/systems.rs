@@ -9,6 +9,7 @@ use crate::ui::{
     },
     layout::{Bounds, ClipBounds, ComponentPosition},
 };
+use frostify_derive::time_system;
 
 pub struct AnimationSystem {
     pub frame_time: f32,
@@ -411,8 +412,20 @@ impl EcsSystem for ComponentHoverSystem {
     }
 }
 
+pub struct ComponentHoverResetSystem;
+
+#[time_system]
+impl EcsSystem for ComponentHoverResetSystem {
+    fn run(&mut self, world: &mut World) {
+        world.for_each_component_mut::<InteractionComponent, _>(|_, interaction_comp| {
+            interaction_comp.is_hovered = false;
+        });
+    }
+}
+
 pub struct MouseInputSystem;
 
+#[time_system]
 impl EcsSystem for MouseInputSystem {
     fn run(&mut self, world: &mut World) {
         // Get the mouse position from the resource

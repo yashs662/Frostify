@@ -74,18 +74,6 @@ pub struct IdentityComponent {
 }
 
 #[derive(Debug, Clone, EcsComponent)]
-pub struct SliderComponent {
-    pub value: f32,
-    pub min: f32,
-    pub max: f32,
-    pub step: f32,
-    pub thumb_id: EntityId,
-    pub track_fill_id: EntityId,
-    pub track_bounds: Option<crate::ui::layout::Bounds>,
-    pub needs_update: bool,
-    pub is_dragging: bool,
-}
-#[derive(Debug, Clone, EcsComponent)]
 pub struct RenderDataComponent {
     pub render_data_buffer: Option<wgpu::Buffer>,
     pub bind_group: Option<wgpu::BindGroup>,

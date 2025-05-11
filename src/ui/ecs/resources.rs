@@ -1,15 +1,10 @@
 use super::{EcsResource, EntityId, systems::RenderGroup};
 use crate::{
     app::AppEvent,
-    ui::layout::{ComponentPosition, Size},
+    ui::layout::ComponentPosition,
 };
 use frostify_derive::EcsResource;
 use tokio::sync::mpsc::UnboundedSender;
-
-#[derive(EcsResource)]
-pub struct ViewportResource {
-    pub size: Size,
-}
 
 // New resource to store the render order from layout context
 #[derive(EcsResource, Default)]

@@ -17,12 +17,12 @@ fn get_event_sender() -> UnboundedSender<AppEvent> {
 #[test]
 fn test_basic_fixed_flex_row_layout() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -51,7 +51,7 @@ fn test_basic_fixed_flex_row_layout() {
     ctx.world.add_child_to_parent(parent_id, child1_id);
     ctx.world.add_child_to_parent(parent_id, child2_id);
 
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -81,12 +81,12 @@ fn test_basic_fixed_flex_row_layout() {
 #[test]
 fn test_basic_fixed_flex_column_layout() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -116,7 +116,7 @@ fn test_basic_fixed_flex_column_layout() {
     ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -146,12 +146,12 @@ fn test_basic_fixed_flex_column_layout() {
 #[test]
 fn test_basic_fill_flex_row_layout() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -181,7 +181,7 @@ fn test_basic_fill_flex_row_layout() {
     ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -211,12 +211,12 @@ fn test_basic_fill_flex_row_layout() {
 #[test]
 fn test_basic_fill_flex_column_layout() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -246,7 +246,7 @@ fn test_basic_fill_flex_column_layout() {
     ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -276,12 +276,12 @@ fn test_basic_fill_flex_column_layout() {
 #[test]
 fn test_basic_fill_flex_row_layout_with_padding() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -312,7 +312,7 @@ fn test_basic_fill_flex_row_layout_with_padding() {
     ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -342,12 +342,12 @@ fn test_basic_fill_flex_row_layout_with_padding() {
 #[test]
 fn test_basic_fill_flex_column_layout_with_padding() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -378,7 +378,7 @@ fn test_basic_fill_flex_column_layout_with_padding() {
     ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -408,12 +408,12 @@ fn test_basic_fill_flex_column_layout_with_padding() {
 #[test]
 fn test_nested_containers_with_flex_layout_fixed_nested_container() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -462,7 +462,7 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
     ctx.world.add_child_to_parent(parent_id, nested_parent_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -504,12 +504,12 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
 #[test]
 fn test_nested_containers_with_flex_layout_fill_nested_container() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -558,7 +558,7 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
     ctx.world.add_child_to_parent(parent_id, nested_parent_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -601,12 +601,12 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
 #[test]
 fn test_navbar_app_layout() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Parent container
     let parent_id = ContainerBuilder::new()
@@ -696,7 +696,7 @@ fn test_navbar_app_layout() {
         .add_child_to_parent(parent_id, content_container_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -769,12 +769,12 @@ fn test_navbar_app_layout() {
 #[test]
 fn test_margin_and_padding_layout() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -807,7 +807,7 @@ fn test_margin_and_padding_layout() {
     ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -836,12 +836,12 @@ fn test_margin_and_padding_layout() {
 #[test]
 fn test_fractional_sizing_in_a_container() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -871,7 +871,7 @@ fn test_fractional_sizing_in_a_container() {
     ctx.world.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
 
@@ -900,12 +900,12 @@ fn test_fractional_sizing_in_a_container() {
 #[test]
 fn test_offset_in_nested_container() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -931,7 +931,7 @@ fn test_offset_in_nested_container() {
     ctx.world.add_child_to_parent(parent_id, child1_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
     let computed_bounds = ctx.get_computed_bounds();
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();
@@ -951,12 +951,12 @@ fn test_offset_in_nested_container() {
 #[test]
 fn test_offset_in_nested_container_with_flex_value() {
     let mut ctx = LayoutContext::default();
-    let wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
         width: 1000.0,
         height: 800.0,
     };
-    ctx.initialize(viewport_size, &wgpu_ctx.queue, &get_event_sender());
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -982,7 +982,7 @@ fn test_offset_in_nested_container_with_flex_value() {
     ctx.world.add_child_to_parent(parent_id, child1_id);
 
     // Force layout computation
-    ctx.compute_layout();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
     let computed_bounds = ctx.get_computed_bounds();
     // Get computed bounds for all components
     let parent_bounds = computed_bounds.get(&parent_id).unwrap();

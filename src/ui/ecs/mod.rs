@@ -1,7 +1,7 @@
 use components::{HierarchyComponent, IdentityComponent};
 use resources::{
     EventSenderResource, MouseResource, RenderGroupsResource, RenderOrderResource,
-    ViewportResource, WgpuQueueResource,
+    WgpuQueueResource,
 };
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -12,11 +12,9 @@ use uuid::Uuid;
 use crate::app::AppEvent;
 
 use super::color::Color;
-use super::layout::Size;
 
 pub mod builders;
 pub mod components;
-pub mod integration;
 pub mod resources;
 pub mod systems;
 
@@ -232,15 +230,11 @@ impl World {
 
     pub fn initialize_resources(
         &mut self,
-        viewport_size: Size,
         queue: &wgpu::Queue,
         event_sender: &UnboundedSender<AppEvent>,
     ) {
         self.add_resource(WgpuQueueResource {
             queue: std::sync::Arc::new(queue.clone()),
-        });
-        self.add_resource(ViewportResource {
-            size: viewport_size,
         });
         self.add_resource(EventSenderResource {
             event_sender: event_sender.clone(),
