@@ -1,7 +1,10 @@
 use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
-        ecs::{components::RenderDataComponent, resources::RenderGroupsResource, systems::RenderPrepareSystem, EntityId, World},
+        ecs::{
+            EntityId, World, components::RenderDataComponent, resources::RenderGroupsResource,
+            systems::RenderPrepareSystem,
+        },
         layout::Size,
         text_renderer::TextHandler,
     },
