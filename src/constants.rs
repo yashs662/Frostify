@@ -33,6 +33,7 @@ pub const CREDENTIAL_SERVICE_NAME: &str = "Frostify";
 pub const CREDENTIAL_USER_NAME: &str = "Frostify_user";
 pub const WINDOW_RESIZE_BORDER_WIDTH: f64 = 2.0;
 pub const BACKGROUND_FPS: u32 = 10;
+pub const SCROLL_MULTIPLIER: f32 = 50.0;
 pub const SPOTIFY_CLIENT_ID: &str = "f6f1788623fa400ebab54272bb3f515c";
 pub const SPOTIFY_REDIRECT_URI: &str = "http://127.0.0.1:8888/callback";
 pub const SPOTIFY_ACCESS_SCOPES: &str = "streaming,user-read-email,user-read-private,playlist-read-private,playlist-read-collaborative,playlist-modify-public,playlist-modify-private,user-follow-modify,user-follow-read,user-library-read,user-library-modify,user-top-read,user-read-recently-played";

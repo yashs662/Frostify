@@ -1,7 +1,7 @@
 use components::IdentityComponent;
 use resources::{
     EventSenderResource, MouseResource, RenderGroupsResource, RenderOrderResource,
-    WgpuQueueResource,
+    RequestReLayoutResource, WgpuQueueResource,
 };
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -246,6 +246,7 @@ impl World {
         self.add_resource(RenderOrderResource::default());
         self.add_resource(RenderGroupsResource::default());
         self.add_resource(MouseResource::default());
+        self.add_resource(RequestReLayoutResource::default());
     }
 
     fn reset_resources(&mut self) {

@@ -5,8 +5,11 @@ use crate::{
     ui::{
         UiView, create_app_ui, create_login_ui, create_test_ui,
         ecs::{
-            resources::MouseResource,
-            systems::{ComponentHoverResetSystem, ComponentHoverSystem, MouseInputSystem},
+            resources::{MouseResource, RequestReLayoutResource},
+            systems::{
+                AnimationSystem, ComponentHoverResetSystem, ComponentHoverSystem, MouseInputSystem,
+                MouseScrollSystem,
+            },
         },
         layout::{self, ComponentPosition, Size},
     },
@@ -134,6 +137,33 @@ impl App<'_> {
             ..Default::default()
         }
     }
+
+    fn update(&mut self) {
+        if let Some(wgpu_ctx) = &mut self.wgpu_ctx {
+            // check if re-layout is requested
+            let request_relayout_resource = self
+                .layout_context
+                .world
+                .resources
+                .get_resource_mut::<RequestReLayoutResource>()
+                .expect("Expected RequestReLayoutResource to be present");
+
+            if request_relayout_resource.request_relayout {
+                // Reset the request flag
+                request_relayout_resource.request_relayout = false;
+                // Recompute layout
+                self.layout_context.compute_layout_and_sync(wgpu_ctx);
+            }
+
+            // Run animation system
+            self.layout_context
+                .world
+                .run_system::<AnimationSystem>(AnimationSystem {
+                    frame_time: self.frame_counter.get_frame_time(),
+                });
+        }
+    }
+
     fn try_handle_app_event(&mut self, event_loop: &ActiveEventLoop) -> bool {
         if let Some(receiver) = &mut self.event_receiver {
             if let Ok(event) = receiver.try_recv() {
@@ -430,10 +460,8 @@ impl ApplicationHandler for App<'_> {
             }
 
             // Draw the first frame before making the window visible
+            self.update();
             if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                self.layout_context
-                    .update_components(self.frame_counter.get_frame_time());
-
                 wgpu_ctx.draw(&mut self.layout_context.world);
                 wgpu_ctx.text_handler.trim_atlas();
             }
@@ -481,10 +509,8 @@ impl ApplicationHandler for App<'_> {
                 }
                 self.try_handle_app_event(event_loop);
 
+                self.update();
                 if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    self.layout_context
-                        .update_components(self.frame_counter.get_frame_time());
-
                     // Draw using ECS
                     wgpu_ctx.draw(&mut self.layout_context.world);
                     // TODO: Do we need to trim the atlas here?
@@ -589,7 +615,19 @@ impl ApplicationHandler for App<'_> {
             WindowEvent::MouseWheel { delta, .. } => {
                 if let Some((x, y)) = self.app_state.cursor_position {
                     if let MouseScrollDelta::LineDelta(_, scroll_y) = delta {
-                        // TODO: handle scroll events
+                        let mouse_resource = self
+                            .layout_context
+                            .world
+                            .resources
+                            .get_resource_mut::<MouseResource>()
+                            .expect("Expected MouseResource to exist");
+                        mouse_resource.scroll_delta = -scroll_y;
+                        mouse_resource.is_scrolling = true;
+                        mouse_resource.position = ComponentPosition {
+                            x: x as f32,
+                            y: y as f32,
+                        };
+                        self.layout_context.world.run_system(MouseScrollSystem);
                     }
                 }
             }

@@ -27,10 +27,17 @@ pub struct MouseResource {
     pub is_pressed: bool,
     pub is_released: bool,
     pub is_dragging: bool,
+    pub is_scrolling: bool,
+    pub scroll_delta: f32,
     pub press_position: Option<ComponentPosition>,
 }
 
 #[derive(EcsResource)]
 pub struct EventSenderResource {
     pub event_sender: UnboundedSender<AppEvent>,
+}
+
+#[derive(EcsResource, Default)]
+pub struct RequestReLayoutResource {
+    pub request_relayout: bool,
 }

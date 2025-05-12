@@ -1,12 +1,13 @@
 use super::resources::{MouseResource, RenderGroupsResource};
 use crate::{
+    constants::SCROLL_MULTIPLIER,
     ui::{
         animation::{AnimationDirection, AnimationType, AnimationWhen},
         color::Color,
         ecs::{
             ComponentType, EcsSystem, EntityId, World,
             components::*,
-            resources::{RenderOrderResource, WgpuQueueResource},
+            resources::{RenderOrderResource, RequestReLayoutResource, WgpuQueueResource},
         },
         layout::{Bounds, ClipBounds, ComponentPosition},
     },
@@ -37,6 +38,7 @@ impl EcsSystem for AnimationSystem {
     fn run(&mut self, world: &mut World) {
         // First pass: Collect animation updates without mutating components
         let mut updates = Vec::new();
+        let mut any_update_requires_relayout = false;
 
         // Get relevant entities and build update list
         {
@@ -115,6 +117,7 @@ impl EcsSystem for AnimationSystem {
                                     "Expected TransformComponent to be present, while trying to update scale animation",
                                 );
                             if (transform.scale_factor - scale).abs() > 0.001 {
+                                any_update_requires_relayout = true;
                                 updates.push(AnimationUpdateData {
                                     entity_id,
                                     update_type: AnimationUpdateType::Scale {
@@ -249,6 +252,18 @@ impl EcsSystem for AnimationSystem {
                 bytemuck::cast_slice(&[render_data]),
             );
         }
+
+        if any_update_requires_relayout {
+            // Request a relayout if any animations were updated
+            let request_relayout_resource = world
+                .resources
+                .get_resource_mut::<RequestReLayoutResource>()
+                .expect("Expected RequestReLayoutResource to be present");
+            request_relayout_resource.request_relayout = true;
+        }
+
+        // TODO: Handle special case where scale animation causes the parent's
+        // max_scroll to change if so check if we need to scroll the parent to avoid over scrolling
     }
 }
 
@@ -483,6 +498,68 @@ impl EcsSystem for MouseInputSystem {
         {
             log::debug!("Sending event: {:?} for entity: {}", app_event, entity_id);
             world.queue_event(*app_event);
+        }
+    }
+}
+
+pub struct MouseScrollSystem;
+
+#[time_system]
+impl EcsSystem for MouseScrollSystem {
+    fn run(&mut self, world: &mut World) {
+        // Get the mouse position from the resource
+        let mouse_resource = world
+            .resources
+            .get_resource::<MouseResource>()
+            .expect("Expected MouseResource to be present");
+        let render_order_resource = world
+            .resources
+            .get_resource::<RenderOrderResource>()
+            .expect("Expected RenderOrderResource to be present, while trying to get render order");
+
+        let scrollable_entities =
+            world.query_combined_3::<LayoutComponent, VisualComponent, BoundsComponent>();
+
+        let mut entities_scrolled = Vec::new();
+
+        for (entity_id, layout_comp, visual_comp, bounds_comp) in scrollable_entities {
+            if layout_comp.layout.is_scrollable
+                && visual_comp.is_visible
+                && is_hit(
+                    bounds_comp.computed_bounds,
+                    bounds_comp.clip_bounds,
+                    mouse_resource.position,
+                )
+            {
+                // get index of the entity in the render order
+                let index = render_order_resource
+                    .render_order
+                    .iter()
+                    .position(|id| *id == entity_id)
+                    .expect("Expected scrolled entity to be in the render order");
+
+                entities_scrolled.push((entity_id, index));
+            }
+        }
+
+        // Apply scroll delta to the entity with the highest z index
+        if let Some((entity_id, _)) = entities_scrolled.iter().max_by_key(|(_, index)| *index) {
+            if let Some(layout_comp) = world
+                .components
+                .get_component_mut::<LayoutComponent>(*entity_id)
+            {
+                layout_comp.layout.scroll_position +=
+                    mouse_resource.scroll_delta * SCROLL_MULTIPLIER;
+                layout_comp.layout.scroll_position = layout_comp
+                    .layout
+                    .scroll_position
+                    .clamp(0.0, layout_comp.layout.max_scroll);
+                let request_relayout_resource = world
+                    .resources
+                    .get_resource_mut::<RequestReLayoutResource>()
+                    .expect("Expected RequestReLayoutResource to be present");
+                request_relayout_resource.request_relayout = true;
+            }
         }
     }
 }

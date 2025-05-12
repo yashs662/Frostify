@@ -350,6 +350,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
         .with_size(FlexValue::Fixed(80.0), FlexValue::Fill)
         .with_margin(Edges::left(10.0))
         .with_direction(FlexDirection::Column)
+        .with_z_index(1)
         .build(
             &mut layout_context.world,
             &mut layout_context.z_index_manager,

@@ -21,7 +21,6 @@ use super::ecs::{
         BoundsComponent, HierarchyComponent, IdentityComponent, LayoutComponent,
         TransformComponent, VisualComponent,
     },
-    systems::AnimationSystem,
 };
 
 #[derive(Debug, Clone)]
@@ -632,11 +631,6 @@ impl LayoutContext {
     #[cfg(test)]
     pub fn get_computed_bounds(&self) -> &BTreeMap<EntityId, Bounds> {
         &self.computed_bounds
-    }
-
-    pub fn update_components(&mut self, frame_time: f32) {
-        self.world
-            .run_system::<AnimationSystem>(AnimationSystem { frame_time });
     }
 
     pub fn resize_viewport(&mut self, wgpu_ctx: &mut WgpuCtx) {
