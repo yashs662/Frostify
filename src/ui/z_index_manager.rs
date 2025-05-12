@@ -1,6 +1,5 @@
 use super::ecs::EntityId;
-use std::collections::HashMap;
-
+use std::collections::{HashMap, HashSet};
 #[derive(Debug)]
 pub struct ZIndexManager {
     /// Base z-index assigned to each component
@@ -15,6 +14,12 @@ pub struct ZIndexManager {
     level_increment: i32,
     /// Whether the z-indices need to be recomputed
     dirty: bool,
+    /// Root entity ID
+    root_id: Option<EntityId>,
+    /// Registration order for stable sorting
+    registration_order: HashMap<EntityId, usize>,
+    /// Counter for registration order
+    registration_counter: usize,
 }
 
 impl Default for ZIndexManager {
@@ -32,6 +37,9 @@ impl ZIndexManager {
             computed_indices: HashMap::new(),
             level_increment: 1000, // Large increment to allow for many adjustments at each level
             dirty: true,
+            root_id: None,
+            registration_order: HashMap::new(),
+            registration_counter: 0,
         }
     }
 
@@ -41,14 +49,54 @@ impl ZIndexManager {
         self.hierarchy.clear();
         self.computed_indices.clear();
         self.dirty = true;
+        self.root_id = None;
+        self.registration_order.clear();
+        self.registration_counter = 0;
+    }
+
+    pub fn set_root_id(&mut self, root_id: EntityId) {
+        self.root_id = Some(root_id);
+    }
+
+    /// Check if adding a parent relationship would create a cycle
+    fn would_create_cycle(&self, component_id: EntityId, parent_id: EntityId) -> bool {
+        let mut current = Some(parent_id);
+        let mut visited = HashSet::new();
+
+        while let Some(id) = current {
+            // If we've seen this ID before, we have a cycle
+            if !visited.insert(id) || id == component_id {
+                return true;
+            }
+
+            current = self.hierarchy.get(&id).copied().flatten();
+        }
+
+        false
     }
 
     /// Register a component and its parent relationship
     pub fn register_component(&mut self, component_id: EntityId, parent_id: Option<EntityId>) {
+        // Check if already registered
+        if self.base_indices.contains_key(&component_id) {
+            panic!("Warning: Attempted to register an already registered component");
+        }
+        // Check for cycles when setting a parent
+        if let Some(pid) = parent_id {
+            if pid == component_id || self.would_create_cycle(component_id, pid) {
+                panic!("Warning: Attempted to create a cycle in component hierarchy");
+            }
+        }
+
         self.hierarchy.insert(component_id, parent_id);
 
         // Only set base index if not already set
         self.base_indices.entry(component_id).or_insert(0);
+
+        // Track registration order
+        self.registration_order
+            .insert(component_id, self.registration_counter);
+        self.registration_counter += 1;
 
         self.dirty = true;
     }
@@ -62,19 +110,11 @@ impl ZIndexManager {
     /// Compute z-indices for all registered components
     fn compute_all_z_indices(&mut self) {
         self.computed_indices.clear();
-
-        // Find root components (those without parents)
-        let root_components: Vec<EntityId> = self
-            .hierarchy
-            .iter()
-            .filter_map(|(id, parent_id)| if parent_id.is_none() { Some(*id) } else { None })
-            .collect();
-
-        // Process each root component and its descendants
-        for root_id in root_components {
-            self.compute_component_z_index(root_id, 0);
-        }
-
+        self.compute_component_z_index(
+            self.root_id
+                .expect("Expected Root ID to be set before computing z indices"),
+            0,
+        );
         self.dirty = false;
     }
 
@@ -84,7 +124,15 @@ impl ZIndexManager {
         // depth * level_increment + base_index + adjustment
         let base = self.base_indices.get(&component_id).cloned().unwrap_or(0);
         let adjustment = self.adjustments.get(&component_id).cloned().unwrap_or(0);
-        let absolute_z_index = depth * self.level_increment + base + adjustment;
+        let parent_adjustment =
+            if let Some(parent_id) = self.hierarchy.get(&component_id).unwrap_or(&None) {
+                // Inherit parent's adjustment to ensure children maintain relative position
+                self.adjustments.get(parent_id).cloned().unwrap_or(0)
+            } else {
+                0
+            };
+        // Parent's adjustment is factored in to ensure all children inherit parent's positioning
+        let absolute_z_index = depth * self.level_increment + base + adjustment + parent_adjustment;
 
         // Store the computed z-index
         self.computed_indices.insert(component_id, absolute_z_index);
@@ -109,22 +157,55 @@ impl ZIndexManager {
     }
 
     /// Update rendering order based on z-indices
-    pub fn sort_render_order(&mut self) -> Vec<EntityId> {
+    pub fn generate_render_order(&mut self) -> Vec<EntityId> {
         if self.dirty {
             self.compute_all_z_indices();
         }
 
-        // Create a list of (id, z-index) pairs for all components
-        let mut component_z_indices: Vec<(EntityId, i32)> = self
-            .computed_indices
+        // We'll build the render order in a hierarchical way
+        let mut render_order = Vec::new();
+
+        if let Some(root_id) = self.root_id {
+            // Start with the root
+            render_order.push(root_id);
+
+            // Then add all elements in hierarchical order
+            self.add_children_to_render_order(root_id, &mut render_order);
+        }
+
+        render_order
+    }
+
+    /// Helper function to recursively add children to render order
+    fn add_children_to_render_order(&self, parent_id: EntityId, render_order: &mut Vec<EntityId>) {
+        // Find all direct children of this parent
+        let mut children: Vec<(EntityId, i32, usize)> = self
+            .hierarchy
             .iter()
-            .map(|(id, z_index)| (*id, *z_index))
+            .filter_map(|(id, parent)| {
+                if *parent == Some(parent_id) {
+                    let z_index = *self.computed_indices.get(id).unwrap_or(&0);
+                    let registration_order =
+                        *self.registration_order.get(id).unwrap_or(&usize::MAX);
+                    Some((*id, z_index, registration_order))
+                } else {
+                    None
+                }
+            })
             .collect();
 
-        // Sort by z-index (low to high, so rendered bottom to top)
-        component_z_indices.sort_by_key(|(_, z_index)| *z_index);
+        // Sort children by z-index first, then by registration order
+        children.sort_by(|a, b| {
+            let (_, z_a, reg_a) = a;
+            let (_, z_b, reg_b) = b;
 
-        // Extract just the IDs in sorted order
-        component_z_indices.into_iter().map(|(id, _)| id).collect()
+            z_a.cmp(z_b).then_with(|| reg_a.cmp(reg_b))
+        });
+
+        // Add each child to the render order and then recursively add its children
+        for (child_id, _, _) in children {
+            render_order.push(child_id);
+            self.add_children_to_render_order(child_id, render_order);
+        }
     }
 }

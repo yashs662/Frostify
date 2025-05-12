@@ -1,5 +1,3 @@
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-
 use crate::{
     app::AppEvent,
     ui::{
@@ -8,6 +6,7 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 fn get_event_sender() -> UnboundedSender<AppEvent> {
     let (event_tx, _) = unbounded_channel::<AppEvent>();
@@ -48,9 +47,10 @@ fn test_basic_fixed_flex_row_layout() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, child2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child2_id);
 
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -112,10 +112,11 @@ fn test_basic_fixed_flex_column_layout() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, child2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -177,10 +178,11 @@ fn test_basic_fill_flex_row_layout() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, child2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -242,10 +244,11 @@ fn test_basic_fill_flex_column_layout() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, child2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -308,10 +311,11 @@ fn test_basic_fill_flex_row_layout_with_padding() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, child2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -374,10 +378,11 @@ fn test_basic_fill_flex_column_layout_with_padding() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, child2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -454,14 +459,13 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parents
-    ctx.world
-        .add_child_to_parent(nested_parent_id, nested_child_1_id);
-    ctx.world
-        .add_child_to_parent(nested_parent_id, nested_child_2_id);
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, nested_parent_id);
+    ctx.add_child_to_parent(nested_parent_id, nested_child_1_id);
+    ctx.add_child_to_parent(nested_parent_id, nested_child_2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, nested_parent_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -550,14 +554,13 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world
-        .add_child_to_parent(nested_parent_id, nested_child_1_id);
-    ctx.world
-        .add_child_to_parent(nested_parent_id, nested_child_2_id);
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, nested_parent_id);
+    ctx.add_child_to_parent(nested_parent_id, nested_child_1_id);
+    ctx.add_child_to_parent(nested_parent_id, nested_child_2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, nested_parent_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -680,22 +683,21 @@ fn test_navbar_app_layout() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Add children to the content container
-    ctx.world.add_child_to_parent(content_container_id, text_id);
-    ctx.world
-        .add_child_to_parent(content_container_id, image_id);
+    ctx.add_child_to_parent(content_container_id, text_id);
+    ctx.add_child_to_parent(content_container_id, image_id);
 
     // Add children to the nav bar container
-    ctx.world.add_child_to_parent(nav_bar_id, minimize_icon_id);
-    ctx.world.add_child_to_parent(nav_bar_id, expand_icon_id);
-    ctx.world.add_child_to_parent(nav_bar_id, close_icon_id);
+    ctx.add_child_to_parent(nav_bar_id, minimize_icon_id);
+    ctx.add_child_to_parent(nav_bar_id, expand_icon_id);
+    ctx.add_child_to_parent(nav_bar_id, close_icon_id);
 
     // Add children to the main container
-    ctx.world.add_child_to_parent(parent_id, background_id);
-    ctx.world.add_child_to_parent(parent_id, nav_bar_id);
-    ctx.world
-        .add_child_to_parent(parent_id, content_container_id);
+    ctx.add_child_to_parent(parent_id, background_id);
+    ctx.add_child_to_parent(parent_id, nav_bar_id);
+    ctx.add_child_to_parent(parent_id, content_container_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -803,10 +805,11 @@ fn test_margin_and_padding_layout() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, child2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -867,10 +870,11 @@ fn test_fractional_sizing_in_a_container() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
-    ctx.world.add_child_to_parent(parent_id, child2_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child2_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
 
     let computed_bounds = ctx.get_computed_bounds();
@@ -928,9 +932,10 @@ fn test_offset_in_nested_container() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
     let computed_bounds = ctx.get_computed_bounds();
     // Get computed bounds for all components
@@ -979,9 +984,10 @@ fn test_offset_in_nested_container_with_flex_value() {
         .build(&mut ctx.world, &mut ctx.z_index_manager);
 
     // Set children on parent
-    ctx.world.add_child_to_parent(parent_id, child1_id);
+    ctx.add_child_to_parent(parent_id, child1_id);
 
     // Force layout computation
+    ctx.find_root_component();
     ctx.compute_layout_and_sync(&mut wgpu_ctx);
     let computed_bounds = ctx.get_computed_bounds();
     // Get computed bounds for all components

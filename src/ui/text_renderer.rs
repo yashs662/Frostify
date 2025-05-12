@@ -255,11 +255,13 @@ impl TextHandler {
                 .fold((0.0, 0usize), |(width, total_lines), run| {
                     (run.line_w.max(width), total_lines + 1)
                 });
+            let height = total_lines as f32 * buffer.metrics().line_height;
 
-            Some(Size {
-                width,
-                height: (total_lines as f32 * buffer.metrics().line_height),
-            })
+            if width == 0.0 || height == 0.0 {
+                None
+            } else {
+                Some(Size { width, height })
+            }
         } else {
             None
         }

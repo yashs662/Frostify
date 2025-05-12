@@ -2,19 +2,18 @@ use crate::{
     app::AppEvent,
     ui::{
         ecs::{
-            components::{RenderDataComponent, TextComponent},
+            components::{ImageComponent, RenderDataComponent, TextComponent},
             resources::{RenderOrderResource, WgpuQueueResource},
-            systems::create_component_buffer_data,
         },
         text_renderer::OptionalTextUpdateData,
         z_index_manager::ZIndexManager,
     },
+    utils::create_component_buffer_data,
     wgpu_ctx::WgpuCtx,
 };
 use frostify_derive::time_function;
 use std::collections::BTreeMap;
 use tokio::sync::mpsc::UnboundedSender;
-use winit::event::MouseButton;
 
 use super::ecs::{
     ComponentType, EntityId, World,
@@ -240,6 +239,7 @@ pub enum Overflow {
 pub struct LayoutContext {
     pub world: World,
     pub computed_bounds: BTreeMap<EntityId, Bounds>,
+    pub root_component_id: Option<EntityId>,
     pub viewport_size: Size,
     initialized: bool,
     pub z_index_manager: ZIndexManager,
@@ -255,7 +255,8 @@ pub struct GridLayout {
 
 #[allow(dead_code)]
 impl BorderRadius {
-    pub fn all(radius: f32) -> Self {
+    pub fn all<T: Into<f32>>(radius: T) -> Self {
+        let radius = radius.into();
         Self {
             top_left: radius,
             top_right: radius,
@@ -264,17 +265,18 @@ impl BorderRadius {
         }
     }
 
-    pub fn custom(top_left: f32, top_right: f32, bottom_left: f32, bottom_right: f32) -> Self {
+    pub fn custom<T: Into<f32>>(
+        top_left: T,
+        top_right: T,
+        bottom_left: T,
+        bottom_right: T,
+    ) -> Self {
         Self {
-            top_left,
-            top_right,
-            bottom_left,
-            bottom_right,
+            top_left: top_left.into(),
+            top_right: top_right.into(),
+            bottom_left: bottom_left.into(),
+            bottom_right: bottom_right.into(),
         }
-    }
-
-    pub fn zero() -> Self {
-        Self::all(0.0)
     }
 
     pub fn values(&self) -> [f32; 4] {
@@ -285,29 +287,6 @@ impl BorderRadius {
             self.bottom_right,
         ]
     }
-}
-
-// Event types
-#[derive(Debug, Clone, PartialEq)]
-pub enum EventType {
-    Press,
-    Release,
-    Drag,
-    ScrollUp,
-    ScrollDown,
-    Hover,
-    None,
-}
-
-// Event data
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub struct InputEvent {
-    pub event_type: EventType,
-    pub position: Option<ComponentPosition>,
-    pub button: Option<MouseButton>,
-    pub key: Option<String>,
-    pub text: Option<String>,
 }
 
 // Implementation for Size
@@ -518,7 +497,8 @@ impl Edges {
         }
     }
 
-    pub fn all(value: f32) -> Self {
+    pub fn all<T: Into<f32>>(value: T) -> Self {
+        let value = value.into();
         Self {
             top: value,
             right: value,
@@ -527,7 +507,8 @@ impl Edges {
         }
     }
 
-    pub fn horizontal(value: f32) -> Self {
+    pub fn horizontal<T: Into<f32>>(value: T) -> Self {
+        let value = value.into();
         Self {
             top: 0.0,
             right: value,
@@ -536,7 +517,8 @@ impl Edges {
         }
     }
 
-    pub fn vertical(value: f32) -> Self {
+    pub fn vertical<T: Into<f32>>(value: T) -> Self {
+        let value = value.into();
         Self {
             top: value,
             right: 0.0,
@@ -545,7 +527,8 @@ impl Edges {
         }
     }
 
-    pub fn left(value: f32) -> Self {
+    pub fn left<T: Into<f32>>(value: T) -> Self {
+        let value = value.into();
         Self {
             top: 0.0,
             right: 0.0,
@@ -554,7 +537,8 @@ impl Edges {
         }
     }
 
-    pub fn right(value: f32) -> Self {
+    pub fn right<T: Into<f32>>(value: T) -> Self {
+        let value = value.into();
         Self {
             top: 0.0,
             right: value,
@@ -563,30 +547,30 @@ impl Edges {
         }
     }
 
-    pub fn top(value: f32) -> Self {
+    pub fn top<T: Into<f32>>(value: T) -> Self {
         Self {
-            top: value,
+            top: value.into(),
             right: 0.0,
             bottom: 0.0,
             left: 0.0,
         }
     }
 
-    pub fn bottom(value: f32) -> Self {
+    pub fn bottom<T: Into<f32>>(value: T) -> Self {
         Self {
             top: 0.0,
             right: 0.0,
-            bottom: value,
+            bottom: value.into(),
             left: 0.0,
         }
     }
 
-    pub fn custom(top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    pub fn custom<T: Into<f32>>(top: T, right: T, bottom: T, left: T) -> Self {
         Self {
-            top,
-            right,
-            bottom,
-            left,
+            top: top.into(),
+            right: right.into(),
+            bottom: bottom.into(),
+            left: left.into(),
         }
     }
 }
@@ -634,11 +618,12 @@ impl LayoutContext {
         self.viewport_size = viewport_size;
         self.world
             .initialize_resources(&wgpu_ctx.queue, event_sender);
-        self.compute_layout_and_sync(wgpu_ctx);
         self.initialized = true;
+        log::debug!("Layout context initialized");
     }
 
     pub fn clear(&mut self) {
+        log::debug!("Clearing layout context");
         self.world.reset();
         self.computed_bounds.clear();
         self.z_index_manager.clear();
@@ -659,18 +644,7 @@ impl LayoutContext {
         self.compute_layout_and_sync(wgpu_ctx);
     }
 
-    #[time_function]
-    pub fn compute_layout_and_sync(&mut self, wgpu_ctx: &mut WgpuCtx) {
-        if !self.initialized {
-            log::error!("Attempting to compute layout before initialization");
-            return;
-        }
-
-        // Clear previous computed bounds
-        self.computed_bounds.clear();
-
-        // Compute layout for each root component
-        // TODO: temporarily dynamically determine root components
+    pub fn find_root_component(&mut self) {
         let mut root_component_ids = Vec::new();
         self.world
             .for_each_component::<HierarchyComponent, _>(|id, hierarchy| {
@@ -679,24 +653,148 @@ impl LayoutContext {
                 }
             });
 
-        // Compute layout for each root component
-        for id in &root_component_ids {
-            self.compute_component_layout(id, None);
+        if root_component_ids.is_empty() {
+            panic!("No root components found in the world");
+        } else if root_component_ids.len() > 1 {
+            panic!(
+                "Multiple root components found in the world {:?}",
+                root_component_ids
+            );
         }
 
-        log::debug!(
-            "Computed bounds for {} components",
-            self.computed_bounds.len()
-        );
+        self.root_component_id = Some(root_component_ids[0]);
+        self.z_index_manager.set_root_id(root_component_ids[0]);
+    }
 
-        // Sync computed bounds with the world
-        self.world
-            .for_each_component_mut::<BoundsComponent, _>(|id, bounds_comp| {
-                if let Some(computed_bounds) = self.computed_bounds.get(&id) {
-                    bounds_comp.computed_bounds = *computed_bounds;
-                    bounds_comp.screen_size = self.viewport_size;
+    pub fn add_child_to_parent(&mut self, parent_id: EntityId, child_id: EntityId) {
+        // Update the child's parent reference
+        let hierarchy = self
+            .world
+            .components
+            .get_component_mut::<HierarchyComponent>(child_id)
+            .expect("Child entity must have a HierarchyComponent");
+        {
+            hierarchy.parent = Some(parent_id);
+        }
+
+        // Add the child to the parent's children list
+        let hierarchy = self
+            .world
+            .components
+            .get_component_mut::<HierarchyComponent>(parent_id)
+            .expect("Parent entity must have a HierarchyComponent");
+        {
+            hierarchy.children.push(child_id);
+        }
+
+        self.z_index_manager
+            .register_component(child_id, Some(parent_id));
+    }
+
+    #[time_function]
+    pub fn compute_layout_and_sync(&mut self, wgpu_ctx: &mut WgpuCtx) {
+        if !self.initialized {
+            panic!("Attempting to compute layout before initialization");
+        }
+        if self.root_component_id.is_none() {
+            panic!("Expected root component to be set before computing layout");
+        }
+
+        // Clear previous computed bounds
+        self.computed_bounds.clear();
+
+        // Compute layout for each root component
+        let mut requires_relayout = true;
+        let max_relayout_attempts = 3;
+        let mut relayout_attempts = 0;
+
+        while requires_relayout && relayout_attempts < max_relayout_attempts {
+            requires_relayout = false;
+
+            self.compute_component_layout(&self.root_component_id.unwrap(), None);
+
+            let mut entities_with_fit_to_size = Vec::new(); // (id, previously computed bounds)
+            let mut entities_requiring_resizing = Vec::new(); // (id, new bounds to update entity with)
+
+            // Sync computed bounds with the world
+            self.world
+                .for_each_component_mut::<BoundsComponent, _>(|id, bounds_comp| {
+                    if let Some(computed_bounds) = self.computed_bounds.get(&id) {
+                        bounds_comp.computed_bounds = *computed_bounds;
+                        bounds_comp.screen_size = self.viewport_size;
+                    }
+                    if bounds_comp.fit_to_size {
+                        entities_with_fit_to_size.push((id, bounds_comp.computed_bounds));
+                    }
+                });
+
+            for (entity_id, old_bounds) in entities_with_fit_to_size.iter() {
+                // Check if any images need to be fit to size
+                if let Some(image_comp) = self
+                    .world
+                    .components
+                    .get_component::<ImageComponent>(*entity_id)
+                {
+                    if let Some((calc_size, calc_offset)) =
+                        image_comp.calculate_fit_to_size(old_bounds)
+                    {
+                        if calc_size != old_bounds.size {
+                            let new_bounds = Bounds {
+                                position: old_bounds.position,
+                                size: calc_size,
+                            };
+                            entities_requiring_resizing.push((*entity_id, new_bounds, calc_offset));
+                        }
+                    }
                 }
-            });
+
+                // Check if any text components need to be fit to size
+                if self
+                    .world
+                    .components
+                    .get_component::<TextComponent>(*entity_id)
+                    .is_some()
+                {
+                    let text_min_size = wgpu_ctx.text_handler.measure_text(*entity_id);
+                    if let Some(text_min_size) = text_min_size {
+                        if text_min_size != old_bounds.size {
+                            let new_bounds = Bounds {
+                                position: old_bounds.position,
+                                size: text_min_size,
+                            };
+                            entities_requiring_resizing.push((
+                                *entity_id,
+                                new_bounds,
+                                ComponentOffset::default(),
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // update transform components of entities that need resizing
+            for (entity_id, new_bounds, offset) in entities_requiring_resizing {
+                let transform_comp = self
+                    .world
+                    .components
+                    .get_component_mut::<TransformComponent>(entity_id)
+                    .expect("Expected TransformComponent to exist");
+
+                transform_comp.offset = offset;
+                transform_comp.size.width = FlexValue::Fixed(new_bounds.size.width);
+                transform_comp.size.height = FlexValue::Fixed(new_bounds.size.height);
+
+                requires_relayout = true;
+            }
+
+            relayout_attempts += 1;
+        }
+
+        if relayout_attempts == max_relayout_attempts {
+            log::warn!(
+                "Max relayout attempts reached, some components may not be properly laid out."
+            );
+        }
 
         // Update text components with new bounds
         self.world.for_each_component::<TextComponent, _>(|id, _| {
@@ -733,7 +831,7 @@ impl LayoutContext {
             .resources
             .get_resource_mut::<RenderOrderResource>()
             .expect("expected RenderOrderResource to exist");
-        render_order_resource.render_order = self.z_index_manager.sort_render_order();
+        render_order_resource.render_order = self.z_index_manager.generate_render_order();
     }
 
     fn compute_component_layout(&mut self, component_id: &EntityId, parent_bounds: Option<Bounds>) {

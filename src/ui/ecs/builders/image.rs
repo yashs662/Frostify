@@ -7,12 +7,12 @@ use crate::{
             ComponentType, EntityId, World,
             builders::{EntityBuilder, EntityBuilderProps},
             components::{ImageComponent, LayoutComponent, RenderDataComponent},
-            systems::create_component_buffer_data,
         },
         img_utils::RgbaImg,
         layout::Layout,
         z_index_manager::ZIndexManager,
     },
+    utils::create_component_buffer_data,
     wgpu_ctx::WgpuCtx,
 };
 
@@ -28,7 +28,8 @@ pub enum ScaleMode {
     Contain,
     /// Maintain aspect ratio, scale to cover entire container (may crop)
     Cover,
-    /// Don't scale the image (use original dimensions)
+    /// Don't scale the image (use original dimensions), FilterMode::Nearest
+    /// is used for pixel-perfect scaling
     Original,
 }
 
@@ -42,7 +43,6 @@ pub struct ImageBuilder {
     common: EntityBuilderProps,
     file_name: String,
     scale_mode: ScaleMode,
-    fit_to_size: bool,
 }
 
 impl EntityBuilder for ImageBuilder {
@@ -58,7 +58,6 @@ impl ImageBuilder {
             common: EntityBuilderProps::default(),
             file_name: file_name.to_string(),
             scale_mode: ScaleMode::default(),
-            fit_to_size: false,
         }
     }
 
@@ -69,10 +68,6 @@ impl ImageBuilder {
 
     // TODO: get fit to size working by creating a set_position trait which
     // calls the specific set_position function for the component type, maybe add it to the BoundsComponent
-    pub fn set_fit_to_size(mut self) -> Self {
-        self.fit_to_size = true;
-        self
-    }
 
     pub fn build(
         self,
@@ -118,7 +113,6 @@ impl ImageBuilder {
                 original_width: img.width,
                 original_height: img.height,
                 scale_mode: self.scale_mode,
-                fit_to_size: self.fit_to_size,
             },
         );
 

@@ -5,7 +5,6 @@ use crate::{
     ui::{
         UiView, create_app_ui, create_login_ui, create_test_ui,
         ecs::{
-            components::HierarchyComponent,
             resources::MouseResource,
             systems::{ComponentHoverResetSystem, ComponentHoverSystem, MouseInputSystem},
         },
@@ -240,16 +239,7 @@ impl App<'_> {
                     create_test_ui(wgpu_ctx, layout_context);
                 }
             }
-            // sync z_index_manager with the child parent hierarchy's
-            layout_context
-                .world
-                .for_each_component::<HierarchyComponent, _>(|id, hierarchy| {
-                    layout_context
-                        .z_index_manager
-                        .register_component(id, hierarchy.parent);
-                });
-
-            // Apply multiple viewport resizes to ensure correct positioning
+            layout_context.find_root_component();
             layout_context.compute_layout_and_sync(wgpu_ctx);
             app_state.current_view = Some(view);
         }

@@ -1,5 +1,11 @@
 use crate::{
-    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES, ui::{ecs::{components::RenderDataComponent, resources::RenderGroupsResource, EntityId, World}, layout::Size, text_renderer::TextHandler}, utils::create_unified_pipeline
+    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+    ui::{
+        ecs::{components::RenderDataComponent, resources::RenderGroupsResource, systems::RenderPrepareSystem, EntityId, World},
+        layout::Size,
+        text_renderer::TextHandler,
+    },
+    utils::create_unified_pipeline,
 };
 use smaa::{SmaaMode, SmaaTarget};
 use std::sync::Arc;
@@ -309,7 +315,7 @@ impl<'window> WgpuCtx<'window> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         // Run RenderPrepareSystem to create render groups
-        world.run_system(crate::ui::ecs::systems::RenderPrepareSystem);
+        world.run_system(RenderPrepareSystem);
 
         // Create a local clone of the device and frame_sample_view
         let device = &self.device;

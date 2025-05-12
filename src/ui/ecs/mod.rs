@@ -1,4 +1,4 @@
-use components::{HierarchyComponent, IdentityComponent};
+use components::IdentityComponent;
 use resources::{
     EventSenderResource, MouseResource, RenderGroupsResource, RenderOrderResource,
     WgpuQueueResource,
@@ -402,25 +402,5 @@ impl World {
         }
 
         result
-    }
-
-    pub fn add_child_to_parent(&mut self, parent_id: EntityId, child_id: EntityId) {
-        // Update the child's parent reference
-        let hierarchy = self
-            .components
-            .get_component_mut::<HierarchyComponent>(child_id)
-            .expect("Child entity must have a HierarchyComponent");
-        {
-            hierarchy.parent = Some(parent_id);
-        }
-
-        // Add the child to the parent's children list
-        let hierarchy = self
-            .components
-            .get_component_mut::<HierarchyComponent>(parent_id)
-            .expect("Parent entity must have a HierarchyComponent");
-        {
-            hierarchy.children.push(child_id);
-        }
     }
 }

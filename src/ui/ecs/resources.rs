@@ -1,8 +1,5 @@
 use super::{EcsResource, EntityId, systems::RenderGroup};
-use crate::{
-    app::AppEvent,
-    ui::layout::ComponentPosition,
-};
+use crate::{app::AppEvent, ui::layout::ComponentPosition};
 use frostify_derive::EcsResource;
 use tokio::sync::mpsc::UnboundedSender;
 

@@ -51,28 +51,61 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
             &mut layout_context.z_index_manager,
         );
 
-    let nav_bar_id = create_nav_bar(wgpu_ctx, layout_context);
+    let nav_bar_id = create_nav_bar(wgpu_ctx, layout_context, true);
+    let sub_container_id = ContainerBuilder::new()
+        .with_debug_name("Test UI Sub Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
 
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, nav_bar_id);
+    layout_context.add_child_to_parent(main_container_id, nav_bar_id);
+    layout_context.add_child_to_parent(main_container_id, sub_container_id);
 
     let sample_text = TextBuilder::new()
         .with_debug_name("Sample Text")
-        .with_text("This is a test text".to_string())
+        .with_text("Test text".to_string())
         .with_font_size(24.0)
         .with_color(Color::White)
-        .with_line_height(1.0)
-        .set_fit_to_size()
+        .with_size(100, 100)
         .build(
             &mut layout_context.world,
             wgpu_ctx,
             &mut layout_context.z_index_manager,
         );
 
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, sample_text);
+    let frosted_glass_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
+        tint_color: Color::White,
+        blur_radius: 5.0,
+        opacity: 1.0,
+        tint_intensity: 0.5,
+    })
+    .with_debug_name("Frosted Glass")
+    .with_size(100, 100)
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    let sample_text_2 = TextBuilder::new()
+        .with_debug_name("Sample Text 2")
+        .with_text("Test text 2".to_string())
+        .with_font_size(24.0)
+        .with_color(Color::Red)
+        .with_size(100, 100)
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
+
+    layout_context.add_child_to_parent(sub_container_id, sample_text);
+    layout_context.add_child_to_parent(sub_container_id, frosted_glass_id);
+    layout_context.add_child_to_parent(sub_container_id, sample_text_2);
 }
 
 pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
@@ -86,14 +119,23 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
             &mut layout_context.z_index_manager,
         );
 
-    let login_background_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+    let login_background_container_id = ContainerBuilder::new()
+        .with_debug_name("Login Page Background Container")
+        .with_fixed_position(Anchor::Center)
+        .with_z_index(-1)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    let login_background_comp_0_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
         color_stops: vec![
             GradientColorStop {
                 color: Color::Crimson,
                 position: 0.0,
             },
             GradientColorStop {
-                color: Color::MidnightBlue,
+                color: Color::Black,
                 position: 1.0,
             },
         ],
@@ -102,34 +144,86 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
         center: None,
         radius: None,
     })
-    .with_debug_name("Login Page Background")
     .with_fixed_position(Anchor::Center)
+    .with_debug_name("Login Page Background Composition 0")
     .build(
         &mut layout_context.world,
         wgpu_ctx,
         &mut layout_context.z_index_manager,
     );
 
-    let nav_bar_container_id = create_nav_bar(wgpu_ctx, layout_context);
+    let login_background_comp_1_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+        color_stops: vec![
+            GradientColorStop {
+                color: Color::Crimson.darken(0.2),
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::Transparent,
+                position: 1.0,
+            },
+        ],
+        angle: 90.0,
+        gradient_type: GradientType::Radial,
+        center: Some((1.0, 1.0)),
+        radius: Some(0.4),
+    })
+    .with_z_index(1)
+    .with_fixed_position(Anchor::Center)
+    .with_debug_name("Login Page Background Composition 1")
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
 
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, login_background_id);
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, nav_bar_container_id);
+    let login_background_comp_2_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+        color_stops: vec![
+            GradientColorStop {
+                color: Color::Black,
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::Transparent,
+                position: 1.0,
+            },
+        ],
+        angle: 90.0,
+        gradient_type: GradientType::Radial,
+        center: Some((0.0, 0.0)),
+        radius: Some(2.0),
+    })
+    .with_z_index(2)
+    .with_fixed_position(Anchor::Center)
+    .with_debug_name("Login Page Background Composition 2")
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    layout_context.add_child_to_parent(login_background_container_id, login_background_comp_0_id);
+    layout_context.add_child_to_parent(login_background_container_id, login_background_comp_1_id);
+    layout_context.add_child_to_parent(login_background_container_id, login_background_comp_2_id);
+    layout_context.add_child_to_parent(main_container_id, login_background_container_id);
+
+    let nav_bar_container_id = create_nav_bar(wgpu_ctx, layout_context, true);
+    layout_context.add_child_to_parent(main_container_id, nav_bar_container_id);
 
     let sub_container_id = ContainerBuilder::new()
         .with_debug_name("Login Page Sub Container")
         .with_direction(FlexDirection::Column)
         .with_align_items(AlignItems::Center)
         .with_justify_content(JustifyContent::Center)
+        .with_z_index(1)
         .build(
             &mut layout_context.world,
             &mut layout_context.z_index_manager,
         );
 
     // Welcome label
+    // TODO: Welcome label get clipped by the login button text figure-out why this is happening
+    // https://github.com/grovesNL/glyphon/issues/141
     let welcome_text_id = TextBuilder::new()
         .with_debug_name("Welcome Text")
         .with_text("Welcome to Frostify".to_string())
@@ -192,25 +286,13 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
-    layout_context
-        .world
-        .add_child_to_parent(sub_container_id, welcome_text_id);
-    layout_context
-        .world
-        .add_child_to_parent(sub_container_id, logo_id);
-    layout_context
-        .world
-        .add_child_to_parent(sub_container_id, login_button_id);
+    layout_context.add_child_to_parent(sub_container_id, welcome_text_id);
+    layout_context.add_child_to_parent(sub_container_id, logo_id);
+    layout_context.add_child_to_parent(sub_container_id, login_button_id);
 
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, sub_container_id);
+    layout_context.add_child_to_parent(main_container_id, sub_container_id);
 }
 
 pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
@@ -228,6 +310,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     let background_id = ImageBuilder::new("test.png")
         .with_scale_mode(ScaleMode::Cover)
         .with_debug_name("Background")
+        .with_z_index(-2)
         .with_fixed_position(Anchor::Center)
         .build(
             &mut layout_context.world,
@@ -243,7 +326,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     })
     .with_debug_name("Frosted Glass")
     .with_fixed_position(Anchor::Center)
-    .with_z_index(1)
+    .with_z_index(-1)
     .build(
         &mut layout_context.world,
         wgpu_ctx,
@@ -251,7 +334,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     );
 
     // Create nav bar using the extracted function
-    let nav_bar_container_id = create_nav_bar(wgpu_ctx, layout_context);
+    let nav_bar_container_id = create_nav_bar(wgpu_ctx, layout_context, false);
     let player_container_id = create_player_bar(wgpu_ctx, layout_context);
 
     let app_container_id = ContainerBuilder::new()
@@ -289,9 +372,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
         &mut layout_context.z_index_manager,
     );
 
-    layout_context
-        .world
-        .add_child_to_parent(library_container_id, library_background_id);
+    layout_context.add_child_to_parent(library_container_id, library_background_id);
 
     let library_child_container_id = ContainerBuilder::new()
         .with_debug_name("Library Child Container")
@@ -341,14 +422,10 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
             &mut layout_context.z_index_manager,
         );
 
-        layout_context
-            .world
-            .add_child_to_parent(library_child_container_id, image);
+        layout_context.add_child_to_parent(library_child_container_id, image);
     }
 
-    layout_context
-        .world
-        .add_child_to_parent(library_container_id, library_child_container_id);
+    layout_context.add_child_to_parent(library_container_id, library_child_container_id);
 
     let main_area_container_id = ContainerBuilder::new()
         .with_debug_name("Main Area Container")
@@ -375,9 +452,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
         &mut layout_context.z_index_manager,
     );
 
-    layout_context
-        .world
-        .add_child_to_parent(main_area_container_id, main_area_background_id);
+    layout_context.add_child_to_parent(main_area_container_id, main_area_background_id);
 
     let now_playing_container_id = ContainerBuilder::new()
         .with_debug_name("Now Playing Container")
@@ -405,40 +480,26 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
         &mut layout_context.z_index_manager,
     );
 
-    layout_context
-        .world
-        .add_child_to_parent(now_playing_container_id, now_playing_background_id);
+    layout_context.add_child_to_parent(now_playing_container_id, now_playing_background_id);
 
     // Add children to the app container
-    layout_context
-        .world
-        .add_child_to_parent(app_container_id, library_container_id);
-    layout_context
-        .world
-        .add_child_to_parent(app_container_id, main_area_container_id);
-    layout_context
-        .world
-        .add_child_to_parent(app_container_id, now_playing_container_id);
+    layout_context.add_child_to_parent(app_container_id, library_container_id);
+    layout_context.add_child_to_parent(app_container_id, main_area_container_id);
+    layout_context.add_child_to_parent(app_container_id, now_playing_container_id);
 
     // Add children to the main container
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, background_id);
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, frosted_glass_id);
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, nav_bar_container_id);
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, app_container_id);
-    layout_context
-        .world
-        .add_child_to_parent(main_container_id, player_container_id);
+    layout_context.add_child_to_parent(main_container_id, background_id);
+    layout_context.add_child_to_parent(main_container_id, frosted_glass_id);
+    layout_context.add_child_to_parent(main_container_id, nav_bar_container_id);
+    layout_context.add_child_to_parent(main_container_id, app_container_id);
+    layout_context.add_child_to_parent(main_container_id, player_container_id);
 }
 
-fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) -> EntityId {
+fn create_nav_bar(
+    wgpu_ctx: &mut WgpuCtx,
+    layout_context: &mut layout::LayoutContext,
+    no_background: bool,
+) -> EntityId {
     let nav_bar_container_id = ContainerBuilder::new()
         .with_debug_name("Nav Bar Container")
         .with_size(FlexValue::Fill, FlexValue::Fixed(64.0))
@@ -452,21 +513,24 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutCon
             &mut layout_context.z_index_manager,
         );
 
-    let nav_bar_background_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
-        tint_color: Color::Black,
-        blur_radius: 2.0,
-        opacity: 1.0,
-        tint_intensity: 0.5,
-    })
-    .with_debug_name("Nav Bar Background")
-    .with_border(1.0, Color::DarkGray.darken(0.05))
-    .with_border_radius(BorderRadius::all(5.0))
-    .with_fixed_position(Anchor::Center)
-    .build(
-        &mut layout_context.world,
-        wgpu_ctx,
-        &mut layout_context.z_index_manager,
-    );
+    if !no_background {
+        let nav_bar_background_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
+            tint_color: Color::Black,
+            blur_radius: 2.0,
+            opacity: 1.0,
+            tint_intensity: 0.5,
+        })
+        .with_debug_name("Nav Bar Background")
+        .with_border(1.0, Color::DarkGray.darken(0.05))
+        .with_border_radius(BorderRadius::all(5.0))
+        .with_fixed_position(Anchor::Center)
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
+        layout_context.add_child_to_parent(nav_bar_container_id, nav_bar_background_id);
+    }
 
     let nav_buttons_container_id = ContainerBuilder::new()
         .with_debug_name("Nav Buttons Container")
@@ -501,11 +565,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutCon
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
     // Maximize button
     let maximize_button_id = ButtonBuilder::new()
@@ -528,11 +588,7 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutCon
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
     // Close button
     let close_button_id = ButtonBuilder::new()
@@ -555,30 +611,15 @@ fn create_nav_bar(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutCon
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
     // Add buttons to the nav buttons container
-    layout_context
-        .world
-        .add_child_to_parent(nav_buttons_container_id, minimize_button_id);
-    layout_context
-        .world
-        .add_child_to_parent(nav_buttons_container_id, maximize_button_id);
-    layout_context
-        .world
-        .add_child_to_parent(nav_buttons_container_id, close_button_id);
+    layout_context.add_child_to_parent(nav_buttons_container_id, minimize_button_id);
+    layout_context.add_child_to_parent(nav_buttons_container_id, maximize_button_id);
+    layout_context.add_child_to_parent(nav_buttons_container_id, close_button_id);
 
     // add the nav buttons container to the nav bar container
-    layout_context
-        .world
-        .add_child_to_parent(nav_bar_container_id, nav_bar_background_id);
-    layout_context
-        .world
-        .add_child_to_parent(nav_bar_container_id, nav_buttons_container_id);
+    layout_context.add_child_to_parent(nav_bar_container_id, nav_buttons_container_id);
 
     nav_bar_container_id
 }
@@ -619,7 +660,9 @@ fn create_player_bar(
     let current_song_album_art_id = ImageBuilder::new("album_art.png")
         .with_debug_name("Current Song Album Art")
         .with_z_index(1)
-        .with_margin(Edges::all(10.0))
+        .with_margin(Edges::all(5.0))
+        .with_scale_mode(ScaleMode::Original)
+        .with_shadow(Color::Black, (0.0, 0.0), 4.0, 0.4)
         .with_uniform_border_radius(5.0)
         .set_fit_to_size()
         .build(
@@ -630,7 +673,8 @@ fn create_player_bar(
 
     let current_song_info_id = TextBuilder::new()
         .with_debug_name("Current Song Info")
-        .with_text("Song Name\n\nArtist Name".to_string())
+        .with_text("Song Name\nArtist Name".to_string())
+        .with_margin(Edges::left(5.0))
         .with_color(Color::White)
         .set_fit_to_size()
         .with_z_index(1)
@@ -650,12 +694,8 @@ fn create_player_bar(
             &mut layout_context.z_index_manager,
         );
 
-    layout_context
-        .world
-        .add_child_to_parent(song_info_container_id, current_song_album_art_id);
-    layout_context
-        .world
-        .add_child_to_parent(song_info_container_id, current_song_info_id);
+    layout_context.add_child_to_parent(song_info_container_id, current_song_album_art_id);
+    layout_context.add_child_to_parent(song_info_container_id, current_song_info_id);
 
     let player_controls_container_id = ContainerBuilder::new()
         .with_debug_name("Player Controls Container")
@@ -703,11 +743,7 @@ fn create_player_bar(
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
     let previous_button_id = ButtonBuilder::new()
         .with_debug_name("Previous Button")
@@ -729,11 +765,7 @@ fn create_player_bar(
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
     let play_button_id = ButtonBuilder::new()
         .with_debug_name("Play Button")
@@ -755,11 +787,7 @@ fn create_player_bar(
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
     let next_button_id = ButtonBuilder::new()
         .with_debug_name("Next Button")
@@ -781,11 +809,7 @@ fn create_player_bar(
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
     let repeat_button_id = ButtonBuilder::new()
         .with_debug_name("Repeat Button")
@@ -807,29 +831,15 @@ fn create_player_bar(
             },
             when: AnimationWhen::Hover,
         })
-        .build(
-            &mut layout_context.world,
-            wgpu_ctx,
-            &mut layout_context.z_index_manager,
-        );
+        .build(layout_context, wgpu_ctx);
 
-    layout_context
-        .world
-        .add_child_to_parent(player_controls_sub_container_id, shuffle_button_id);
-    layout_context
-        .world
-        .add_child_to_parent(player_controls_sub_container_id, previous_button_id);
-    layout_context
-        .world
-        .add_child_to_parent(player_controls_sub_container_id, play_button_id);
-    layout_context
-        .world
-        .add_child_to_parent(player_controls_sub_container_id, next_button_id);
-    layout_context
-        .world
-        .add_child_to_parent(player_controls_sub_container_id, repeat_button_id);
+    layout_context.add_child_to_parent(player_controls_sub_container_id, shuffle_button_id);
+    layout_context.add_child_to_parent(player_controls_sub_container_id, previous_button_id);
+    layout_context.add_child_to_parent(player_controls_sub_container_id, play_button_id);
+    layout_context.add_child_to_parent(player_controls_sub_container_id, next_button_id);
+    layout_context.add_child_to_parent(player_controls_sub_container_id, repeat_button_id);
 
-    layout_context.world.add_child_to_parent(
+    layout_context.add_child_to_parent(
         player_controls_container_id,
         player_controls_sub_container_id,
     );
@@ -846,9 +856,7 @@ fn create_player_bar(
         &mut layout_context.z_index_manager,
     );
 
-    layout_context
-        .world
-        .add_child_to_parent(player_controls_container_id, temp_song_progress_slider_id);
+    layout_context.add_child_to_parent(player_controls_container_id, temp_song_progress_slider_id);
 
     let temp_volume_slider_id = BackgroundBuilder::with_color(BackgroundColorConfig {
         color: Color::DarkGray,
@@ -862,22 +870,10 @@ fn create_player_bar(
         &mut layout_context.z_index_manager,
     );
 
-    layout_context
-        .world
-        .add_child_to_parent(player_container_id, player_container_background_id);
-
-    layout_context
-        .world
-        .add_child_to_parent(player_container_id, player_container_background_id);
-    layout_context
-        .world
-        .add_child_to_parent(player_container_id, song_info_container_id);
-    layout_context
-        .world
-        .add_child_to_parent(player_container_id, player_controls_container_id);
-    layout_context
-        .world
-        .add_child_to_parent(player_container_id, temp_volume_slider_id);
+    layout_context.add_child_to_parent(player_container_id, player_container_background_id);
+    layout_context.add_child_to_parent(player_container_id, song_info_container_id);
+    layout_context.add_child_to_parent(player_container_id, player_controls_container_id);
+    layout_context.add_child_to_parent(player_container_id, temp_volume_slider_id);
 
     player_container_id
 }

@@ -9,11 +9,11 @@ use crate::{
                 ColorComponent, FrostedGlassComponent, GradientComponent, LayoutComponent,
                 RenderDataComponent,
             },
-            systems::create_component_buffer_data,
         },
         layout::Layout,
         z_index_manager::ZIndexManager,
     },
+    utils::create_component_buffer_data,
     wgpu_ctx::WgpuCtx,
 };
 use wgpu::util::DeviceExt;

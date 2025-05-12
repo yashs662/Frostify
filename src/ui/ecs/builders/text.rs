@@ -19,7 +19,6 @@ pub struct TextConfig {
     pub font_size: f32,
     pub line_height_multiplier: f32,
     pub color: Color,
-    pub fit_to_size: bool,
 }
 
 impl Default for TextConfig {
@@ -29,7 +28,6 @@ impl Default for TextConfig {
             font_size: 16.0,
             line_height_multiplier: 1.5,
             color: Color::Black,
-            fit_to_size: false,
         }
     }
 }
@@ -74,11 +72,6 @@ impl TextBuilder {
         self
     }
 
-    pub fn set_fit_to_size(mut self) -> Self {
-        self.config.fit_to_size = true;
-        self
-    }
-
     pub fn build(
         self,
         world: &mut World,
@@ -115,7 +108,6 @@ impl TextBuilder {
                 font_size: self.config.font_size,
                 line_height_multiplier: self.config.line_height_multiplier,
                 color: self.config.color,
-                fit_to_size: self.config.fit_to_size,
             },
         );
 

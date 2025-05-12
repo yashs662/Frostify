@@ -3,11 +3,10 @@ use crate::{
         animation::{AnimationConfig, AnimationType},
         color::Color,
         ecs::{
-            EntityId, World,
+            EntityId,
             builders::{EntityBuilder, EntityBuilderProps},
         },
-        layout::{AlignItems, Anchor, Edges, JustifyContent, Overflow},
-        z_index_manager::ZIndexManager,
+        layout::{AlignItems, Anchor, Edges, JustifyContent, LayoutContext, Overflow},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -33,7 +32,6 @@ pub struct ButtonBuilder {
     foreground_text: Option<TextConfig>,
     animations: Vec<AnimationConfig>,
     content_padding: Option<Edges>,
-    fit_to_size: bool,
 }
 
 impl EntityBuilder for ButtonBuilder {
@@ -47,7 +45,6 @@ impl ButtonBuilder {
     pub fn new() -> Self {
         Self {
             common: EntityBuilderProps::default(),
-            fit_to_size: false,
             background_color: None,
             background_gradient: None,
             background_frosted_glass: None,
@@ -158,24 +155,17 @@ impl ButtonBuilder {
         self
     }
 
-    pub fn set_fit_to_size(mut self) -> Self {
-        self.fit_to_size = true;
-        self
-    }
-
-    pub fn build(
-        self,
-        world: &mut World,
-        wgpu_ctx: &mut WgpuCtx,
-        z_index_manager: &mut ZIndexManager,
-    ) -> EntityId {
+    pub fn build(self, layout_context: &mut LayoutContext, wgpu_ctx: &mut WgpuCtx) -> EntityId {
         let button_container_id = ContainerBuilder::new()
             .with_external_common_props(self.common.clone())
             .with_debug_name("Button Container")
             .with_align_items(AlignItems::Center)
             .with_justify_content(JustifyContent::Center)
             .with_overflow(Overflow::Hidden)
-            .build(world, z_index_manager);
+            .build(
+                &mut layout_context.world,
+                &mut layout_context.z_index_manager,
+            );
 
         let mut current_child_z_index = 1;
         let scale_animation = self
@@ -190,9 +180,13 @@ impl ButtonBuilder {
                 .with_align_items(AlignItems::Center)
                 .with_justify_content(JustifyContent::Center)
                 .with_padding(padding)
-                .build(world, z_index_manager);
+                .with_z_index(10)
+                .build(
+                    &mut layout_context.world,
+                    &mut layout_context.z_index_manager,
+                );
 
-            world.add_child_to_parent(button_container_id, content_container_id);
+            layout_context.add_child_to_parent(button_container_id, content_container_id);
 
             Some(content_container_id)
         } else {
@@ -221,10 +215,13 @@ impl ButtonBuilder {
                     background_color_builder.with_animation(animation.clone());
             }
 
-            let background_color_id =
-                background_color_builder.build(world, wgpu_ctx, z_index_manager);
+            let background_color_id = background_color_builder.build(
+                &mut layout_context.world,
+                wgpu_ctx,
+                &mut layout_context.z_index_manager,
+            );
 
-            world.add_child_to_parent(button_container_id, background_color_id);
+            layout_context.add_child_to_parent(button_container_id, background_color_id);
             current_child_z_index += 1;
         }
 
@@ -241,10 +238,13 @@ impl ButtonBuilder {
                     background_gradient_builder.with_animation(animation.clone());
             }
 
-            let background_gradient_id =
-                background_gradient_builder.build(world, wgpu_ctx, z_index_manager);
+            let background_gradient_id = background_gradient_builder.build(
+                &mut layout_context.world,
+                wgpu_ctx,
+                &mut layout_context.z_index_manager,
+            );
 
-            world.add_child_to_parent(button_container_id, background_gradient_id);
+            layout_context.add_child_to_parent(button_container_id, background_gradient_id);
             current_child_z_index += 1;
         }
 
@@ -261,10 +261,13 @@ impl ButtonBuilder {
                     background_image_builder.with_animation(animation.clone());
             }
 
-            let background_image_id =
-                background_image_builder.build(world, wgpu_ctx, z_index_manager);
+            let background_image_id = background_image_builder.build(
+                &mut layout_context.world,
+                wgpu_ctx,
+                &mut layout_context.z_index_manager,
+            );
 
-            world.add_child_to_parent(button_container_id, background_image_id);
+            layout_context.add_child_to_parent(button_container_id, background_image_id);
             current_child_z_index += 1;
         }
 
@@ -281,10 +284,13 @@ impl ButtonBuilder {
                     background_frosted_glass_builder.with_animation(animation.clone());
             }
 
-            let background_frosted_glass_id =
-                background_frosted_glass_builder.build(world, wgpu_ctx, z_index_manager);
+            let background_frosted_glass_id = background_frosted_glass_builder.build(
+                &mut layout_context.world,
+                wgpu_ctx,
+                &mut layout_context.z_index_manager,
+            );
 
-            world.add_child_to_parent(button_container_id, background_frosted_glass_id);
+            layout_context.add_child_to_parent(button_container_id, background_frosted_glass_id);
             current_child_z_index += 1;
         }
 
@@ -301,13 +307,16 @@ impl ButtonBuilder {
                     foreground_image_builder.with_animation(animation.clone());
             }
 
-            let foreground_image_id =
-                foreground_image_builder.build(world, wgpu_ctx, z_index_manager);
+            let foreground_image_id = foreground_image_builder.build(
+                &mut layout_context.world,
+                wgpu_ctx,
+                &mut layout_context.z_index_manager,
+            );
 
             if let Some(content_container_id) = content_container {
-                world.add_child_to_parent(content_container_id, foreground_image_id);
+                layout_context.add_child_to_parent(content_container_id, foreground_image_id);
             } else {
-                world.add_child_to_parent(button_container_id, foreground_image_id);
+                layout_context.add_child_to_parent(button_container_id, foreground_image_id);
             }
             current_child_z_index += 1;
         }
@@ -328,12 +337,16 @@ impl ButtonBuilder {
                 text_builder = text_builder.with_animation(animation.clone());
             }
 
-            let text_id = text_builder.build(world, wgpu_ctx, z_index_manager);
+            let text_id = text_builder.build(
+                &mut layout_context.world,
+                wgpu_ctx,
+                &mut layout_context.z_index_manager,
+            );
 
             if let Some(content_container_id) = content_container {
-                world.add_child_to_parent(content_container_id, text_id);
+                layout_context.add_child_to_parent(content_container_id, text_id);
             } else {
-                world.add_child_to_parent(button_container_id, text_id);
+                layout_context.add_child_to_parent(button_container_id, text_id);
             }
         }
 

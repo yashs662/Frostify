@@ -3,19 +3,22 @@ use frostify_derive::EcsComponent;
 use super::{EcsComponent, EntityId, GradientColorStop, GradientType, builders::image::ScaleMode};
 use crate::ui::{
     color::Color,
-    layout::{BorderRadius, ClipBounds, ComponentOffset, Layout, Position, Size},
+    layout::{
+        Anchor, BorderRadius, Bounds, ClipBounds, ComponentOffset, Layout, LayoutSize, Position,
+        Size,
+    },
 };
 
 #[derive(Debug, Clone, EcsComponent)]
 pub struct TransformComponent {
-    pub size: crate::ui::layout::LayoutSize,
+    pub size: LayoutSize,
     pub offset: ComponentOffset,
     pub position_type: Position,
     pub z_index: i32,
     pub max_scale_factor: f32,
     pub min_scale_factor: f32,
     pub scale_factor: f32,
-    pub scale_anchor: crate::ui::layout::Anchor,
+    pub scale_anchor: Anchor,
 }
 
 #[derive(Debug, Clone, EcsComponent)]
@@ -48,6 +51,7 @@ pub struct BoundsComponent {
     pub screen_size: Size,
     pub clip_bounds: Option<ClipBounds>,
     pub clip_self: bool,
+    pub fit_to_size: bool,
 }
 
 #[derive(Debug, Clone, EcsComponent)]
@@ -108,7 +112,6 @@ pub struct TextComponent {
     pub font_size: f32,
     pub line_height_multiplier: f32,
     pub color: Color,
-    pub fit_to_size: bool,
 }
 
 #[derive(Debug, Clone, EcsComponent)]
@@ -117,5 +120,135 @@ pub struct ImageComponent {
     pub scale_mode: ScaleMode,
     pub original_width: u32,
     pub original_height: u32,
-    pub fit_to_size: bool,
+}
+
+impl ImageComponent {
+    pub fn calculate_fit_to_size(&self, old_bounds: &Bounds) -> Option<(Size, ComponentOffset)> {
+        // Here old_bounds is analogous to the container bounds as during layout it fills the parent
+        let original_width = self.original_width as f32;
+        let original_height = self.original_height as f32;
+        let original_aspect = original_width / original_height;
+        let container_width = old_bounds.size.width;
+        let container_height = old_bounds.size.height;
+        let container_aspect = container_width / container_height;
+
+        match self.scale_mode {
+            ScaleMode::Stretch => {
+                // STRETCH - default, use container dimensions directly
+                None
+            }
+            ScaleMode::Contain => {
+                // CONTAIN - scale to fit while preserving aspect ratio
+                if original_aspect > container_aspect {
+                    // Image is wider than container (relative to height)
+                    let new_height = container_width / original_aspect;
+                    let y_offset = (container_height - new_height) / 2.0;
+                    Some((
+                        Size {
+                            width: container_width,
+                            height: new_height,
+                        },
+                        ComponentOffset {
+                            x: 0.0.into(),
+                            y: y_offset.into(),
+                        },
+                    ))
+                } else {
+                    // Image is taller than container (relative to width)
+                    let new_width = container_height * original_aspect;
+                    let x_offset = (container_width - new_width) / 2.0;
+                    Some((
+                        Size {
+                            width: new_width,
+                            height: container_height,
+                        },
+                        ComponentOffset {
+                            x: x_offset.into(),
+                            y: 0.0.into(),
+                        },
+                    ))
+                }
+            }
+            ScaleMode::Cover => {
+                // COVER - scale to fill while preserving aspect ratio
+                // but keep original container bounds to ensure clipping
+
+                // Calculate scaled dimensions that fully cover the container
+                let (scaled_width, scaled_height): (f32, f32);
+                let (x_offset, y_offset): (f32, f32);
+
+                if original_aspect < container_aspect {
+                    // Image is taller than container (relative to width)
+                    scaled_width = container_width;
+                    scaled_height = container_width / original_aspect;
+                    x_offset = 0.0; // No horizontal offset
+                    y_offset = (container_height - scaled_height) / 2.0;
+                } else {
+                    // Image is wider than container (relative to height)
+                    scaled_width = container_height * original_aspect;
+                    scaled_height = container_height;
+                    x_offset = (container_width - scaled_width) / 2.0;
+                    y_offset = 0.0; // No vertical offset
+                }
+
+                Some((
+                    Size {
+                        width: scaled_width,
+                        height: scaled_height,
+                    },
+                    ComponentOffset {
+                        x: x_offset.into(),
+                        y: y_offset.into(),
+                    },
+                ))
+            }
+            ScaleMode::Original => {
+                // ORIGINAL - use original dimensions, no scaling
+                if original_width < container_width && original_height < container_height {
+                    // Center the image in the container
+                    let x_offset = (container_width - original_width) / 2.0;
+                    let y_offset = (container_height - original_height) / 2.0;
+
+                    Some((
+                        Size {
+                            width: original_width,
+                            height: original_height,
+                        },
+                        ComponentOffset {
+                            x: x_offset.into(),
+                            y: y_offset.into(),
+                        },
+                    ))
+                } else {
+                    // If the image is larger than the container, use contain logic
+                    let original_aspect = original_width / original_height;
+                    let container_aspect = container_width / container_height;
+
+                    if original_aspect > container_aspect {
+                        Some((
+                            Size {
+                                width: container_width,
+                                height: container_width / original_aspect,
+                            },
+                            ComponentOffset {
+                                x: 0.0.into(),
+                                y: 0.0.into(),
+                            },
+                        ))
+                    } else {
+                        Some((
+                            Size {
+                                width: container_height * original_aspect,
+                                height: container_height,
+                            },
+                            ComponentOffset {
+                                x: 0.0.into(),
+                                y: 0.0.into(),
+                            },
+                        ))
+                    }
+                }
+            }
+        }
+    }
 }

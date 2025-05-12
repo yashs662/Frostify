@@ -279,6 +279,7 @@ pub fn add_common_components(
             screen_size: Size::default(),
             clip_bounds: None,
             clip_self: props.clip_self.unwrap_or(true),
+            fit_to_size: props.fit_to_size,
         },
     );
 
