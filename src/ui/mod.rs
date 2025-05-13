@@ -20,7 +20,7 @@ use ecs::{
         text::TextBuilder,
     },
 };
-use layout::{AlignItems, Anchor, BorderRadius, Edges, JustifyContent, Position};
+use layout::{AlignItems, Anchor, BorderRadius, Edges, JustifyContent};
 use std::time::Duration;
 use strum_macros::EnumString;
 
@@ -857,7 +857,7 @@ fn create_player_bar(
         .with_debug_name("Player Controls Container")
         .with_size(FlexValue::Fraction(0.7), FlexValue::Fill)
         .with_margin(Edges::all(10.0))
-        .with_position(Position::Fixed(Anchor::Center))
+        .with_fixed_position(Anchor::Center)
         .with_direction(FlexDirection::Column)
         .with_align_items(AlignItems::Center)
         .build(
