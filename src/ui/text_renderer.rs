@@ -216,10 +216,6 @@ impl TextHandler {
             .unwrap();
     }
 
-    pub fn trim_atlas(&mut self) {
-        self.atlas.trim();
-    }
-
     pub fn update(&mut self, update_data: (EntityId, OptionalTextUpdateData)) {
         let (key, value) = update_data;
         if let Some(data) = self.buffers.buffers.get_mut(&key) {

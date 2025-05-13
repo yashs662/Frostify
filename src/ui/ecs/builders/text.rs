@@ -52,8 +52,8 @@ impl TextBuilder {
         }
     }
 
-    pub fn with_text(mut self, text: String) -> Self {
-        self.config.text = text;
+    pub fn with_text<S: Into<String>>(mut self, text: S) -> Self {
+        self.config.text = text.into();
         self
     }
 

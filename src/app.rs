@@ -3,7 +3,7 @@ use crate::{
     constants::{BACKGROUND_FPS, WINDOW_RESIZE_BORDER_WIDTH},
     core::worker::{Worker, WorkerResponse},
     ui::{
-        UiView, create_app_ui, create_login_ui, create_test_ui,
+        self, UiView,
         ecs::{
             resources::{MouseResource, RequestReLayoutResource},
             systems::{
@@ -63,7 +63,7 @@ pub struct AppState {
 
 #[derive(Default)]
 pub struct AppConfig {
-    pub ui_test_mode: bool,
+    pub test_ui_view: Option<UiView>,
 }
 
 struct FrameCounter {
@@ -131,9 +131,9 @@ struct ResizeState {
 }
 
 impl App<'_> {
-    pub fn new(ui_test_mode: bool) -> Self {
+    pub fn new(test_ui_view: Option<UiView>) -> Self {
         Self {
-            app_config: AppConfig { ui_test_mode },
+            app_config: AppConfig { test_ui_view },
             ..Default::default()
         }
     }
@@ -259,14 +259,17 @@ impl App<'_> {
         if let Some(wgpu_ctx) = wgpu_ctx {
             layout_context.clear();
             match view {
+                UiView::Splash => {
+                    ui::create_splash_ui(wgpu_ctx, layout_context);
+                }
                 UiView::Login => {
-                    create_login_ui(wgpu_ctx, layout_context);
+                    ui::create_login_ui(wgpu_ctx, layout_context);
                 }
                 UiView::Home => {
-                    create_app_ui(wgpu_ctx, layout_context);
+                    ui::create_app_ui(wgpu_ctx, layout_context);
                 }
                 UiView::Test => {
-                    create_test_ui(wgpu_ctx, layout_context);
+                    ui::create_test_ui(wgpu_ctx, layout_context);
                 }
             }
             layout_context.find_root_component();
@@ -431,26 +434,30 @@ impl ApplicationHandler for App<'_> {
             self.wgpu_ctx = Some(wgpu_ctx);
 
             // Initialize the worker thread
-            if !self.app_config.ui_test_mode {
+            if self.app_config.test_ui_view.is_none() {
                 self.worker = Some(Worker::new());
             }
 
-            // Start with login UI by default
-            if self.app_config.ui_test_mode {
+            if let Some(text_ui_view) = self.app_config.test_ui_view {
                 App::change_view(
                     &mut self.wgpu_ctx,
                     &mut self.layout_context,
                     &mut self.app_state,
-                    UiView::Test,
+                    text_ui_view,
                 );
             } else {
+                // Start with splash screen
                 App::change_view(
                     &mut self.wgpu_ctx,
                     &mut self.layout_context,
                     &mut self.app_state,
-                    UiView::Login,
+                    UiView::Splash,
                 );
             }
+            // This is required due to the timing of the winit window creation causing
+            // incorrect layout while changing the view
+            self.layout_context
+                .compute_layout_and_sync(self.wgpu_ctx.as_mut().unwrap());
 
             // Check for stored tokens as soon as the app starts
             if let Some(worker) = &self.worker {
@@ -463,7 +470,6 @@ impl ApplicationHandler for App<'_> {
             self.update();
             if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
                 wgpu_ctx.draw(&mut self.layout_context.world);
-                wgpu_ctx.text_handler.trim_atlas();
             }
 
             // Now that we've drawn the first frame, make the window visible
@@ -510,12 +516,10 @@ impl ApplicationHandler for App<'_> {
                 self.try_handle_app_event(event_loop);
 
                 self.update();
-                if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    // Draw using ECS
-                    wgpu_ctx.draw(&mut self.layout_context.world);
-                    // TODO: Do we need to trim the atlas here?
-                    wgpu_ctx.text_handler.trim_atlas();
-                }
+                self.wgpu_ctx
+                    .as_mut()
+                    .expect("WgpuCtx Should have been initialized before drawing")
+                    .draw(&mut self.layout_context.world);
 
                 // request redraw after drawing - do this if we have any animations to continuously draw,
                 // if not focused limit to BACKGROUND_FPS else allow winit to do vsync
@@ -632,12 +636,13 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::Focused(focused) => {
-                if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    if focused {
-                        wgpu_ctx.draw(&mut self.layout_context.world);
-                        if let Some(window) = &self.window {
-                            window.request_redraw();
-                        }
+                if focused {
+                    self.wgpu_ctx
+                        .as_mut()
+                        .expect("WgpuCtx Should have been initialized before drawing")
+                        .draw(&mut self.layout_context.world);
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
                     }
                 }
             }

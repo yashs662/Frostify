@@ -10,6 +10,7 @@ use env_logger::Builder;
 use log::LevelFilter;
 use std::io::Write;
 use time::{UtcOffset, macros::format_description};
+use ui::UiView;
 use winit::{
     error::EventLoopError,
     event_loop::{ControlFlow, EventLoop},
@@ -32,8 +33,8 @@ struct Args {
     #[arg(long, short, action = clap::ArgAction::SetTrue, help = "Reset Frostify config")]
     reset: bool,
     /// Ui test mode
-    #[arg(long, short, action = clap::ArgAction::SetTrue, help = "Run in UI test mode")]
-    ui_test: bool,
+    #[arg(long, short, default_value = None,help = "Run in UI test mode")]
+    ui_test: Option<UiView>,
 }
 
 fn main() -> Result<(), EventLoopError> {
@@ -54,8 +55,8 @@ fn main() -> Result<(), EventLoopError> {
         }
     }
 
-    if args.ui_test {
-        println!("{}", "Running in UI test mode".purple());
+    if let Some(test_ui_view) = args.ui_test {
+        println!("Running in UI test mode: {:?}", test_ui_view);
     }
 
     // Initialize assets before creating the event loop

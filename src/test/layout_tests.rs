@@ -1004,3 +1004,267 @@ fn test_offset_in_nested_container_with_flex_value() {
     assert_eq!(child1_id_bounds.position.x, 500.0);
     assert_eq!(child1_id_bounds.position.y, 400.0);
 }
+
+#[test]
+fn test_multiple_fill_containers_with_fraction_width_container() {
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000.0,
+        height: 800.0,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
+    // Create parent container with fixed size
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    // Create first child with fixed size
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child1_id);
+
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
+        .with_width(FlexValue::Fraction(0.5))
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child2_id);
+
+    let child3_id = ContainerBuilder::new()
+        .with_debug_name("Child3 Container")
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child3_id);
+
+    // Force layout computation
+    ctx.find_root_component();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
+    let computed_bounds = ctx.get_computed_bounds();
+
+    // Get computed bounds for all components
+    let parent_bounds = computed_bounds.get(&parent_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child3_id_bounds = computed_bounds.get(&child3_id).unwrap();
+
+    // Test parent bounds
+    assert_eq!(parent_bounds.size.width, 500.0);
+    assert_eq!(parent_bounds.size.height, 300.0);
+    assert_eq!(parent_bounds.position.x, 0.0);
+    assert_eq!(parent_bounds.position.y, 0.0);
+
+    // Test child sizes
+    assert_eq!(child1_id_bounds.size.width, 125.0);
+    assert_eq!(child1_id_bounds.size.height, 300.0);
+
+    assert_eq!(child2_id_bounds.size.width, 250.0);
+    assert_eq!(child2_id_bounds.size.height, 300.0);
+
+    assert_eq!(child3_id_bounds.size.width, 125.0);
+    assert_eq!(child3_id_bounds.size.height, 300.0);
+
+    // Test child positions - in row layout
+    assert_eq!(child1_id_bounds.position.x, 0.0);
+    assert_eq!(child1_id_bounds.position.y, 0.0);
+
+    assert_eq!(child2_id_bounds.position.x, 125.0);
+    assert_eq!(child2_id_bounds.position.y, 0.0);
+
+    assert_eq!(child3_id_bounds.position.x, 375.0);
+    assert_eq!(child3_id_bounds.position.y, 0.0);
+}
+
+#[test]
+fn test_multiple_containers_with_different_directions_and_fractional_sizing() {
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000.0,
+        height: 800.0,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
+    // Create parent container with fixed size
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    // Create first child with fixed size
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child1_id);
+
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
+        .with_width(FlexValue::Fraction(0.5))
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child2_id);
+
+    let child2_sub_child1_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Sub Child 1 Container")
+        .with_width(FlexValue::Fraction(0.5))
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    let child2_sub_child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Sub Child 2 Container")
+        .with_height(FlexValue::Fixed(20.0))
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(child2_id, child2_sub_child1_id);
+    ctx.add_child_to_parent(child2_id, child2_sub_child2_id);
+
+    let child3_id = ContainerBuilder::new()
+        .with_debug_name("Child3 Container")
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child3_id);
+
+    // Force layout computation
+    ctx.find_root_component();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
+    let computed_bounds = ctx.get_computed_bounds();
+
+    // Get computed bounds for all components
+    let parent_bounds = computed_bounds.get(&parent_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child2_sub_child1_id_bounds = computed_bounds.get(&child2_sub_child1_id).unwrap();
+    let child2_sub_child2_id_bounds = computed_bounds.get(&child2_sub_child2_id).unwrap();
+    let child3_id_bounds = computed_bounds.get(&child3_id).unwrap();
+
+    // Test parent bounds
+    assert_eq!(parent_bounds.size.width, 500.0);
+    assert_eq!(parent_bounds.size.height, 300.0);
+    assert_eq!(parent_bounds.position.x, 0.0);
+    assert_eq!(parent_bounds.position.y, 0.0);
+
+    // Test child sizes
+    assert_eq!(child1_id_bounds.size.width, 125.0);
+    assert_eq!(child1_id_bounds.size.height, 300.0);
+
+    assert_eq!(child2_id_bounds.size.width, 250.0);
+    assert_eq!(child2_id_bounds.size.height, 300.0);
+
+    assert_eq!(child2_sub_child1_id_bounds.size.width, 125.0);
+    assert_eq!(child2_sub_child1_id_bounds.size.height, 280.0);
+    assert_eq!(child2_sub_child2_id_bounds.size.width, 250.0);
+    assert_eq!(child2_sub_child2_id_bounds.size.height, 20.0);
+
+    assert_eq!(child3_id_bounds.size.width, 125.0);
+    assert_eq!(child3_id_bounds.size.height, 300.0);
+
+    // Test child positions - in row layout
+    assert_eq!(child1_id_bounds.position.x, 0.0);
+    assert_eq!(child1_id_bounds.position.y, 0.0);
+
+    assert_eq!(child2_id_bounds.position.x, 125.0);
+    assert_eq!(child2_id_bounds.position.y, 0.0);
+
+    assert_eq!(child2_sub_child1_id_bounds.position.x, 187.5);
+    assert_eq!(child2_sub_child1_id_bounds.position.y, 0.0);
+    assert_eq!(child2_sub_child2_id_bounds.position.x, 125.0);
+    assert_eq!(child2_sub_child2_id_bounds.position.y, 280.0);
+
+    assert_eq!(child3_id_bounds.position.x, 375.0);
+    assert_eq!(child3_id_bounds.position.y, 0.0);
+}
+
+#[test]
+fn test_multiple_containers_with_one_anchored() {
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000.0,
+        height: 800.0,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
+    // Create parent container with fixed size
+    let parent_id = ContainerBuilder::new()
+        .with_debug_name("Parent Container")
+        .with_width(FlexValue::Fixed(500.0))
+        .with_height(FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Row)
+        .with_position(Position::Absolute(Anchor::TopLeft))
+        .with_justify_content(JustifyContent::SpaceBetween)
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    // Create first child with fixed size
+    let child1_id = ContainerBuilder::new()
+        .with_debug_name("Child1 Container")
+        .with_width(FlexValue::Fraction(0.1))
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child1_id);
+
+    let child2_id = ContainerBuilder::new()
+        .with_debug_name("Child2 Container")
+        .with_width(FlexValue::Fraction(0.5))
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_position(Position::Fixed(Anchor::Center))
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child2_id);
+
+    let child3_id = ContainerBuilder::new()
+        .with_debug_name("Child3 Container")
+        .with_width(FlexValue::Fraction(0.2))
+        .build(&mut ctx.world, &mut ctx.z_index_manager);
+
+    ctx.add_child_to_parent(parent_id, child3_id);
+
+    // Force layout computation
+    ctx.find_root_component();
+    ctx.compute_layout_and_sync(&mut wgpu_ctx);
+    let computed_bounds = ctx.get_computed_bounds();
+
+    // Get computed bounds for all components
+    let parent_bounds = computed_bounds.get(&parent_id).unwrap();
+    let child1_id_bounds = computed_bounds.get(&child1_id).unwrap();
+    let child2_id_bounds = computed_bounds.get(&child2_id).unwrap();
+    let child3_id_bounds = computed_bounds.get(&child3_id).unwrap();
+
+    // Test parent bounds
+    assert_eq!(parent_bounds.size.width, 500.0);
+    assert_eq!(parent_bounds.size.height, 300.0);
+    assert_eq!(parent_bounds.position.x, 0.0);
+    assert_eq!(parent_bounds.position.y, 0.0);
+
+    // Test child sizes
+    assert_eq!(child1_id_bounds.size.width, 50.0);
+    assert_eq!(child1_id_bounds.size.height, 300.0);
+
+    assert_eq!(child2_id_bounds.size.width, 250.0);
+    assert_eq!(child2_id_bounds.size.height, 300.0);
+
+    assert_eq!(child3_id_bounds.size.width, 100.0);
+    assert_eq!(child3_id_bounds.size.height, 300.0);
+
+    // Test child positions - in row layout
+    assert_eq!(child1_id_bounds.position.x, 0.0);
+    assert_eq!(child1_id_bounds.position.y, 0.0);
+
+    assert_eq!(child2_id_bounds.position.x, 125.0);
+    assert_eq!(child2_id_bounds.position.y, 0.0);
+
+    assert_eq!(child3_id_bounds.position.x, 400.0);
+    assert_eq!(child3_id_bounds.position.y, 0.0);
+}

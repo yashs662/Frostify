@@ -1288,6 +1288,8 @@ impl LayoutContext {
         let mut total_flex_grow = 0.0;
         let mut num_auto_sized = 0;
         let mut num_flex_items = 0;
+        let mut num_fraction_items = 0;
+        let mut total_fraction = 0.0;
         let mut total_margins = 0.0;
         let mut content_size = 0.0; // To calculate max scroll
 
@@ -1307,10 +1309,21 @@ impl LayoutContext {
                             + layout_comp.layout.margin.right;
                     }
                     FlexValue::Fill => {
-                        total_flex_grow += layout_comp.layout.flex_grow.max(1.0);
+                        // For Fill items, we need to ensure they all get equal space if flex_grow is 0
+                        // by setting a default of 1.0
+                        let effective_flex_grow = if layout_comp.layout.flex_grow == 0.0 {
+                            1.0
+                        } else {
+                            layout_comp.layout.flex_grow
+                        };
+                        total_flex_grow += effective_flex_grow;
                         num_flex_items += 1;
                     }
                     FlexValue::Auto => num_auto_sized += 1,
+                    FlexValue::Fraction(frac) => {
+                        total_fraction += frac;
+                        num_fraction_items += 1;
+                    }
                     _ => {}
                 }
             } else {
@@ -1324,10 +1337,21 @@ impl LayoutContext {
                             + layout_comp.layout.margin.bottom;
                     }
                     FlexValue::Fill => {
-                        total_flex_grow += layout_comp.layout.flex_grow.max(1.0);
+                        // For Fill items, we need to ensure they all get equal space if flex_grow is 0
+                        // by setting a default of 1.0
+                        let effective_flex_grow = if layout_comp.layout.flex_grow == 0.0 {
+                            1.0
+                        } else {
+                            layout_comp.layout.flex_grow
+                        };
+                        total_flex_grow += effective_flex_grow;
                         num_flex_items += 1;
                     }
                     FlexValue::Auto => num_auto_sized += 1,
+                    FlexValue::Fraction(frac) => {
+                        total_fraction += frac;
+                        num_fraction_items += 1;
+                    }
                     _ => {}
                 }
             }
@@ -1339,8 +1363,24 @@ impl LayoutContext {
             content_space.size.height
         };
 
-        // Subtract margins from available space before distributing
-        let remaining_space = (main_axis_size - total_fixed_size - total_margins).max(0.0);
+        // Calculate space taken up by fractional items
+        let total_fraction_space = if total_fraction > 0.0 && num_fraction_items > 0 {
+            // Handle the case where total fraction exceeds 1.0 by normalizing
+            let effective_fraction = if total_fraction > 1.0 {
+                1.0
+            } else {
+                total_fraction
+            };
+            main_axis_size * effective_fraction
+        } else {
+            0.0
+        };
+
+        // Subtract margins and fractional space from available space before distributing to flexbox
+        let remaining_space =
+            (main_axis_size - total_fixed_size - total_margins - total_fraction_space).max(0.0);
+
+        // Calculate how much space each flex unit gets
         let space_per_flex_unit = if total_flex_grow > 0.0 {
             remaining_space / total_flex_grow
         } else if num_auto_sized > 0 {
@@ -1652,7 +1692,13 @@ impl LayoutContext {
             match &child_transform_comp.size.width {
                 FlexValue::Fixed(w) => *w,
                 FlexValue::Fill => {
-                    space_per_flex_unit * child_layout_comp.layout.flex_grow.max(1.0)
+                    // Use same logic as in the calculation of total_flex_grow
+                    let effective_flex_grow = if child_layout_comp.layout.flex_grow == 0.0 {
+                        1.0
+                    } else {
+                        child_layout_comp.layout.flex_grow
+                    };
+                    space_per_flex_unit * effective_flex_grow
                 }
                 FlexValue::Fraction(frac) => main_axis_available * frac,
                 FlexValue::Auto => {
@@ -1671,7 +1717,13 @@ impl LayoutContext {
             match &child_transform_comp.size.height {
                 FlexValue::Fixed(h) => *h,
                 FlexValue::Fill => {
-                    space_per_flex_unit * child_layout_comp.layout.flex_grow.max(1.0)
+                    // Use same logic as in the calculation of total_flex_grow
+                    let effective_flex_grow = if child_layout_comp.layout.flex_grow == 0.0 {
+                        1.0
+                    } else {
+                        child_layout_comp.layout.flex_grow
+                    };
+                    space_per_flex_unit * effective_flex_grow
                 }
                 FlexValue::Fraction(frac) => main_axis_available * frac,
                 FlexValue::Auto => {

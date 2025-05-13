@@ -58,7 +58,8 @@ impl ButtonBuilder {
         }
     }
 
-    pub fn with_text(mut self, text: String) -> Self {
+    pub fn with_text<S: Into<String>>(mut self, text: S) -> Self {
+        let text = text.into();
         if let Some(text_config) = &mut self.foreground_text {
             text_config.text = text;
         } else {

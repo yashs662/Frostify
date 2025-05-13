@@ -40,6 +40,8 @@ smaa = "0.17.0"
 clap = { version = "4.5.37", features = ["derive"] }
 librespot = "0.6.0"
 frostify_derive = { path = "./frostify_derive" }
+strum = "0.27"
+strum_macros = "0.27"
 
 [build-dependencies]
 winresource = "0.1.20"

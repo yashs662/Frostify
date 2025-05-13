@@ -20,8 +20,9 @@ use ecs::{
         text::TextBuilder,
     },
 };
-use layout::{AlignItems, Anchor, BorderRadius, Edges, JustifyContent};
+use layout::{AlignItems, Anchor, BorderRadius, Edges, JustifyContent, Position};
 use std::time::Duration;
+use strum_macros::EnumString;
 
 pub mod animation;
 pub mod asset;
@@ -32,12 +33,166 @@ pub mod layout;
 pub mod text_renderer;
 pub mod z_index_manager;
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, EnumString)]
 pub enum UiView {
     #[default]
+    Splash,
     Login,
     Home,
     Test,
+}
+
+pub fn create_splash_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
+    let main_container_id = ContainerBuilder::new()
+        .with_debug_name("Splash Screen Main Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    let splash_background_container_id = ContainerBuilder::new()
+        .with_debug_name("Splash Screen Background Container")
+        .with_fixed_position(Anchor::Center)
+        .with_z_index(-1)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    let splash_background_comp_0_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+        color_stops: vec![
+            GradientColorStop {
+                color: Color::Crimson,
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::Black,
+                position: 1.0,
+            },
+        ],
+        angle: 90.0,
+        gradient_type: GradientType::Linear,
+        center: None,
+        radius: None,
+    })
+    .with_fixed_position(Anchor::Center)
+    .with_debug_name("Splash Screen Background Composition 0")
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    let splash_background_comp_1_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+        color_stops: vec![
+            GradientColorStop {
+                color: Color::Crimson.darken(0.2),
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::Transparent,
+                position: 1.0,
+            },
+        ],
+        angle: 90.0,
+        gradient_type: GradientType::Radial,
+        center: Some((1.0, 1.0)),
+        radius: Some(0.4),
+    })
+    .with_z_index(1)
+    .with_fixed_position(Anchor::Center)
+    .with_debug_name("Splash Screen Background Composition 1")
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    let splash_background_comp_2_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+        color_stops: vec![
+            GradientColorStop {
+                color: Color::Black,
+                position: 0.0,
+            },
+            GradientColorStop {
+                color: Color::Transparent,
+                position: 1.0,
+            },
+        ],
+        angle: 90.0,
+        gradient_type: GradientType::Radial,
+        center: Some((0.0, 0.0)),
+        radius: Some(2.0),
+    })
+    .with_z_index(2)
+    .with_fixed_position(Anchor::Center)
+    .with_debug_name("Splash Screen Background Composition 2")
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    layout_context.add_child_to_parent(splash_background_container_id, splash_background_comp_0_id);
+    layout_context.add_child_to_parent(splash_background_container_id, splash_background_comp_1_id);
+    layout_context.add_child_to_parent(splash_background_container_id, splash_background_comp_2_id);
+    layout_context.add_child_to_parent(main_container_id, splash_background_container_id);
+
+    let nav_bar_container_id = create_nav_bar(wgpu_ctx, layout_context, true);
+    layout_context.add_child_to_parent(main_container_id, nav_bar_container_id);
+
+    let splash_content_container_id = ContainerBuilder::new()
+        .with_debug_name("Splash Screen Content Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    layout_context.add_child_to_parent(main_container_id, splash_content_container_id);
+
+    let logo_id = ImageBuilder::new("frostify_logo.png")
+        .with_scale_mode(ScaleMode::Contain)
+        .with_size(150, 150)
+        .with_margin(Edges::vertical(10.0))
+        .with_debug_name("Logo")
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
+
+    let welcome_text_id = TextBuilder::new()
+        .with_debug_name("Welcome text")
+        .with_text("Welcome to Frostify!!!")
+        .with_font_size(24.0)
+        .with_color(Color::White)
+        .set_fit_to_size()
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
+
+    let loading_text_id = TextBuilder::new()
+        .with_debug_name("Loading text")
+        .with_text("Loading...")
+        .with_color(Color::White)
+        .set_fit_to_size()
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
+
+    layout_context.add_child_to_parent(splash_content_container_id, logo_id);
+    layout_context.add_child_to_parent(splash_content_container_id, welcome_text_id);
+    layout_context.add_child_to_parent(splash_content_container_id, loading_text_id);
 }
 
 pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
@@ -67,7 +222,7 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
 
     let sample_text = TextBuilder::new()
         .with_debug_name("Sample Text")
-        .with_text("Test text".to_string())
+        .with_text("Test text")
         .with_font_size(24.0)
         .with_color(Color::White)
         .with_size(100, 100)
@@ -93,7 +248,7 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
 
     let sample_text_2 = TextBuilder::new()
         .with_debug_name("Sample Text 2")
-        .with_text("Test text 2".to_string())
+        .with_text("Test text 2")
         .with_font_size(24.0)
         .with_color(Color::Red)
         .with_size(100, 100)
@@ -226,7 +381,7 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
     // https://github.com/grovesNL/glyphon/issues/141
     let welcome_text_id = TextBuilder::new()
         .with_debug_name("Welcome Text")
-        .with_text("Welcome to Frostify".to_string())
+        .with_text("Welcome to Frostify")
         .with_font_size(24.0)
         .with_color(Color::White)
         .with_line_height(1.0)
@@ -272,7 +427,7 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
             },
             when: AnimationWhen::Hover,
         })
-        .with_text("Login with Spotify".to_string())
+        .with_text("Login with Spotify")
         .with_text_color(Color::White)
         .with_click_event(AppEvent::Login)
         .with_animation(AnimationConfig {
@@ -307,7 +462,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
             &mut layout_context.z_index_manager,
         );
 
-    let background_id = ImageBuilder::new("test.png")
+    let background_id = ImageBuilder::new("album_art.png")
         .with_scale_mode(ScaleMode::Cover)
         .with_debug_name("Background")
         .with_z_index(-2)
@@ -658,10 +813,20 @@ fn create_player_bar(
             &mut layout_context.z_index_manager,
         );
 
+    let song_info_container_id = ContainerBuilder::new()
+        .with_debug_name("Song Info Container")
+        .with_margin(Edges::all(5.0))
+        .with_direction(FlexDirection::Row)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Start)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
     let current_song_album_art_id = ImageBuilder::new("album_art.png")
         .with_debug_name("Current Song Album Art")
         .with_z_index(1)
-        .with_margin(Edges::all(5.0))
         .with_scale_mode(ScaleMode::Original)
         .with_shadow(Color::Black, (0.0, 0.0), 4.0, 0.4)
         .with_uniform_border_radius(5.0)
@@ -674,8 +839,8 @@ fn create_player_bar(
 
     let current_song_info_id = TextBuilder::new()
         .with_debug_name("Current Song Info")
-        .with_text("Song Name\nArtist Name".to_string())
-        .with_margin(Edges::left(5.0))
+        .with_text("Song Name\nArtist Name")
+        .with_margin(Edges::left(10.0))
         .with_color(Color::White)
         .set_fit_to_size()
         .with_z_index(1)
@@ -685,44 +850,33 @@ fn create_player_bar(
             &mut layout_context.z_index_manager,
         );
 
-    let song_info_container_id = ContainerBuilder::new()
-        .with_debug_name("Song Info Container")
-        .with_direction(FlexDirection::Row)
-        .with_align_items(AlignItems::Center)
-        .with_justify_content(JustifyContent::Start)
-        .build(
-            &mut layout_context.world,
-            &mut layout_context.z_index_manager,
-        );
-
     layout_context.add_child_to_parent(song_info_container_id, current_song_album_art_id);
     layout_context.add_child_to_parent(song_info_container_id, current_song_info_id);
 
     let player_controls_container_id = ContainerBuilder::new()
         .with_debug_name("Player Controls Container")
-        .with_size(FlexValue::Fraction(0.6), FlexValue::Fill)
-        .with_fixed_position(Anchor::Center)
+        .with_size(FlexValue::Fraction(0.7), FlexValue::Fill)
+        .with_margin(Edges::all(10.0))
+        .with_position(Position::Fixed(Anchor::Center))
         .with_direction(FlexDirection::Column)
         .with_align_items(AlignItems::Center)
-        .with_justify_content(JustifyContent::Center)
         .build(
             &mut layout_context.world,
             &mut layout_context.z_index_manager,
         );
 
-    let player_controls_sub_container_id = ContainerBuilder::new()
+    let player_control_buttons_container_id = ContainerBuilder::new()
         .with_debug_name("Player Controls Sub Container")
         .with_direction(FlexDirection::Row)
+        .with_size(FlexValue::Fraction(0.5), FlexValue::Fraction(0.7))
+        .with_justify_content(JustifyContent::SpaceAround)
         .with_align_items(AlignItems::Center)
-        .with_justify_content(JustifyContent::Center)
-        .with_padding(Edges::horizontal(20.0))
-        .with_margin(Edges::top(10.0))
         .build(
             &mut layout_context.world,
             &mut layout_context.z_index_manager,
         );
 
-    let player_control_btns_size = 20.0;
+    let player_control_btns_size = 32.0;
 
     let shuffle_button_id = ButtonBuilder::new()
         .with_debug_name("Shuffle Button")
@@ -731,8 +885,8 @@ fn create_player_bar(
         .with_background_color(BackgroundColorConfig {
             color: Color::Transparent,
         })
-        .with_margin(Edges::right(10.0))
-        .with_border_radius(BorderRadius::all(999.0))
+        .with_content_padding(Edges::all(5.0))
+        .with_border_radius(BorderRadius::all(5.0))
         .with_foreground_image("shuffle.png")
         .with_animation(AnimationConfig {
             duration: Duration::from_millis(200),
@@ -753,8 +907,8 @@ fn create_player_bar(
         .with_background_color(BackgroundColorConfig {
             color: Color::Transparent,
         })
-        .with_margin(Edges::horizontal(10.0))
-        .with_border_radius(BorderRadius::all(999.0))
+        .with_content_padding(Edges::all(5.0))
+        .with_border_radius(BorderRadius::all(5.0))
         .with_foreground_image("skip-back.png")
         .with_animation(AnimationConfig {
             duration: Duration::from_millis(200),
@@ -775,8 +929,8 @@ fn create_player_bar(
         .with_background_color(BackgroundColorConfig {
             color: Color::Transparent,
         })
-        .with_margin(Edges::horizontal(10.0))
-        .with_border_radius(BorderRadius::all(999.0))
+        .with_content_padding(Edges::all(5.0))
+        .with_border_radius(BorderRadius::all(5.0))
         .with_foreground_image("play.png")
         .with_animation(AnimationConfig {
             duration: Duration::from_millis(200),
@@ -797,8 +951,8 @@ fn create_player_bar(
         .with_background_color(BackgroundColorConfig {
             color: Color::Transparent,
         })
-        .with_margin(Edges::horizontal(10.0))
-        .with_border_radius(BorderRadius::all(999.0))
+        .with_content_padding(Edges::all(5.0))
+        .with_border_radius(BorderRadius::all(5.0))
         .with_foreground_image("skip-forward.png")
         .with_animation(AnimationConfig {
             duration: Duration::from_millis(200),
@@ -819,8 +973,8 @@ fn create_player_bar(
         .with_background_color(BackgroundColorConfig {
             color: Color::Transparent,
         })
-        .with_margin(Edges::left(10.0))
-        .with_border_radius(BorderRadius::all(999.0))
+        .with_content_padding(Edges::all(5.0))
+        .with_border_radius(BorderRadius::all(5.0))
         .with_foreground_image("repeat.png")
         .with_animation(AnimationConfig {
             duration: Duration::from_millis(200),
@@ -834,47 +988,112 @@ fn create_player_bar(
         })
         .build(layout_context, wgpu_ctx);
 
-    layout_context.add_child_to_parent(player_controls_sub_container_id, shuffle_button_id);
-    layout_context.add_child_to_parent(player_controls_sub_container_id, previous_button_id);
-    layout_context.add_child_to_parent(player_controls_sub_container_id, play_button_id);
-    layout_context.add_child_to_parent(player_controls_sub_container_id, next_button_id);
-    layout_context.add_child_to_parent(player_controls_sub_container_id, repeat_button_id);
+    layout_context.add_child_to_parent(player_control_buttons_container_id, shuffle_button_id);
+    layout_context.add_child_to_parent(player_control_buttons_container_id, previous_button_id);
+    layout_context.add_child_to_parent(player_control_buttons_container_id, play_button_id);
+    layout_context.add_child_to_parent(player_control_buttons_container_id, next_button_id);
+    layout_context.add_child_to_parent(player_control_buttons_container_id, repeat_button_id);
 
     layout_context.add_child_to_parent(
         player_controls_container_id,
-        player_controls_sub_container_id,
+        player_control_buttons_container_id,
     );
 
-    let temp_song_progress_slider_id = BackgroundBuilder::with_color(BackgroundColorConfig {
+    let song_progress_container_id = ContainerBuilder::new()
+        .with_debug_name("Song Progress Container")
+        .with_height(FlexValue::Fixed(16.0))
+        .with_align_items(AlignItems::Center)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    // TODO: Temporarily use a color as multiple text components have weird behavior for now
+    let song_start_time_id = BackgroundBuilder::with_color(BackgroundColorConfig {
+        color: Color::DarkGray,
+    })
+    .with_debug_name("Song Progress Start Time")
+    .with_border_radius(BorderRadius::all(5.0))
+    .with_size(50, 16)
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    let song_end_time_id = BackgroundBuilder::with_color(BackgroundColorConfig {
+        color: Color::DarkGray,
+    })
+    .with_debug_name("Song Progress End Time")
+    .with_border_radius(BorderRadius::all(5.0))
+    .with_size(50, 16)
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    let song_progress_slider_id = BackgroundBuilder::with_color(BackgroundColorConfig {
         color: Color::DarkGray,
     })
     .with_debug_name("Song Progress Slider")
     .with_border_radius(BorderRadius::all(999.0))
     .with_height(4)
+    .with_margin(Edges::horizontal(10.0))
     .build(
         &mut layout_context.world,
         wgpu_ctx,
         &mut layout_context.z_index_manager,
     );
 
-    layout_context.add_child_to_parent(player_controls_container_id, temp_song_progress_slider_id);
+    layout_context.add_child_to_parent(song_progress_container_id, song_start_time_id);
+    layout_context.add_child_to_parent(song_progress_container_id, song_progress_slider_id);
+    layout_context.add_child_to_parent(song_progress_container_id, song_end_time_id);
 
-    let temp_volume_slider_id = BackgroundBuilder::with_color(BackgroundColorConfig {
+    layout_context.add_child_to_parent(player_controls_container_id, song_progress_container_id);
+
+    let volume_slider_container_id = ContainerBuilder::new()
+        .with_debug_name("Volume Slider Container")
+        .with_direction(FlexDirection::Row)
+        .with_margin(Edges::all(5.0))
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::End)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    let volume_slider_id = BackgroundBuilder::with_color(BackgroundColorConfig {
         color: Color::DarkGray,
     })
     .with_debug_name("Volume Slider")
     .with_border_radius(BorderRadius::all(999.0))
-    .with_height(4)
+    .with_size(80, 4)
+    .with_margin(Edges::custom(0.0, 10.0, 0.0, 5.0))
     .build(
         &mut layout_context.world,
         wgpu_ctx,
         &mut layout_context.z_index_manager,
     );
 
+    let volume_icon_id = ImageBuilder::new("volume.png")
+        .with_debug_name("Volume Icon")
+        .with_size(16, 16)
+        .with_margin(Edges::left(5.0))
+        .with_scale_mode(ScaleMode::Contain)
+        .build(
+            &mut layout_context.world,
+            wgpu_ctx,
+            &mut layout_context.z_index_manager,
+        );
+
+    layout_context.add_child_to_parent(volume_slider_container_id, volume_icon_id);
+    layout_context.add_child_to_parent(volume_slider_container_id, volume_slider_id);
+
     layout_context.add_child_to_parent(player_container_id, player_container_background_id);
     layout_context.add_child_to_parent(player_container_id, song_info_container_id);
     layout_context.add_child_to_parent(player_container_id, player_controls_container_id);
-    layout_context.add_child_to_parent(player_container_id, temp_volume_slider_id);
+    layout_context.add_child_to_parent(player_container_id, volume_slider_container_id);
 
     player_container_id
 }
