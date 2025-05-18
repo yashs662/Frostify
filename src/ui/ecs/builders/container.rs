@@ -1,7 +1,7 @@
 use crate::ui::{
     ecs::{
         ComponentType, EntityId, World,
-        builders::{EntityBuilder, EntityBuilderProps},
+        builders::{EntityBuilder, EntityBuilderProps, add_common_components},
         components::LayoutComponent,
     },
     layout::{
@@ -9,8 +9,6 @@ use crate::ui::{
     },
     z_index_manager::ZIndexManager,
 };
-
-use super::add_common_components;
 
 pub struct ContainerBuilder {
     common: EntityBuilderProps,

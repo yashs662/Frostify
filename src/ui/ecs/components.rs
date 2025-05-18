@@ -1,11 +1,11 @@
 use frostify_derive::EcsComponent;
 
-use super::{EcsComponent, EntityId, GradientColorStop, GradientType, builders::image::ScaleMode};
 use crate::ui::{
     color::Color,
+    ecs::{EcsComponent, EntityId, GradientColorStop, GradientType, builders::image::ScaleMode},
     layout::{
-        Anchor, BorderRadius, Bounds, ClipBounds, ComponentOffset, Layout, LayoutSize, Position,
-        Size,
+        Anchor, BorderRadius, Bounds, ClipBounds, ComponentOffset, FlexValue, Layout, LayoutSize,
+        Position, Size,
     },
 };
 
@@ -114,6 +114,13 @@ pub struct TextComponent {
     pub color: Color,
 }
 
+/// Useful in properly re-fitting the component when screen size changes
+#[derive(Debug, Clone, EcsComponent)]
+pub struct PreFitSizeComponent {
+    pub original_width: FlexValue,
+    pub original_height: FlexValue,
+}
+
 #[derive(Debug, Clone, EcsComponent)]
 pub struct ImageComponent {
     pub image_path: String,
@@ -164,6 +171,36 @@ impl ImageComponent {
                         },
                         ComponentOffset {
                             x: x_offset.into(),
+                            y: 0.0.into(),
+                        },
+                    ))
+                }
+            }
+            ScaleMode::ContainNoCenter => {
+                // ContainNoCenter - scale to fit while preserving aspect ratio but not offsetting to center
+                if original_aspect > container_aspect {
+                    // Image is wider than container (relative to height)
+                    let new_height = container_width / original_aspect;
+                    Some((
+                        Size {
+                            width: container_width,
+                            height: new_height,
+                        },
+                        ComponentOffset {
+                            x: 0.0.into(),
+                            y: 0.0.into(),
+                        },
+                    ))
+                } else {
+                    // Image is taller than container (relative to width)
+                    let new_width = container_height * original_aspect;
+                    Some((
+                        Size {
+                            width: new_width,
+                            height: container_height,
+                        },
+                        ComponentOffset {
+                            x: 0.0.into(),
                             y: 0.0.into(),
                         },
                     ))
@@ -220,33 +257,20 @@ impl ImageComponent {
                         },
                     ))
                 } else {
-                    // If the image is larger than the container, use contain logic
-                    let original_aspect = original_width / original_height;
-                    let container_aspect = container_width / container_height;
+                    // Image is larger than the container, we will keep the original size and center it
+                    let x_offset = (container_width - original_width) / 2.0;
+                    let y_offset = (container_height - original_height) / 2.0;
 
-                    if original_aspect > container_aspect {
-                        Some((
-                            Size {
-                                width: container_width,
-                                height: container_width / original_aspect,
-                            },
-                            ComponentOffset {
-                                x: 0.0.into(),
-                                y: 0.0.into(),
-                            },
-                        ))
-                    } else {
-                        Some((
-                            Size {
-                                width: container_height * original_aspect,
-                                height: container_height,
-                            },
-                            ComponentOffset {
-                                x: 0.0.into(),
-                                y: 0.0.into(),
-                            },
-                        ))
-                    }
+                    Some((
+                        Size {
+                            width: original_width,
+                            height: original_height,
+                        },
+                        ComponentOffset {
+                            x: x_offset.into(),
+                            y: y_offset.into(),
+                        },
+                    ))
                 }
             }
         }

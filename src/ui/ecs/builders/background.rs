@@ -4,7 +4,7 @@ use crate::{
         color::Color,
         ecs::{
             ComponentType, EntityId, GradientColorStop, GradientType, World,
-            builders::{EntityBuilder, EntityBuilderProps},
+            builders::{EntityBuilder, EntityBuilderProps, add_common_components},
             components::{
                 ColorComponent, FrostedGlassComponent, GradientComponent, LayoutComponent,
                 RenderDataComponent,
@@ -17,8 +17,6 @@ use crate::{
     wgpu_ctx::WgpuCtx,
 };
 use wgpu::util::DeviceExt;
-
-use super::add_common_components;
 
 pub struct BackgroundGradientConfig {
     pub color_stops: Vec<GradientColorStop>,
@@ -159,7 +157,7 @@ impl BackgroundBuilder {
                     height: 1,
                     depth_or_array_layers: 1,
                 };
-                let placeholder_texture_data: [u8; 4] = [255, 255, 255, 255]; // White pixel
+                let placeholder_texture_data: [u8; 4] = [0, 0, 0, 0]; // Transparent pixel
                 let placeholder_texture =
                     wgpu_ctx.device.create_texture(&wgpu::TextureDescriptor {
                         label: Some(format!("{} Placeholder Texture", entity_id).as_str()),

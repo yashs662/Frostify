@@ -42,19 +42,12 @@ pub enum UiView {
     Test,
 }
 
-pub fn create_splash_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
-    let main_container_id = ContainerBuilder::new()
-        .with_debug_name("Splash Screen Main Container")
-        .with_direction(FlexDirection::Column)
-        .with_align_items(AlignItems::Center)
-        .with_justify_content(JustifyContent::Center)
-        .build(
-            &mut layout_context.world,
-            &mut layout_context.z_index_manager,
-        );
-
-    let splash_background_container_id = ContainerBuilder::new()
-        .with_debug_name("Splash Screen Background Container")
+pub fn create_fancy_background_gradient(
+    wgpu_ctx: &mut WgpuCtx,
+    layout_context: &mut layout::LayoutContext,
+) -> EntityId {
+    let fancy_background_container_id = ContainerBuilder::new()
+        .with_debug_name("Fancy Background Gradient Container")
         .with_fixed_position(Anchor::Center)
         .with_z_index(-1)
         .build(
@@ -62,14 +55,18 @@ pub fn create_splash_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Lay
             &mut layout_context.z_index_manager,
         );
 
-    let splash_background_comp_0_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+    let gradient_composition_0_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
         color_stops: vec![
             GradientColorStop {
-                color: Color::Crimson,
+                color: Color::Transparent,
                 position: 0.0,
             },
             GradientColorStop {
-                color: Color::Black,
+                color: Color::Crimson,
+                position: 0.5,
+            },
+            GradientColorStop {
+                color: Color::Transparent,
                 position: 1.0,
             },
         ],
@@ -79,14 +76,14 @@ pub fn create_splash_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Lay
         radius: None,
     })
     .with_fixed_position(Anchor::Center)
-    .with_debug_name("Splash Screen Background Composition 0")
+    .with_debug_name("Fancy Background Gradient Composition 0")
     .build(
         &mut layout_context.world,
         wgpu_ctx,
         &mut layout_context.z_index_manager,
     );
 
-    let splash_background_comp_1_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+    let gradient_composition_1_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
         color_stops: vec![
             GradientColorStop {
                 color: Color::Crimson.darken(0.2),
@@ -104,17 +101,17 @@ pub fn create_splash_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Lay
     })
     .with_z_index(1)
     .with_fixed_position(Anchor::Center)
-    .with_debug_name("Splash Screen Background Composition 1")
+    .with_debug_name("Fancy Background Gradient Composition 1")
     .build(
         &mut layout_context.world,
         wgpu_ctx,
         &mut layout_context.z_index_manager,
     );
 
-    let splash_background_comp_2_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+    let gradient_composition_2_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
         color_stops: vec![
             GradientColorStop {
-                color: Color::Black,
+                color: Color::Crimson.darken(0.2),
                 position: 0.0,
             },
             GradientColorStop {
@@ -125,20 +122,51 @@ pub fn create_splash_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Lay
         angle: 90.0,
         gradient_type: GradientType::Radial,
         center: Some((0.0, 0.0)),
-        radius: Some(2.0),
+        radius: Some(0.4),
     })
-    .with_z_index(2)
+    .with_z_index(1)
     .with_fixed_position(Anchor::Center)
-    .with_debug_name("Splash Screen Background Composition 2")
+    .with_debug_name("Fancy Background Gradient Composition 2")
     .build(
         &mut layout_context.world,
         wgpu_ctx,
         &mut layout_context.z_index_manager,
     );
 
-    layout_context.add_child_to_parent(splash_background_container_id, splash_background_comp_0_id);
-    layout_context.add_child_to_parent(splash_background_container_id, splash_background_comp_1_id);
-    layout_context.add_child_to_parent(splash_background_container_id, splash_background_comp_2_id);
+    let frosted_glass_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
+        tint_color: Color::Black,
+        blur_radius: 50.0,
+        opacity: 1.0,
+        tint_intensity: 0.0,
+    })
+    .with_debug_name("Fancy Background Frosted Glass")
+    .with_fixed_position(Anchor::Center)
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    layout_context.add_child_to_parent(fancy_background_container_id, gradient_composition_0_id);
+    layout_context.add_child_to_parent(fancy_background_container_id, gradient_composition_1_id);
+    layout_context.add_child_to_parent(fancy_background_container_id, gradient_composition_2_id);
+    layout_context.add_child_to_parent(fancy_background_container_id, frosted_glass_id);
+
+    fancy_background_container_id
+}
+
+pub fn create_splash_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::LayoutContext) {
+    let main_container_id = ContainerBuilder::new()
+        .with_debug_name("Splash Screen Main Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    let splash_background_container_id = create_fancy_background_gradient(wgpu_ctx, layout_context);
     layout_context.add_child_to_parent(main_container_id, splash_background_container_id);
 
     let nav_bar_container_id = create_nav_bar(wgpu_ctx, layout_context, true);
@@ -157,7 +185,6 @@ pub fn create_splash_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Lay
     layout_context.add_child_to_parent(main_container_id, splash_content_container_id);
 
     let logo_id = ImageBuilder::new("frostify_logo.png")
-        .with_scale_mode(ScaleMode::Contain)
         .with_size(150, 150)
         .with_margin(Edges::vertical(10.0))
         .with_debug_name("Logo")
@@ -274,92 +301,7 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
             &mut layout_context.z_index_manager,
         );
 
-    let login_background_container_id = ContainerBuilder::new()
-        .with_debug_name("Login Page Background Container")
-        .with_fixed_position(Anchor::Center)
-        .with_z_index(-1)
-        .build(
-            &mut layout_context.world,
-            &mut layout_context.z_index_manager,
-        );
-
-    let login_background_comp_0_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
-        color_stops: vec![
-            GradientColorStop {
-                color: Color::Crimson,
-                position: 0.0,
-            },
-            GradientColorStop {
-                color: Color::Black,
-                position: 1.0,
-            },
-        ],
-        angle: 90.0,
-        gradient_type: GradientType::Linear,
-        center: None,
-        radius: None,
-    })
-    .with_fixed_position(Anchor::Center)
-    .with_debug_name("Login Page Background Composition 0")
-    .build(
-        &mut layout_context.world,
-        wgpu_ctx,
-        &mut layout_context.z_index_manager,
-    );
-
-    let login_background_comp_1_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
-        color_stops: vec![
-            GradientColorStop {
-                color: Color::Crimson.darken(0.2),
-                position: 0.0,
-            },
-            GradientColorStop {
-                color: Color::Transparent,
-                position: 1.0,
-            },
-        ],
-        angle: 90.0,
-        gradient_type: GradientType::Radial,
-        center: Some((1.0, 1.0)),
-        radius: Some(0.4),
-    })
-    .with_z_index(1)
-    .with_fixed_position(Anchor::Center)
-    .with_debug_name("Login Page Background Composition 1")
-    .build(
-        &mut layout_context.world,
-        wgpu_ctx,
-        &mut layout_context.z_index_manager,
-    );
-
-    let login_background_comp_2_id = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
-        color_stops: vec![
-            GradientColorStop {
-                color: Color::Black,
-                position: 0.0,
-            },
-            GradientColorStop {
-                color: Color::Transparent,
-                position: 1.0,
-            },
-        ],
-        angle: 90.0,
-        gradient_type: GradientType::Radial,
-        center: Some((0.0, 0.0)),
-        radius: Some(2.0),
-    })
-    .with_z_index(2)
-    .with_fixed_position(Anchor::Center)
-    .with_debug_name("Login Page Background Composition 2")
-    .build(
-        &mut layout_context.world,
-        wgpu_ctx,
-        &mut layout_context.z_index_manager,
-    );
-
-    layout_context.add_child_to_parent(login_background_container_id, login_background_comp_0_id);
-    layout_context.add_child_to_parent(login_background_container_id, login_background_comp_1_id);
-    layout_context.add_child_to_parent(login_background_container_id, login_background_comp_2_id);
+    let login_background_container_id = create_fancy_background_gradient(wgpu_ctx, layout_context);
     layout_context.add_child_to_parent(main_container_id, login_background_container_id);
 
     let nav_bar_container_id = create_nav_bar(wgpu_ctx, layout_context, true);
@@ -394,8 +336,7 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
 
     // Logo
     let logo_id = ImageBuilder::new("frostify_logo.png")
-        .with_scale_mode(ScaleMode::Contain)
-        .with_size(100, 100)
+        .with_size(150, 150)
         .with_margin(Edges::vertical(10.0))
         .with_debug_name("Logo")
         .build(
@@ -464,7 +405,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
 
     let background_id = ImageBuilder::new("album_art.png")
         .with_scale_mode(ScaleMode::Cover)
-        .with_debug_name("Background")
+        .with_debug_name("Main Background")
         .with_z_index(-2)
         .with_fixed_position(Anchor::Center)
         .build(
@@ -547,7 +488,6 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
             "test.png"
         };
         let mut image_builder = ImageBuilder::new(image_name)
-            .with_scale_mode(ScaleMode::Contain)
             .with_debug_name(format!("Album Art {}", i))
             .with_size(FlexValue::Fixed(70.0), FlexValue::Fixed(70.0))
             .with_border_radius(BorderRadius::all(5.0))
@@ -827,10 +767,9 @@ fn create_player_bar(
     let current_song_album_art_id = ImageBuilder::new("album_art.png")
         .with_debug_name("Current Song Album Art")
         .with_z_index(1)
-        .with_scale_mode(ScaleMode::Original)
+        .with_scale_mode(ScaleMode::ContainNoCenter)
         .with_shadow(Color::Black, (0.0, 0.0), 4.0, 0.4)
         .with_uniform_border_radius(5.0)
-        .set_fit_to_size()
         .build(
             &mut layout_context.world,
             wgpu_ctx,

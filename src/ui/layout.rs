@@ -2,7 +2,12 @@ use crate::{
     app::AppEvent,
     ui::{
         ecs::{
-            components::{ImageComponent, RenderDataComponent, TextComponent},
+            ComponentType, EntityId, World,
+            components::{
+                BoundsComponent, HierarchyComponent, IdentityComponent, ImageComponent,
+                LayoutComponent, PreFitSizeComponent, RenderDataComponent, TextComponent,
+                TransformComponent, VisualComponent,
+            },
             resources::{RenderOrderResource, WgpuQueueResource},
         },
         text_renderer::OptionalTextUpdateData,
@@ -14,14 +19,6 @@ use crate::{
 use frostify_derive::time_function;
 use std::collections::BTreeMap;
 use tokio::sync::mpsc::UnboundedSender;
-
-use super::ecs::{
-    ComponentType, EntityId, World,
-    components::{
-        BoundsComponent, HierarchyComponent, IdentityComponent, LayoutComponent,
-        TransformComponent, VisualComponent,
-    },
-};
 
 #[derive(Debug, Clone)]
 pub struct ComponentOffset {
@@ -635,7 +632,26 @@ impl LayoutContext {
 
     pub fn resize_viewport(&mut self, wgpu_ctx: &mut WgpuCtx) {
         self.viewport_size = wgpu_ctx.get_screen_size();
+        self.reset_fit_to_size_components();
         self.compute_layout_and_sync(wgpu_ctx);
+    }
+
+    fn reset_fit_to_size_components(&mut self) {
+        let mut pre_fit_sizes = Vec::new();
+        self.world
+            .for_each_component::<PreFitSizeComponent, _>(|id, pre_fit_size| {
+                pre_fit_sizes.push((id, pre_fit_size.clone()));
+            });
+
+        for (id, pre_fit_size) in pre_fit_sizes {
+            let transform_comp = self
+                .world
+                .components
+                .get_component_mut::<TransformComponent>(id)
+                .expect("Expected TransformComponent to exist");
+            transform_comp.size.width = pre_fit_size.original_width;
+            transform_comp.size.height = pre_fit_size.original_height;
+        }
     }
 
     pub fn find_root_component(&mut self) {
@@ -774,7 +790,10 @@ impl LayoutContext {
                     .get_component_mut::<TransformComponent>(entity_id)
                     .expect("Expected TransformComponent to exist");
 
-                transform_comp.offset = offset;
+                // Offset is calculated later for Absolute and Fixed positions
+                if transform_comp.position_type == Position::Flex {
+                    transform_comp.offset = offset;
+                }
                 transform_comp.size.width = FlexValue::Fixed(new_bounds.size.width);
                 transform_comp.size.height = FlexValue::Fixed(new_bounds.size.height);
 
@@ -1810,414 +1829,7 @@ impl LayoutContext {
             }
         }
     }
-
-    // pub fn handle_event(
-    //     &mut self,
-    //     event: InputEvent,
-    // ) -> Option<(EntityId, EventType, Option<AppEvent>)> {
-    //     if let Some(position) = event.position {
-    //         // For hover events, we need to track components that were previously hovered
-    //         // but are no longer under the cursor
-    //         if event.event_type == EventType::Hover {
-    //             // Reset hover state for all components first
-    //             for (_, component) in self.components.iter_mut() {
-    //                 if component.is_hovered() {
-    //                     component.set_hover_state(false);
-    //                 }
-    //             }
-
-    //             // Find all hoverable components under the cursor and set their state
-    //             for id in self.render_order.iter().rev() {
-    //                 if let Some(component) = self.components.get_mut(id) {
-    //                     if component.is_visible()
-    //                         && component.is_hoverable()
-    //                         && component.is_hit(position)
-    //                     {
-    //                         component.set_hover_state(true);
-    //                     }
-    //                 }
-    //             }
-    //         }
-
-    //         // Handle scroll events for sliders and scrollable containers
-    //         if matches!(
-    //             event.event_type,
-    //             EventType::ScrollUp | EventType::ScrollDown
-    //         ) {
-    //             // First check for scrollable containers under the cursor
-    //             for id in self.render_order.iter().rev() {
-    //                 if let Some(component) = self.components.get_mut(id) {
-    //                     if component.is_visible()
-    //                         && component.is_hit(position)
-    //                         && component.layout.is_scrollable
-    //                     {
-    //                         let scroll_delta = match event.event_type {
-    //                             EventType::ScrollUp => 30.0,
-    //                             EventType::ScrollDown => -30.0,
-    //                             _ => 0.0,
-    //                         };
-
-    //                         // If this scroll orientation matches the event, handle it
-    //                         let scroll_applied = match component.layout.scroll_orientation {
-    //                             ScrollOrientation::Vertical => {
-    //                                 if matches!(
-    //                                     component.layout.direction,
-    //                                     FlexDirection::Column | FlexDirection::ColumnReverse
-    //                                 ) {
-    //                                     component.layout.update_scroll_position(scroll_delta)
-    //                                 } else {
-    //                                     false
-    //                                 }
-    //                             }
-    //                             ScrollOrientation::Horizontal => {
-    //                                 if matches!(
-    //                                     component.layout.direction,
-    //                                     FlexDirection::Row | FlexDirection::RowReverse
-    //                                 ) {
-    //                                     component.layout.update_scroll_position(scroll_delta)
-    //                                 } else {
-    //                                     false
-    //                                 }
-    //                             }
-    //                         };
-
-    //                         // If scroll position was changed, recalculate layout
-    //                         if scroll_applied {
-    //                             // Store needed values from the immutable borrow
-    //                             let container_id = *id;
-
-    //                             // Now safe to do mutable operations
-    //                             self.compute_layout();
-
-    //                             // Only update positions for components that are children of the scrolled container
-    //                             // or the container itself
-    //                             let mut affected_ids = vec![container_id];
-    //                             self.get_all_descendants(container_id, &mut affected_ids);
-
-    //                             for id in affected_ids {
-    //                                 if let (Some(component), Some(bounds)) = (
-    //                                     self.components.get_mut(&id),
-    //                                     self.computed_bounds.get(&id),
-    //                                 ) {
-    //                                     component.set_position_only_layout(bounds);
-    //                                 }
-    //                             }
-
-    //                             return None; // Consume the scroll event
-    //                         }
-    //                     }
-    //                 }
-    //             }
-
-    //             // If no scrollable container consumed the event, check for sliders
-    //             let mut slider_id_to_update = None;
-
-    //             // First pass: identify which slider needs updating (without mutable borrow)
-    //             for id in self.render_order.iter().rev() {
-    //                 if let Some(component) = self.components.get(id) {
-    //                     if component.is_visible()
-    //                         && component.is_hit(position)
-    //                         && component.is_a_slider()
-    //                     {
-    //                         slider_id_to_update = Some(*id);
-    //                         break;
-    //                     }
-    //                 }
-    //             }
-
-    //             // Second pass: update the identified slider with a clean mutable borrow
-    //             if let Some(id) = slider_id_to_update {
-    //                 // Convert scroll event to delta
-    //                 let scroll_delta = match event.event_type {
-    //                     EventType::ScrollUp => -1.0,  // Flipped
-    //                     EventType::ScrollDown => 1.0, // Flipped
-    //                     _ => 0.0,
-    //                 };
-
-    //                 // Now we can safely get a mutable reference and update
-    //                 if let Some(slider) = self.components.get_mut(&id) {
-    //                     slider.handle_scroll(scroll_delta);
-
-    //                     // Make sure this triggers a proper update
-    //                     if let Some(slider_data) = slider.get_slider_data_mut() {
-    //                         slider_data.needs_update = true;
-    //                     }
-    //                 }
-
-    //                 return None; // Consume the scroll event
-    //             }
-    //         }
-
-    //         // Process clicking/dragging events
-    //         if matches!(
-    //             event.event_type,
-    //             EventType::Press | EventType::Release | EventType::Drag
-    //         ) {
-    //             // First, check if we're interacting with any component
-    //             let mut hit_component_id = None;
-
-    //             // Check all components from top to bottom for hit testing
-    //             for id in self.render_order.iter().rev() {
-    //                 if let Some(component) = self.components.get(id) {
-    //                     if component.is_visible() && component.is_hit(position) {
-    //                         hit_component_id = Some(*id);
-    //                         break;
-    //                     }
-    //                 }
-    //             }
-
-    //             // If we hit a component, handle the event
-    //             if let Some(id) = hit_component_id {
-    //                 // First, check if this component or any parent is a slider
-    //                 if matches!(event.event_type, EventType::Press | EventType::Drag) {
-    //                     self.update_slider_from_cursor(id, position);
-    //                 }
-
-    //                 // Check if the component itself can handle the event
-    //                 if let Some(component) = self.components.get_mut(&id) {
-    //                     let is_interactive = match &event.event_type {
-    //                         EventType::Drag => component.is_draggable(),
-    //                         EventType::Press => component.is_clickable(),
-    //                         _ => false,
-    //                     };
-
-    //                     if is_interactive {
-    //                         let return_event = match &event.event_type {
-    //                             EventType::Drag => component.get_drag_event().cloned(),
-    //                             _ => component.get_click_event().cloned(),
-    //                         };
-    //                         return Some((component.id, event.event_type.clone(), return_event));
-    //                     }
-    //                 }
-
-    //                 // Otherwise bubble up events normally
-    //                 return self.bubble_event_up(id, &event.event_type);
-    //             }
-    //         }
-    //     }
-    //     None
-    // }
-
-    // Helper method to update slider when clicked/dragged
-    // TODO
-    // fn update_slider_from_cursor(&mut self, start_id: EntityId, position: ComponentPosition) {
-    //     let mut current_id = start_id;
-
-    //     // Traverse up the component tree looking for sliders
-    //     while let Some(component) = self.components.get(&current_id) {
-    //         if component.is_a_slider() {
-    //             // Found a slider, update its value
-    //             if let Some(slider) = self.components.get_mut(&current_id) {
-    //                 let bounds = slider.computed_bounds;
-    //                 let track_start = bounds.position.x;
-    //                 let track_width = bounds.size.width;
-
-    //                 if track_width > 0.0 {
-    //                     // Ensure we don't divide by zero
-    //                     // Calculate relative position on the track (0.0 to 1.0)
-    //                     let relative_pos = (position.x - track_start) / track_width;
-    //                     let clamped_pos = relative_pos.clamp(0.0, 1.0);
-
-    //                     // Get value range from slider data
-    //                     if let Some(slider_data) = slider.get_slider_data() {
-    //                         let range = slider_data.max - slider_data.min;
-    //                         let new_value = slider_data.min + (range * clamped_pos);
-
-    //                         // Update slider value which will mark it for update
-    //                         slider.set_value(new_value);
-    //                     }
-    //                 }
-    //             }
-
-    //             break;
-    //         }
-
-    //         // Move up to parent
-    //         if let Some(parent_id) = component.get_parent_id() {
-    //             current_id = parent_id;
-    //         } else {
-    //             // Reached root component with no slider found
-    //             break;
-    //         }
-    //     }
-    // }
-
-    // Bubble up through parent hierarchy to find handler
-    // fn bubble_event_up(
-    //     &mut self,
-    //     start_id: EntityId,
-    //     event_type: &EventType,
-    // ) -> Option<(EntityId, EventType, Option<AppEvent>)> {
-    //     let mut current_id = start_id;
-
-    //     while let Some(component) = self.components.get_mut(&current_id) {
-    //         // Check if this component can handle the event
-    //         let is_interactive = match &event_type {
-    //             EventType::Drag => component.is_draggable(),
-    //             EventType::Press => component.is_clickable(),
-    //             EventType::Hover => component.is_hoverable(),
-    //             _ => false,
-    //         };
-
-    //         // Special consideration for sliders
-    //         let is_slider = component.is_a_slider();
-
-    //         if is_interactive
-    //             || (is_slider && matches!(event_type, EventType::Drag | EventType::Press))
-    //         {
-    //             let return_event = match &event_type {
-    //                 EventType::Drag => component.get_drag_event().cloned(),
-    //                 EventType::Hover => {
-    //                     component.set_hover_state(true);
-    //                     None
-    //                 }
-    //                 _ => component.get_click_event().cloned(),
-    //             };
-
-    //             return Some((component.id, event_type.clone(), return_event));
-    //         }
-
-    //         // Move up to parent
-    //         if let Some(parent_id) = component.get_parent_id() {
-    //             current_id = parent_id;
-    //         } else {
-    //             // Reached root component with no handler
-    //             break;
-    //         }
-    //     }
-
-    //     None
-    // }
-
-    // pub fn reset_all_hover_states(&mut self) {
-    //     for (_, component) in self.components.iter_mut() {
-    //         if component.is_hovered() {
-    //             component.set_hover_state(false);
-    //         }
-    //     }
-    // }
-
-    // pub fn reset_all_drag_states(&mut self, wgpu_ctx: &mut WgpuCtx) {
-    //     for (_, component) in self.components.iter_mut() {
-    //         // Reset drag state for sliders
-    //         if component.is_a_slider() {
-    //             component.reset_drag_state();
-    //         }
-
-    //         // Reset hover states as well
-    //         if component.is_hovered() {
-    //             component.set_hover_state(false);
-    //         }
-
-    //         // Only update rendering if the component actually needs it
-    //         if component.needs_update() {
-    //             if let Some(buffer) = component.get_render_data_buffer() {
-    //                 wgpu_ctx.queue.write_buffer(
-    //                     buffer,
-    //                     0,
-    //                     bytemuck::cast_slice(&[
-    //                         component.get_render_data(component.computed_bounds)
-    //                     ]),
-    //                 );
-    //             }
-    //         }
-    //     }
-    // }
-
-    // // Add this helper method to get all descendants of a container
-    // fn get_all_descendants(&self, parent_id: EntityId, result: &mut Vec<EntityId>) {
-    //     if let Some(parent) = self.components.get(&parent_id) {
-    //         for (child_id, _) in &parent.children_ids {
-    //             result.push(*child_id);
-    //             self.get_all_descendants(*child_id, result);
-    //         }
-    //     }
-    // }
-
-    // pub fn refresh_all_sliders(&mut self) {
-    //     // First collect all the update information without keeping multiple mutable borrows
-    //     let mut slider_updates = Vec::new();
-
-    //     for (_id, component) in self.components.iter_mut() {
-    //         if component.is_a_slider() {
-    //             // Update track bounds to make sure we have the latest bounds
-    //             component.update_track_bounds(component.computed_bounds);
-
-    //             // Get slider data and prepare update info
-    //             if let Some(slider_data) = component.get_slider_data_mut() {
-    //                 // Calculate normalized value for visual positioning
-    //                 let normalized_value =
-    //                     (slider_data.value - slider_data.min) / (slider_data.max - slider_data.min);
-
-    //                 // Mark for update
-    //                 slider_data.needs_update = true;
-
-    //                 // Save the IDs and normalized value for the second pass
-    //                 if let Some(track_bounds) = slider_data.track_bounds {
-    //                     slider_updates.push((
-    //                         slider_data.thumb_id,
-    //                         slider_data.track_fill_id,
-    //                         normalized_value,
-    //                         track_bounds,
-    //                     ));
-    //                 }
-    //             }
-
-    //             // Force a refresh of the slider's visual components
-    //             component.refresh_slider();
-    //         }
-    //     }
-
-    //     // Now apply the updates in a separate pass to avoid multiple mutable borrows
-    //     for (thumb_id, track_fill_id, normalized_value, _) in slider_updates {
-    //         // Update the thumb position
-    //         if let Some(thumb) = self.components.get_mut(&thumb_id) {
-    //             thumb.transform.offset.x = FlexValue::Fraction(normalized_value);
-    //             thumb.flag_for_update();
-    //         }
-
-    //         // Update the track fill width
-    //         if let Some(track_fill) = self.components.get_mut(&track_fill_id) {
-    //             track_fill.transform.size.width = FlexValue::Fraction(normalized_value);
-    //             track_fill.flag_for_update();
-    //         }
-    //     }
-
-    //     // No need to call update_components here as it will be called by the caller
-    // }
 }
-
-// fn calc_scale_anchor_offsets(
-//     scale_anchor: Anchor,
-//     original_width: f32,
-//     original_height: f32,
-//     scaled_width: f32,
-//     scaled_height: f32,
-// ) -> (f32, f32) {
-//     match scale_anchor {
-//         Anchor::TopLeft => (0.0, 0.0),
-//         Anchor::Top => ((original_width - scaled_width) / 2.0, 0.0),
-//         Anchor::TopRight => (original_width - scaled_width, 0.0),
-//         Anchor::Left => (0.0, (original_height - scaled_height) / 2.0),
-//         Anchor::Center => (
-//             (original_width - scaled_width) / 2.0,
-//             (original_height - scaled_height) / 2.0,
-//         ),
-//         Anchor::Right => (
-//             original_width - scaled_width,
-//             (original_height - scaled_height) / 2.0,
-//         ),
-//         Anchor::BottomLeft => (0.0, original_height - scaled_height),
-//         Anchor::Bottom => (
-//             (original_width - scaled_width) / 2.0,
-//             original_height - scaled_height,
-//         ),
-//         Anchor::BottomRight => (
-//             original_width - scaled_width,
-//             original_height - scaled_height,
-//         ),
-//     }
-// }
 
 // Implement From<f32> for FlexValue to allow for convenient conversions
 impl From<f32> for FlexValue {

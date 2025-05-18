@@ -1,20 +1,14 @@
 use crate::{
-    app::AppEvent,
+    test::test_utils::get_event_sender,
     ui::{
-        ecs::builders::{container::ContainerBuilder, EntityBuilder},
+        ecs::builders::{EntityBuilder, container::ContainerBuilder},
         layout::*,
     },
     wgpu_ctx::WgpuCtx,
 };
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-
-fn get_event_sender() -> UnboundedSender<AppEvent> {
-    let (event_tx, _) = unbounded_channel::<AppEvent>();
-    event_tx
-}
 
 #[test]
-fn test_basic_fixed_flex_row_layout() {
+fn basic_fixed_flex_row_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -79,7 +73,7 @@ fn test_basic_fixed_flex_row_layout() {
 }
 
 #[test]
-fn test_basic_fixed_flex_column_layout() {
+fn basic_fixed_flex_column_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -145,7 +139,7 @@ fn test_basic_fixed_flex_column_layout() {
 }
 
 #[test]
-fn test_basic_fill_flex_row_layout() {
+fn basic_fill_flex_row_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -211,7 +205,7 @@ fn test_basic_fill_flex_row_layout() {
 }
 
 #[test]
-fn test_basic_fill_flex_column_layout() {
+fn basic_fill_flex_column_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -277,7 +271,7 @@ fn test_basic_fill_flex_column_layout() {
 }
 
 #[test]
-fn test_basic_fill_flex_row_layout_with_padding() {
+fn basic_fill_flex_row_layout_with_padding() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -344,7 +338,7 @@ fn test_basic_fill_flex_row_layout_with_padding() {
 }
 
 #[test]
-fn test_basic_fill_flex_column_layout_with_padding() {
+fn basic_fill_flex_column_layout_with_padding() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -411,7 +405,7 @@ fn test_basic_fill_flex_column_layout_with_padding() {
 }
 
 #[test]
-fn test_nested_containers_with_flex_layout_fixed_nested_container() {
+fn nested_containers_with_flex_layout_fixed_nested_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -506,7 +500,7 @@ fn test_nested_containers_with_flex_layout_fixed_nested_container() {
 }
 
 #[test]
-fn test_nested_containers_with_flex_layout_fill_nested_container() {
+fn nested_containers_with_flex_layout_fill_nested_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -602,7 +596,7 @@ fn test_nested_containers_with_flex_layout_fill_nested_container() {
 }
 
 #[test]
-fn test_navbar_app_layout() {
+fn navbar_app_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -769,7 +763,7 @@ fn test_navbar_app_layout() {
 }
 
 #[test]
-fn test_margin_and_padding_layout() {
+fn margin_and_padding_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -837,7 +831,7 @@ fn test_margin_and_padding_layout() {
 }
 
 #[test]
-fn test_fractional_sizing_in_a_container() {
+fn fractional_sizing_in_a_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -902,7 +896,7 @@ fn test_fractional_sizing_in_a_container() {
 }
 
 #[test]
-fn test_offset_in_nested_container() {
+fn offset_in_nested_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -954,7 +948,7 @@ fn test_offset_in_nested_container() {
 }
 
 #[test]
-fn test_offset_in_nested_container_with_flex_value() {
+fn offset_in_nested_container_with_flex_value() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -1006,7 +1000,7 @@ fn test_offset_in_nested_container_with_flex_value() {
 }
 
 #[test]
-fn test_multiple_fill_containers_with_fraction_width_container() {
+fn multiple_fill_containers_with_fraction_width_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
@@ -1083,7 +1077,7 @@ fn test_multiple_fill_containers_with_fraction_width_container() {
 }
 
 #[test]
-fn test_multiple_containers_with_different_directions_and_fractional_sizing() {
+fn multiple_containers_with_different_directions_and_fractional_sizing() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {

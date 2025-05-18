@@ -1,4 +1,8 @@
 #[cfg(test)]
-mod layout_tests;
+mod image_scaling;
 #[cfg(test)]
-mod z_index_tests;
+mod layout;
+#[cfg(test)]
+mod test_utils;
+#[cfg(test)]
+mod z_index;

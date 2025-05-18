@@ -5,7 +5,7 @@ use crate::{
     ui::{
         ecs::{
             ComponentType, EntityId, World,
-            builders::{EntityBuilder, EntityBuilderProps},
+            builders::{EntityBuilder, EntityBuilderProps, add_common_components},
             components::{ImageComponent, LayoutComponent, RenderDataComponent},
         },
         img_utils::RgbaImg,
@@ -16,27 +16,25 @@ use crate::{
     wgpu_ctx::WgpuCtx,
 };
 
-use super::add_common_components;
-
 /// Defines how an image should be scaled to fit its container
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ScaleMode {
     /// Stretch the image to fill the entire container (default)
+    #[default]
     Stretch,
     /// Maintain aspect ratio, scale to fit while ensuring entire image is visible
+    /// offsets the image to the center of the bounds before scaling
+    /// (may produce undesired results if there are other components in the same container
+    /// which are influenced by the image size, try using `ContainNoCenter` instead)
     Contain,
+    /// Similar to `Contain`, but the image is not offset to the center
+    ContainNoCenter,
     /// Maintain aspect ratio, scale to cover entire container (may crop)
     Cover,
     /// Don't scale the image (use original dimensions), FilterMode::Nearest
     /// is used for pixel-perfect scaling
     Original,
-}
-
-impl Default for ScaleMode {
-    fn default() -> Self {
-        Self::Stretch
-    }
 }
 
 pub struct ImageBuilder {
@@ -62,6 +60,9 @@ impl ImageBuilder {
     }
 
     pub fn with_scale_mode(mut self, scale_mode: ScaleMode) -> Self {
+        if scale_mode != ScaleMode::Stretch {
+            self.common.fit_to_size = true;
+        }
         self.scale_mode = scale_mode;
         self
     }

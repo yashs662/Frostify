@@ -1,8 +1,10 @@
+use std::cmp::Ordering;
+
 use crate::ui::z_index_manager::ZIndexManager;
 use uuid::Uuid;
 
 #[test]
-fn test_child_ordering() {
+fn child_ordering() {
     let mut z_index_manager = ZIndexManager::new();
     let parent_id = Uuid::new_v4();
 
@@ -25,7 +27,7 @@ fn test_child_ordering() {
 }
 
 #[test]
-fn test_custom_z_index() {
+fn custom_z_index() {
     let mut z_index_manager = ZIndexManager::new();
     let parent_id = Uuid::new_v4();
 
@@ -48,18 +50,16 @@ fn test_custom_z_index() {
 
     // All children should be in the order they were added, except for the one with the adjustment which should be at the end
     for (i, child_id) in child_ids.iter().enumerate() {
-        if i < 5 {
-            assert_eq!(render_order[i + 1], *child_id);
-        } else if i == 5 {
-            assert_eq!(render_order.last().unwrap(), child_id);
-        } else {
-            assert_eq!(render_order[i], *child_id);
+        match i.cmp(&5) {
+            Ordering::Less => assert_eq!(render_order[i + 1], *child_id),
+            Ordering::Equal => assert_eq!(render_order.last().unwrap(), child_id),
+            Ordering::Greater => assert_eq!(render_order[i], *child_id),
         }
     }
 }
 
 #[test]
-fn test_hierarchical_z_index_ordering() {
+fn hierarchical_z_index_ordering() {
     let mut z_index_manager = ZIndexManager::new();
     let parent_id = Uuid::new_v4();
 
@@ -106,7 +106,7 @@ fn test_hierarchical_z_index_ordering() {
 }
 
 #[test]
-fn test_inverted_hierarchical_z_index_ordering() {
+fn inverted_hierarchical_z_index_ordering() {
     let mut z_index_manager = ZIndexManager::new();
     let parent_id = Uuid::new_v4();
 
@@ -157,7 +157,7 @@ fn test_inverted_hierarchical_z_index_ordering() {
 }
 
 #[test]
-fn test_multiple_adjustments() {
+fn multiple_adjustments() {
     let mut z_index_manager = ZIndexManager::new();
     let parent_id = Uuid::new_v4();
 
@@ -202,7 +202,7 @@ fn test_multiple_adjustments() {
 }
 
 #[test]
-fn test_multiple_adjustments_in_hierarchy() {
+fn multiple_adjustments_in_hierarchy() {
     let mut z_index_manager = ZIndexManager::new();
     let parent_id = Uuid::new_v4();
 

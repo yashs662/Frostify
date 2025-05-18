@@ -1,11 +1,10 @@
 use crate::ui::{
     color::Color,
+    ecs::EntityId,
     layout::{Bounds, Size},
 };
 use glyphon::Metrics;
 use std::collections::HashMap;
-
-use super::ecs::EntityId;
 
 struct TextRenderData {
     buffer: glyphon::Buffer,

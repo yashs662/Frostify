@@ -76,7 +76,7 @@ impl<'window> WgpuCtx<'window> {
             format: surface_caps.formats[0],
             width,
             height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::AutoVsync, // TODO: Allow the user to configure this in future
             alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,

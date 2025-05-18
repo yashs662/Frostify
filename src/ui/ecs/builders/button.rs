@@ -4,20 +4,20 @@ use crate::{
         color::Color,
         ecs::{
             EntityId,
-            builders::{EntityBuilder, EntityBuilderProps},
+            builders::{
+                EntityBuilder, EntityBuilderProps,
+                background::{
+                    BackgroundBuilder, BackgroundColorConfig, BackgroundGradientConfig,
+                    FrostedGlassConfig,
+                },
+                container::ContainerBuilder,
+                image::{ImageBuilder, ScaleMode},
+                text::{TextBuilder, TextConfig},
+            },
         },
         layout::{AlignItems, Anchor, Edges, JustifyContent, LayoutContext, Overflow},
     },
     wgpu_ctx::WgpuCtx,
-};
-
-use super::{
-    background::{
-        BackgroundBuilder, BackgroundColorConfig, BackgroundGradientConfig, FrostedGlassConfig,
-    },
-    container::ContainerBuilder,
-    image::{ImageBuilder, ScaleMode},
-    text::{TextBuilder, TextConfig},
 };
 
 pub struct ButtonBuilder {
@@ -157,9 +157,12 @@ impl ButtonBuilder {
     }
 
     pub fn build(self, layout_context: &mut LayoutContext, wgpu_ctx: &mut WgpuCtx) -> EntityId {
+        let button_debug_name = self.common.debug_name.clone().expect(
+            "Debug name is required for all components, tried to create a button without it.",
+        );
         let button_container_id = ContainerBuilder::new()
             .with_external_common_props(self.common.clone())
-            .with_debug_name("Button Container")
+            .with_debug_name(format!("Button Container for {}", button_debug_name))
             .with_align_items(AlignItems::Center)
             .with_justify_content(JustifyContent::Center)
             .with_overflow(Overflow::Hidden)
@@ -176,7 +179,10 @@ impl ButtonBuilder {
 
         let content_container = if let Some(padding) = self.content_padding {
             let content_container_id = ContainerBuilder::new()
-                .with_debug_name("Button Content Container")
+                .with_debug_name(format!(
+                    "Button Content Container for {}",
+                    button_debug_name
+                ))
                 .with_fixed_position(Anchor::Center)
                 .with_align_items(AlignItems::Center)
                 .with_justify_content(JustifyContent::Center)
@@ -203,7 +209,7 @@ impl ButtonBuilder {
             let mut background_color_builder =
                 BackgroundBuilder::with_color(background_color_config)
                     .with_fixed_position(Anchor::Center)
-                    .with_debug_name("Button Background Color")
+                    .with_debug_name(format!("Button Background Color for {}", button_debug_name))
                     .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
@@ -230,7 +236,10 @@ impl ButtonBuilder {
             let mut background_gradient_builder =
                 BackgroundBuilder::with_gradient(background_gradient_config)
                     .with_fixed_position(Anchor::Center)
-                    .with_debug_name("Button Background Gradient")
+                    .with_debug_name(format!(
+                        "Button Background Gradient for {}",
+                        button_debug_name
+                    ))
                     .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
@@ -253,7 +262,7 @@ impl ButtonBuilder {
             let mut background_image_builder = ImageBuilder::new(&background_image)
                 .with_fixed_position(Anchor::Center)
                 .with_scale_mode(self.background_image_scale_mode.unwrap_or_default())
-                .with_debug_name("Button Background Image")
+                .with_debug_name(format!("Button Background Image for {}", button_debug_name))
                 .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
@@ -275,7 +284,10 @@ impl ButtonBuilder {
         if let Some(frosted_glass_config) = self.background_frosted_glass {
             let mut background_frosted_glass_builder =
                 BackgroundBuilder::with_frosted_glass(frosted_glass_config)
-                    .with_debug_name("Button Background Frosted Glass")
+                    .with_debug_name(format!(
+                        "Button Background Frosted Glass for {}",
+                        button_debug_name
+                    ))
                     .with_fixed_position(Anchor::Center)
                     .with_clipping(true)
                     .with_z_index(current_child_z_index);
@@ -297,7 +309,7 @@ impl ButtonBuilder {
 
         if let Some(foreground_image) = self.foreground_image {
             let mut foreground_image_builder = ImageBuilder::new(&foreground_image)
-                .with_debug_name("Button Foreground Image")
+                .with_debug_name(format!("Button Foreground Image for {}", button_debug_name))
                 .with_fixed_position(Anchor::Center)
                 .with_scale_mode(self.foreground_image_scale_mode.unwrap_or_default())
                 .with_clipping(true)
@@ -324,7 +336,7 @@ impl ButtonBuilder {
 
         if let Some(text_config) = &self.foreground_text {
             let mut text_builder = TextBuilder::new()
-                .with_debug_name("Button Foreground Text")
+                .with_debug_name(format!("Button Foreground Text for {}", button_debug_name))
                 .with_fixed_position(Anchor::Center)
                 .with_text(text_config.text.clone())
                 .with_font_size(text_config.font_size)

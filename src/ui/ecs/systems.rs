@@ -1,4 +1,3 @@
-use super::resources::{MouseResource, RenderGroupsResource};
 use crate::{
     constants::SCROLL_MULTIPLIER,
     ui::{
@@ -7,7 +6,10 @@ use crate::{
         ecs::{
             ComponentType, EcsSystem, EntityId, World,
             components::*,
-            resources::{RenderOrderResource, RequestReLayoutResource, WgpuQueueResource},
+            resources::{
+                MouseResource, RenderGroupsResource, RenderOrderResource, RequestReLayoutResource,
+                WgpuQueueResource,
+            },
         },
         layout::{Bounds, ClipBounds, ComponentPosition},
     },

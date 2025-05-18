@@ -1,4 +1,4 @@
-use super::ecs::EntityId;
+use crate::ui::ecs::EntityId;
 use std::collections::{HashMap, HashSet};
 #[derive(Debug)]
 pub struct ZIndexManager {

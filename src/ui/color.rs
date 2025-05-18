@@ -1,7 +1,5 @@
-// use crate::ui::component::{BackgroundGradientConfig, GradientType};
+use crate::ui::ecs::{GradientType, builders::background::BackgroundGradientConfig};
 use colorgrad::Gradient;
-
-use super::ecs::{GradientType, builders::background::BackgroundGradientConfig};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]

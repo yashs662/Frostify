@@ -3,19 +3,17 @@ use crate::{
     ui::{
         animation::{Animation, AnimationConfig, AnimationType, AnimationWhen},
         color::Color,
-        ecs::BorderPosition,
+        ecs::{
+            BorderPosition, EntityId, World,
+            components::{
+                AnimationComponent, BoundsComponent, HierarchyComponent, InteractionComponent,
+                PreFitSizeComponent, TransformComponent, VisualComponent,
+            },
+        },
         layout::{
             Anchor, BorderRadius, ComponentOffset, Edges, FlexValue, LayoutSize, Position, Size,
         },
         z_index_manager::ZIndexManager,
-    },
-};
-
-use super::{
-    EntityId, World,
-    components::{
-        AnimationComponent, BoundsComponent, HierarchyComponent, InteractionComponent,
-        TransformComponent, VisualComponent,
     },
 };
 
@@ -299,4 +297,15 @@ pub fn add_common_components(
             drag_event: props.drag_event,
         },
     );
+
+    // PreFitBoundsComponent
+    if props.fit_to_size {
+        world.add_component(
+            entity_id,
+            PreFitSizeComponent {
+                original_width: props.width.clone().unwrap_or(FlexValue::Fill),
+                original_height: props.height.clone().unwrap_or(FlexValue::Fill),
+            },
+        );
+    }
 }

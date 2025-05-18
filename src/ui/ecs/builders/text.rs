@@ -3,7 +3,7 @@ use crate::{
         color::Color,
         ecs::{
             ComponentType, EntityId, World,
-            builders::{EntityBuilder, EntityBuilderProps},
+            builders::{EntityBuilder, EntityBuilderProps, add_common_components},
             components::{LayoutComponent, TextComponent},
         },
         layout::{Bounds, Layout},
@@ -11,8 +11,6 @@ use crate::{
     },
     wgpu_ctx::WgpuCtx,
 };
-
-use super::add_common_components;
 
 pub struct TextConfig {
     pub text: String,

@@ -1,17 +1,16 @@
+use crate::{app::AppEvent, ui::color::Color};
 use components::IdentityComponent;
 use resources::{
     EventSenderResource, MouseResource, RenderGroupsResource, RenderOrderResource,
     RequestReLayoutResource, WgpuQueueResource,
 };
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
-use std::fmt::Debug;
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    fmt::Debug,
+};
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
-
-use crate::app::AppEvent;
-
-use super::color::Color;
 
 pub mod builders;
 pub mod components;
@@ -259,6 +258,14 @@ impl World {
     pub fn create_entity(&mut self, debug_name: String, component_type: ComponentType) -> EntityId {
         let entity_id = Uuid::new_v4();
         self.entities.push(entity_id);
+
+        // check if any other entity has the same debug name
+        // TODO: I know this is not the best way to do it, but it works for now
+        self.for_each_component::<IdentityComponent, _>(|_, component| {
+            if component.debug_name == debug_name {
+                panic!("Entity with debug name {} already exists", debug_name);
+            }
+        });
 
         // Add IdentityComponent by default
         self.add_component(
