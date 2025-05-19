@@ -4,7 +4,8 @@ use crate::{
     wgpu_ctx::WgpuCtx,
 };
 use animation::{
-    AnimationConfig, AnimationDirection, AnimationType, AnimationWhen, EasingFunction,
+    AnimationConfig, AnimationDirection, AnimationRange, AnimationType, AnimationWhen,
+    EasingFunction,
 };
 use color::Color;
 use ecs::{
@@ -136,7 +137,6 @@ pub fn create_fancy_background_gradient(
     let frosted_glass_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
         tint_color: Color::Black,
         blur_radius: 50.0,
-        opacity: 1.0,
         tint_intensity: 0.0,
     })
     .with_debug_name("Fancy Background Frosted Glass")
@@ -262,7 +262,6 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
     let frosted_glass_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
         tint_color: Color::White,
         blur_radius: 5.0,
-        opacity: 1.0,
         tint_intensity: 0.5,
     })
     .with_debug_name("Frosted Glass")
@@ -355,7 +354,6 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
         .with_background_frosted_glass(FrostedGlassConfig {
             tint_color: Color::Black,
             blur_radius: 5.0,
-            opacity: 1.0,
             tint_intensity: 0.5,
         })
         .with_animation(AnimationConfig {
@@ -363,8 +361,7 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::FrostedGlassTint {
-                from: Color::Black,
-                to: Color::Crimson,
+                range: AnimationRange::new(Color::Black, Color::Crimson),
             },
             when: AnimationWhen::Hover,
         })
@@ -376,8 +373,7 @@ pub fn create_login_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layo
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Scale {
-                from: 1.0,
-                to: 1.05,
+                range: AnimationRange::new(1.0, 1.05),
                 anchor: Anchor::Center,
             },
             when: AnimationWhen::Hover,
@@ -417,7 +413,6 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     let frosted_glass_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
         tint_color: Color::Black,
         blur_radius: 20.0,
-        opacity: 1.0,
         tint_intensity: 0.5,
     })
     .with_debug_name("Frosted Glass")
@@ -455,7 +450,6 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     let library_background_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
         tint_color: Color::Black,
         blur_radius: 20.0,
-        opacity: 1.0,
         tint_intensity: 0.5,
     })
     .with_debug_name("Library Background")
@@ -497,11 +491,19 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
                 direction: AnimationDirection::Alternate,
                 easing: EasingFunction::EaseOutQuart,
                 animation_type: AnimationType::Scale {
-                    from: 1.0,
-                    to: 1.5,
+                    range: AnimationRange::new(1.0, 1.5),
                     anchor: Anchor::Left,
                 },
                 when: AnimationWhen::Hover,
+            })
+            .with_animation(AnimationConfig {
+                duration: Duration::from_secs(1),
+                direction: AnimationDirection::Alternate,
+                easing: EasingFunction::EaseOutQuart,
+                animation_type: AnimationType::Opacity {
+                    range: AnimationRange::new(1.0, 0.0),
+                },
+                when: AnimationWhen::Forever,
             })
             .with_clipping(true);
 
@@ -535,7 +537,6 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     let main_area_background_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
         tint_color: Color::Black,
         blur_radius: 20.0,
-        opacity: 1.0,
         tint_intensity: 0.5,
     })
     .with_debug_name("Main Area Background")
@@ -563,7 +564,6 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     let now_playing_background_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
         tint_color: Color::Black,
         blur_radius: 20.0,
-        opacity: 1.0,
         tint_intensity: 0.5,
     })
     .with_debug_name("Now Playing Background")
@@ -613,7 +613,6 @@ fn create_nav_bar(
         let nav_bar_background_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
             tint_color: Color::Black,
             blur_radius: 2.0,
-            opacity: 1.0,
             tint_intensity: 0.5,
         })
         .with_debug_name("Nav Bar Background")
@@ -656,8 +655,7 @@ fn create_nav_bar(
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Color {
-                from: Color::Transparent,
-                to: Color::DarkGray,
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
             },
             when: AnimationWhen::Hover,
         })
@@ -679,8 +677,7 @@ fn create_nav_bar(
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Color {
-                from: Color::Transparent,
-                to: Color::DarkGray,
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
             },
             when: AnimationWhen::Hover,
         })
@@ -702,8 +699,7 @@ fn create_nav_bar(
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Color {
-                from: Color::Transparent,
-                to: Color::Red,
+                range: AnimationRange::new(Color::Transparent, Color::Red),
             },
             when: AnimationWhen::Hover,
         })
@@ -740,7 +736,6 @@ fn create_player_bar(
         BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
             tint_color: Color::Black,
             blur_radius: 20.0,
-            opacity: 1.0,
             tint_intensity: 0.5,
         })
         .with_debug_name("Player Container Background")
@@ -832,8 +827,7 @@ fn create_player_bar(
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Color {
-                from: Color::Transparent,
-                to: Color::DarkGray,
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
             },
             when: AnimationWhen::Hover,
         })
@@ -854,8 +848,7 @@ fn create_player_bar(
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Color {
-                from: Color::Transparent,
-                to: Color::DarkGray,
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
             },
             when: AnimationWhen::Hover,
         })
@@ -876,8 +869,7 @@ fn create_player_bar(
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Color {
-                from: Color::Transparent,
-                to: Color::DarkGray,
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
             },
             when: AnimationWhen::Hover,
         })
@@ -898,8 +890,7 @@ fn create_player_bar(
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Color {
-                from: Color::Transparent,
-                to: Color::DarkGray,
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
             },
             when: AnimationWhen::Hover,
         })
@@ -920,8 +911,7 @@ fn create_player_bar(
             easing: EasingFunction::EaseOutExpo,
             direction: AnimationDirection::Alternate,
             animation_type: AnimationType::Color {
-                from: Color::Transparent,
-                to: Color::DarkGray,
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
             },
             when: AnimationWhen::Hover,
         })

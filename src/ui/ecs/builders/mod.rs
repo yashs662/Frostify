@@ -190,14 +190,9 @@ pub fn add_common_components(
 
     // Add animation component if configured
     for animation_config in &props.animations {
-        if let AnimationType::Scale {
-            from,
-            to,
-            anchor: _,
-        } = animation_config.animation_type
-        {
-            min_scale_factor = from;
-            max_scale_factor = to;
+        if let AnimationType::Scale { range, anchor: _ } = &animation_config.animation_type {
+            min_scale_factor = range.from;
+            max_scale_factor = range.to;
         }
 
         let animation = Animation::new(animation_config.clone());
@@ -265,7 +260,7 @@ pub fn add_common_components(
             shadow_offset: props.shadow_offset.unwrap_or((0.0, 0.0)),
             shadow_blur: props.shadow_blur.unwrap_or(0.0),
             shadow_opacity: props.shadow_opacity.unwrap_or(1.0),
-            is_visible: true,
+            opacity: 1.0,
         },
     );
 
@@ -286,7 +281,6 @@ pub fn add_common_components(
         entity_id,
         InteractionComponent {
             is_clickable: props.click_event.is_some(),
-            is_clicked: false,
             is_draggable: props.drag_event.is_some(),
             is_hoverable: props
                 .animations
@@ -295,6 +289,7 @@ pub fn add_common_components(
             is_hovered: false,
             click_event: props.click_event,
             drag_event: props.drag_event,
+            is_active: !props.as_inactive,
         },
     );
 

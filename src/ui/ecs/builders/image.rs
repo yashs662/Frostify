@@ -12,7 +12,7 @@ use crate::{
         layout::Layout,
         z_index_manager::ZIndexManager,
     },
-    utils::create_component_buffer_data,
+    utils::create_entity_buffer_data,
     wgpu_ctx::WgpuCtx,
 };
 
@@ -174,9 +174,7 @@ impl ImageBuilder {
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(format!("{} Render Data Buffer", entity_id).as_str()),
-                    contents: bytemuck::cast_slice(&[create_component_buffer_data(
-                        world, entity_id,
-                    )]),
+                    contents: bytemuck::cast_slice(&[create_entity_buffer_data(world, entity_id)]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 

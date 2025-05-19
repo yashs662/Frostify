@@ -5,15 +5,15 @@ use crate::{
             ComponentType, EntityId, World,
             components::{
                 BoundsComponent, HierarchyComponent, IdentityComponent, ImageComponent,
-                LayoutComponent, PreFitSizeComponent, RenderDataComponent, TextComponent,
-                TransformComponent, VisualComponent,
+                InteractionComponent, LayoutComponent, PreFitSizeComponent, RenderDataComponent,
+                TextComponent, TransformComponent, VisualComponent,
             },
             resources::{RenderOrderResource, WgpuQueueResource},
         },
         text_renderer::OptionalTextUpdateData,
         z_index_manager::ZIndexManager,
     },
-    utils::create_component_buffer_data,
+    utils::create_entity_buffer_data,
     wgpu_ctx::WgpuCtx,
 };
 use frostify_derive::time_function;
@@ -834,7 +834,7 @@ impl LayoutContext {
                         .as_ref()
                         .expect("RenderDataComponent should have a valid render data buffer"),
                     0,
-                    bytemuck::cast_slice(&[create_component_buffer_data(&self.world, id)]),
+                    bytemuck::cast_slice(&[create_entity_buffer_data(&self.world, id)]),
                 );
             });
 
@@ -1225,18 +1225,18 @@ impl LayoutContext {
             .get_component::<LayoutComponent>(*parent_id)
             .cloned()
             .expect("Expected LayoutComponent to exist to compute layout");
-        let visual_comp = self
+        let interaction_comp = self
             .world
             .components
-            .get_component::<VisualComponent>(*parent_id)
-            .expect("Expected VisualComponent to exist to compute layout");
+            .get_component::<InteractionComponent>(*parent_id)
+            .expect("Expected InteractionComponent to exist to compute layout");
         let heirarchy_comp = self
             .world
             .components
             .get_component::<HierarchyComponent>(*parent_id)
             .expect("Expected HierarchyComponent to exist to compute layout");
 
-        if heirarchy_comp.children.is_empty() || !visual_comp.is_visible {
+        if heirarchy_comp.children.is_empty() || !interaction_comp.is_active {
             return;
         }
 

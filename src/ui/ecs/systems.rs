@@ -13,7 +13,7 @@ use crate::{
         },
         layout::{Bounds, ClipBounds, ComponentPosition},
     },
-    utils::create_component_buffer_data,
+    utils::create_entity_buffer_data,
 };
 use frostify_derive::time_system;
 
@@ -34,37 +34,38 @@ enum AnimationUpdateType {
     Scale { scale_factor: f32 },
     Color { color: Color },
     FrostedGlass { tint_color: Color },
+    Opacity { opacity: f32 },
 }
 
 impl EcsSystem for AnimationSystem {
     fn run(&mut self, world: &mut World) {
         // First pass: Collect animation updates without mutating components
         let mut updates = Vec::new();
+        let mut animations_to_be_flipped = Vec::new();
         let mut any_update_requires_relayout = false;
 
         // Get relevant entities and build update list
         {
             let entities_with_animation =
-                world.query_combined_2::<AnimationComponent, VisualComponent>();
+                world.query_combined_2::<AnimationComponent, InteractionComponent>();
 
-            for (entity_id, anim_comp, visual_comp) in entities_with_animation {
-                if !visual_comp.is_visible {
+            for (entity_id, anim_comp, interaction_comp) in entities_with_animation {
+                if !interaction_comp.is_active {
                     continue;
                 }
 
                 // Get interaction state if this component is interactive
-                let (is_hovered, is_clicked) = world
+                let is_hovered = world
                     .components
                     .get_component::<InteractionComponent>(entity_id)
-                    .map(|interaction| (interaction.is_hovered, interaction.is_clicked))
-                    .unwrap_or((false, false));
+                    .map(|interaction| interaction.is_hovered)
+                    .expect("Expected InteractionComponent to be present, while trying to get hover state");
 
                 // Process each animation
                 for (index, animation) in anim_comp.animations.iter().enumerate() {
                     let should_animate_forward = match animation.config.when {
                         AnimationWhen::Hover => is_hovered,
-                        AnimationWhen::OnClick => is_clicked,
-                        AnimationWhen::Forever => true,
+                        AnimationWhen::Forever => animation.is_going_forward,
                     };
 
                     // Calculate delta based on frame time and duration
@@ -112,8 +113,8 @@ impl EcsSystem for AnimationSystem {
 
                     // Process different animation types and collect updates
                     match &animation.config.animation_type {
-                        AnimationType::Scale { from, to, .. } => {
-                            let scale = from + (to - from) * eased_progress;
+                        AnimationType::Scale { range, .. } => {
+                            let scale = range.from + (range.to - range.from) * eased_progress;
                             let transform =
                                 world.components.get_component::<TransformComponent>(entity_id).expect(
                                     "Expected TransformComponent to be present, while trying to update scale animation",
@@ -130,8 +131,8 @@ impl EcsSystem for AnimationSystem {
                                 });
                             }
                         }
-                        AnimationType::Color { from, to } => {
-                            let color = from.lerp(to, eased_progress);
+                        AnimationType::Color { range } => {
+                            let color = range.from.lerp(&range.to, eased_progress);
                             updates.push(AnimationUpdateData {
                                 entity_id,
                                 update_type: AnimationUpdateType::Color { color },
@@ -139,8 +140,8 @@ impl EcsSystem for AnimationSystem {
                                 raw_progress,
                             });
                         }
-                        AnimationType::FrostedGlassTint { from, to } => {
-                            let tint_color = from.lerp(to, eased_progress);
+                        AnimationType::FrostedGlassTint { range } => {
+                            let tint_color = range.from.lerp(&range.to, eased_progress);
                             updates.push(AnimationUpdateData {
                                 entity_id,
                                 update_type: AnimationUpdateType::FrostedGlass { tint_color },
@@ -148,6 +149,23 @@ impl EcsSystem for AnimationSystem {
                                 raw_progress,
                             });
                         }
+                        AnimationType::Opacity { range } => {
+                            let opacity = range.from + (range.to - range.from) * eased_progress;
+                            updates.push(AnimationUpdateData {
+                                entity_id,
+                                update_type: AnimationUpdateType::Opacity { opacity },
+                                animation_index: index,
+                                raw_progress,
+                            });
+                        }
+                    }
+
+                    // check if we need to flip the animation direction for forever animations
+                    if animation.config.when == AnimationWhen::Forever
+                        && animation.config.direction.is_flippable()
+                        && (raw_progress >= 1.0 || raw_progress <= 0.0)
+                    {
+                        animations_to_be_flipped.push((entity_id, index));
                     }
                 }
             }
@@ -164,16 +182,6 @@ impl EcsSystem for AnimationSystem {
                     {
                         transform.scale_factor = scale_factor;
                     }
-                    if let Some(AnimationComponent { animations, .. }) =
-                        world
-                            .components
-                            .get_component_mut::<AnimationComponent>(update.entity_id)
-                    {
-                        if update.animation_index < animations.len() {
-                            // Update the raw progress value, not the eased one
-                            animations[update.animation_index].progress = update.raw_progress;
-                        }
-                    }
                 }
                 AnimationUpdateType::Color { color } => {
                     if let Some(color_component) = world
@@ -181,16 +189,6 @@ impl EcsSystem for AnimationSystem {
                         .get_component_mut::<ColorComponent>(update.entity_id)
                     {
                         color_component.color = color;
-                    }
-                    if let Some(AnimationComponent { animations, .. }) =
-                        world
-                            .components
-                            .get_component_mut::<AnimationComponent>(update.entity_id)
-                    {
-                        if update.animation_index < animations.len() {
-                            // Update the raw progress value, not the eased one
-                            animations[update.animation_index].progress = update.raw_progress;
-                        }
                     }
                 }
                 AnimationUpdateType::FrostedGlass { tint_color } => {
@@ -200,16 +198,25 @@ impl EcsSystem for AnimationSystem {
                     {
                         frosted_glass.tint_color = tint_color;
                     }
-                    if let Some(AnimationComponent { animations, .. }) =
-                        world
-                            .components
-                            .get_component_mut::<AnimationComponent>(update.entity_id)
+                }
+                AnimationUpdateType::Opacity { opacity } => {
+                    if let Some(visual_comp) = world
+                        .components
+                        .get_component_mut::<VisualComponent>(update.entity_id)
                     {
-                        if update.animation_index < animations.len() {
-                            // Update the raw progress value, not the eased one
-                            animations[update.animation_index].progress = update.raw_progress;
-                        }
+                        visual_comp.opacity = opacity;
                     }
+                }
+            }
+
+            // Update the animation progress in the AnimationComponent
+            if let Some(AnimationComponent { animations, .. }) = world
+                .components
+                .get_component_mut::<AnimationComponent>(update.entity_id)
+            {
+                if update.animation_index < animations.len() {
+                    // Update the raw progress value, not the eased one
+                    animations[update.animation_index].progress = update.raw_progress;
                 }
             }
 
@@ -229,8 +236,21 @@ impl EcsSystem for AnimationSystem {
 
             updated_render_datas.push((
                 update.entity_id,
-                create_component_buffer_data(world, update.entity_id),
+                create_entity_buffer_data(world, update.entity_id),
             ));
+        }
+
+        // Flip the animation direction for forever animations
+        for (entity_id, animation_index) in animations_to_be_flipped {
+            if let Some(anim_comp) = world
+                .components
+                .get_component_mut::<AnimationComponent>(entity_id)
+            {
+                if animation_index < anim_comp.animations.len() {
+                    anim_comp.animations[animation_index].is_going_forward =
+                        !anim_comp.animations[animation_index].is_going_forward;
+                }
+            }
         }
 
         // Third pass: Update render data buffers
@@ -310,15 +330,20 @@ impl EcsSystem for RenderPrepareSystem {
                     )
                 });
 
-            let visual_comp = world
+            let interaction_comp = world
                 .components
-                .get_component::<VisualComponent>(*component_id)
+                .get_component::<InteractionComponent>(*component_id)
                 .unwrap_or_else(|| {
-                    panic!("Failed to get VisualComponent for entity: {}", component_id)
+                    panic!(
+                        "Failed to get InteractionComponent for entity: {}",
+                        component_id
+                    )
                 });
 
             // Skip container components and inactive components
-            if identity_comp.component_type == ComponentType::Container || !visual_comp.is_visible {
+            if identity_comp.component_type == ComponentType::Container
+                || !interaction_comp.is_active
+            {
                 continue;
             }
 
@@ -369,14 +394,14 @@ impl EcsSystem for ComponentHoverSystem {
             .expect("Expected MouseResource to be present");
 
         let interactive_entities =
-            world.query_combined_3::<BoundsComponent, InteractionComponent, VisualComponent>();
+            world.query_combined_2::<BoundsComponent, InteractionComponent>();
 
         let mut hovered_entities = Vec::new();
         let mut dragged_entities = Vec::new();
 
-        for (entity_id, bounds_comp, interaction_comp, visual_comp) in interactive_entities {
-            // Check if the entity is visible
-            if visual_comp.is_visible
+        for (entity_id, bounds_comp, interaction_comp) in interactive_entities {
+            // Check if the entity is active
+            if interaction_comp.is_active
                 && is_hit(
                     bounds_comp.computed_bounds,
                     bounds_comp.clip_bounds,
@@ -461,12 +486,12 @@ impl EcsSystem for MouseInputSystem {
             .expect("Expected RenderOrderResource to be present, while trying to get render order");
 
         let interactive_entities =
-            world.query_combined_3::<BoundsComponent, InteractionComponent, VisualComponent>();
+            world.query_combined_2::<BoundsComponent, InteractionComponent>();
 
         let mut entities_interacted_with = Vec::new();
 
-        for (entity_id, bounds_comp, interaction_comp, visual_comp) in interactive_entities {
-            if visual_comp.is_visible
+        for (entity_id, bounds_comp, interaction_comp) in interactive_entities {
+            if interaction_comp.is_active
                 && is_hit(
                     bounds_comp.computed_bounds,
                     bounds_comp.clip_bounds,
@@ -520,13 +545,13 @@ impl EcsSystem for MouseScrollSystem {
             .expect("Expected RenderOrderResource to be present, while trying to get render order");
 
         let scrollable_entities =
-            world.query_combined_3::<LayoutComponent, VisualComponent, BoundsComponent>();
+            world.query_combined_3::<LayoutComponent, InteractionComponent, BoundsComponent>();
 
         let mut entities_scrolled = Vec::new();
 
-        for (entity_id, layout_comp, visual_comp, bounds_comp) in scrollable_entities {
+        for (entity_id, layout_comp, interaction_comp, bounds_comp) in scrollable_entities {
             if layout_comp.layout.is_scrollable
-                && visual_comp.is_visible
+                && interaction_comp.is_active
                 && is_hit(
                     bounds_comp.computed_bounds,
                     bounds_comp.clip_bounds,

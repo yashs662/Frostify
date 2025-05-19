@@ -71,7 +71,7 @@ pub fn create_unified_pipeline(
     })
 }
 
-pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> RenderBufferData {
+pub fn create_entity_buffer_data(world: &World, entity_id: EntityId) -> RenderBufferData {
     // Necessary components for rendering
     let bounds_comp = world
         .components
@@ -97,13 +97,13 @@ pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> Rende
     ];
 
     // Get color and frosted glass parameters if available
-    let (color, blur_radius, opacity, tint_intensity) = match identity_comp.component_type {
+    let (color, blur_radius, tint_intensity) = match identity_comp.component_type {
         ComponentType::BackgroundColor => {
             let color_comp = world
                 .components
                 .get_component::<ColorComponent>(entity_id)
                 .expect("BackgroundColor Type Component should have ColorComponent");
-            (color_comp.color.value(), 0.0, 1.0, 0.0)
+            (color_comp.color.value(), 0.0, 0.0)
         }
         ComponentType::FrostedGlass => {
             let frosted_glass_comp = world
@@ -113,11 +113,10 @@ pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> Rende
             (
                 frosted_glass_comp.tint_color.value(),
                 frosted_glass_comp.blur_radius,
-                frosted_glass_comp.opacity,
                 frosted_glass_comp.tint_intensity,
             )
         }
-        _ => (default_color, 0.0, 1.0, 0.0),
+        _ => (default_color, 0.0, 0.0),
     };
 
     let use_texture = match identity_comp.component_type {
@@ -303,7 +302,7 @@ pub fn create_component_buffer_data(world: &World, entity_id: EntityId) -> Rende
         ],
         use_texture,
         blur_radius,
-        opacity,
+        opacity: visual_comp.opacity,
         tint_intensity,
         _padding1: [0.0; 2],
         border_color: visual_comp.border_color.value(),

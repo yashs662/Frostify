@@ -1,13 +1,20 @@
-use frostify_derive::EcsComponent;
-
-use crate::ui::{
-    color::Color,
-    ecs::{EcsComponent, EntityId, GradientColorStop, GradientType, builders::image::ScaleMode},
-    layout::{
-        Anchor, BorderRadius, Bounds, ClipBounds, ComponentOffset, FlexValue, Layout, LayoutSize,
-        Position, Size,
+use crate::{
+    app::AppEvent,
+    ui::{
+        animation::Animation,
+        color::Color,
+        ecs::ComponentType,
+        ecs::{
+            BorderPosition, EcsComponent, EntityId, GradientColorStop, GradientType,
+            builders::image::ScaleMode,
+        },
+        layout::{
+            Anchor, BorderRadius, Bounds, ClipBounds, ComponentOffset, FlexValue, Layout,
+            LayoutSize, Position, Size,
+        },
     },
 };
+use frostify_derive::EcsComponent;
 
 #[derive(Debug, Clone, EcsComponent)]
 pub struct TransformComponent {
@@ -36,18 +43,24 @@ pub struct HierarchyComponent {
 pub struct VisualComponent {
     pub border_width: f32,
     pub border_color: Color,
-    pub border_position: crate::ui::ecs::BorderPosition,
+    pub border_position: BorderPosition,
     pub border_radius: BorderRadius,
     pub shadow_color: Color,
     pub shadow_offset: (f32, f32),
     pub shadow_blur: f32,
     pub shadow_opacity: f32,
-    pub is_visible: bool,
+    pub opacity: f32,
+}
+
+impl VisualComponent {
+    pub fn is_visible(&self) -> bool {
+        self.opacity > 0.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, EcsComponent)]
 pub struct BoundsComponent {
-    pub computed_bounds: crate::ui::layout::Bounds,
+    pub computed_bounds: Bounds,
     pub screen_size: Size,
     pub clip_bounds: Option<ClipBounds>,
     pub clip_self: bool,
@@ -57,24 +70,24 @@ pub struct BoundsComponent {
 #[derive(Debug, Clone, EcsComponent)]
 pub struct InteractionComponent {
     pub is_clickable: bool,
-    pub is_clicked: bool,
     pub is_draggable: bool,
     pub is_hoverable: bool,
     pub is_hovered: bool,
-    pub click_event: Option<crate::app::AppEvent>,
-    pub drag_event: Option<crate::app::AppEvent>,
+    pub click_event: Option<AppEvent>,
+    pub drag_event: Option<AppEvent>,
+    pub is_active: bool,
 }
 
 // Animation Component
 #[derive(Debug, Clone, EcsComponent)]
 pub struct AnimationComponent {
-    pub animations: Vec<crate::ui::animation::Animation>,
+    pub animations: Vec<Animation>,
 }
 
 #[derive(Debug, Clone, EcsComponent)]
 pub struct IdentityComponent {
     pub debug_name: String,
-    pub component_type: crate::ui::ecs::ComponentType,
+    pub component_type: ComponentType,
 }
 
 #[derive(Debug, Clone, EcsComponent)]
@@ -102,7 +115,6 @@ pub struct GradientComponent {
 pub struct FrostedGlassComponent {
     pub tint_color: Color,
     pub blur_radius: f32,
-    pub opacity: f32,
     pub tint_intensity: f32,
 }
 

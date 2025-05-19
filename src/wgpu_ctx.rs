@@ -2,7 +2,11 @@ use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
         ecs::{
-            EntityId, World, components::RenderDataComponent, resources::RenderGroupsResource,
+            EntityId, World,
+            components::{
+                BoundsComponent, InteractionComponent, RenderDataComponent, VisualComponent,
+            },
+            resources::RenderGroupsResource,
             systems::RenderPrepareSystem,
         },
         layout::Size,
@@ -280,7 +284,7 @@ impl<'window> WgpuCtx<'window> {
     }
 
     /// Draw the UI using the ECS system approach
-    pub fn draw(&mut self, world: &mut crate::ui::ecs::World) {
+    pub fn draw(&mut self, world: &mut World) {
         // check if we have any thing to draw
         if world.is_empty() {
             log::warn!("Tried to draw an empty world");
@@ -393,14 +397,10 @@ impl<'window> WgpuCtx<'window> {
                         if let (Some(_bounds), Some(render_data)) = (
                             world
                                 .components
-                                .get_component::<crate::ui::ecs::components::BoundsComponent>(
-                                    *entity_id,
-                                ),
+                                .get_component::<BoundsComponent>(*entity_id),
                             world
                                 .components
-                                .get_component::<crate::ui::ecs::components::RenderDataComponent>(
-                                    *entity_id,
-                                ),
+                                .get_component::<RenderDataComponent>(*entity_id),
                         ) {
                             // Simple rendering
                             if let Some(bind_group) = &render_data.bind_group {
@@ -451,12 +451,17 @@ impl<'window> WgpuCtx<'window> {
                     } else {
                         // Render each entity manually
                         for &entity_id in &render_group.entity_ids {
-                            if let (Some(visual), Some(render_data)) = (
-                                world.components.get_component::<crate::ui::ecs::components::VisualComponent>(entity_id),
-                                world.components.get_component::<crate::ui::ecs::components::RenderDataComponent>(entity_id),
+                            if let (Some(visual), Some(render_data), Some(interaction)) = (
+                                world.components.get_component::<VisualComponent>(entity_id),
+                                world
+                                    .components
+                                    .get_component::<RenderDataComponent>(entity_id),
+                                world
+                                    .components
+                                    .get_component::<InteractionComponent>(entity_id),
                             ) {
-                                // Skip if not visible
-                                if !visual.is_visible {
+                                // Skip if not visible or if not active
+                                if !visual.is_visible() || !interaction.is_active {
                                     continue;
                                 }
 

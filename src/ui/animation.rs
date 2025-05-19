@@ -11,7 +11,7 @@ pub struct AnimationConfig {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AnimationDirection {
     Forward,
     Backward,
@@ -19,28 +19,45 @@ pub enum AnimationDirection {
     AlternateReverse,
 }
 
+impl AnimationDirection {
+    pub fn is_flippable(&self) -> bool {
+        matches!(
+            self,
+            AnimationDirection::Alternate | AnimationDirection::AlternateReverse
+        )
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnimationWhen {
     Hover,
-    OnClick,
     Forever,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimationRange<T> {
+    pub from: T,
+    pub to: T,
+}
+
+impl<T> AnimationRange<T> {
+    pub fn new(from: T, to: T) -> Self {
+        Self { from, to }
+    }
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnimationType {
     Color {
-        from: Color,
-        to: Color,
+        range: AnimationRange<Color>,
     },
     FrostedGlassTint {
-        from: Color,
-        to: Color,
+        range: AnimationRange<Color>,
     },
     Scale {
-        from: f32,
-        to: f32,
+        range: AnimationRange<f32>,
         // TODO: Scale anchor does nothing as of now, scaled position is
         // calculated based on how the parent is placing the scaled object
 
@@ -48,6 +65,9 @@ pub enum AnimationType {
         // more space than required as the scale is also taken into account even though
         // the object is not scaled at the moment
         anchor: Anchor,
+    },
+    Opacity {
+        range: AnimationRange<f32>,
     },
 }
 
@@ -258,13 +278,22 @@ impl EasingFunction {
 pub struct Animation {
     pub config: AnimationConfig,
     pub progress: f32,
+    /// Only used for Forever animations
+    /// to determine if the animation is going forward or backward,
+    /// when the animation can reverse directions
+    pub is_going_forward: bool,
 }
 
 impl Animation {
     pub fn new(config: AnimationConfig) -> Self {
+        let mut is_going_forward = false;
+        if config.direction != AnimationDirection::Backward {
+            is_going_forward = true;
+        }
         Self {
             config,
             progress: 0.0,
+            is_going_forward,
         }
     }
 }
