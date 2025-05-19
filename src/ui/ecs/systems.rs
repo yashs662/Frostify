@@ -105,7 +105,9 @@ impl EcsSystem for AnimationSystem {
 
                     // Apply easing to the calculated raw progress
                     let eased_progress = animation.config.easing.compute(raw_progress);
-                    let should_process = should_animate_forward || animation.progress > 0.0;
+                    let should_process = should_animate_forward
+                        || animation.progress > 0.0
+                        || animation.config.when == AnimationWhen::Forever;
 
                     if !should_process {
                         continue;

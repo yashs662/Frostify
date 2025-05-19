@@ -286,9 +286,9 @@ pub struct Animation {
 
 impl Animation {
     pub fn new(config: AnimationConfig) -> Self {
-        let mut is_going_forward = false;
-        if config.direction != AnimationDirection::Backward {
-            is_going_forward = true;
+        let mut is_going_forward = true;
+        if config.direction == AnimationDirection::Backward {
+            is_going_forward = false;
         }
         Self {
             config,
