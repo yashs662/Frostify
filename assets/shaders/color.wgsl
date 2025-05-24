@@ -13,10 +13,9 @@ struct ComponentUniform {
     blur_radius: f32,           // Blur intensity for frosted glass
     opacity: f32,               // Component opacity
     tint_intensity: f32,        // Tint intensity for the tint color
-    border_color: vec4<f32>,    // Border color
     border_width: f32,          // Border thickness in pixels
     border_position: u32,       // Border position: 0=inside, 1=center, 2=outside
-    _padding2: vec2<f32>,       // Padding for alignment
+    border_color: vec4<f32>,    // Border color
     inner_bounds: vec4<f32>,    // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
     outer_bounds: vec4<f32>,    // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
     corner_centers: vec4<f32>,  // (tl_center.x, tl_center.y, tr_center.x, tr_center.y)
