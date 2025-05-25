@@ -1,7 +1,7 @@
-// #![cfg_attr(
-//     all(target_os = "windows", not(debug_assertions),),
-//     windows_subsystem = "windows"
-// )]
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions),),
+    windows_subsystem = "windows"
+)]
 
 use crate::{app::App, ui::asset};
 use clap::Parser;
@@ -98,7 +98,7 @@ fn main() -> Result<(), EventLoopError> {
     #[cfg(debug_assertions)]
     builder.filter_module("Frostify", LevelFilter::Trace);
     #[cfg(not(debug_assertions))]
-    builder.filter_module("Frostify", LevelFilter::Trace);
+    builder.filter_module("Frostify", LevelFilter::Warn);
 
     builder.init();
 
