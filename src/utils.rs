@@ -1,11 +1,14 @@
 use crate::{
     constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-    ui::ecs::{
-        BorderPosition, ComponentType, EntityId, RenderBufferData, World,
-        components::{
-            BoundsComponent, ColorComponent, FrostedGlassComponent, IdentityComponent,
-            VisualComponent,
+    ui::{
+        ecs::{
+            BorderPosition, ComponentType, EcsComponents, EntityId, RenderBufferData,
+            components::{
+                BoundsComponent, ColorComponent, FrostedGlassComponent, IdentityComponent,
+                VisualComponent,
+            },
         },
+        geometry::QuadVertex,
     },
 };
 
@@ -38,7 +41,7 @@ pub fn create_unified_pipeline(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[], // No vertex buffers needed for full-screen triangle approach
+            buffers: &[QuadVertex::desc()], // Use vertex buffers for quad geometry
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
@@ -71,18 +74,18 @@ pub fn create_unified_pipeline(
     })
 }
 
-pub fn create_entity_buffer_data(world: &World, entity_id: EntityId) -> RenderBufferData {
+pub fn create_entity_buffer_data(
+    components: &EcsComponents,
+    entity_id: EntityId,
+) -> RenderBufferData {
     // Necessary components for rendering
-    let bounds_comp = world
-        .components
+    let bounds_comp = components
         .get_component::<BoundsComponent>(entity_id)
         .expect("Expected BoundsComponent to exist while preparing render data");
-    let visual_comp = world
-        .components
+    let visual_comp = components
         .get_component::<VisualComponent>(entity_id)
         .expect("Expected VisualComponent to exist while preparing render data");
-    let identity_comp = world
-        .components
+    let identity_comp = components
         .get_component::<IdentityComponent>(entity_id)
         .expect("Expected IdentityComponent to exist while preparing render data");
 
@@ -99,15 +102,13 @@ pub fn create_entity_buffer_data(world: &World, entity_id: EntityId) -> RenderBu
     // Get color and frosted glass parameters if available
     let (color, blur_radius, tint_intensity) = match identity_comp.component_type {
         ComponentType::BackgroundColor => {
-            let color_comp = world
-                .components
+            let color_comp = components
                 .get_component::<ColorComponent>(entity_id)
                 .expect("BackgroundColor Type Component should have ColorComponent");
             (color_comp.color.value(), 0.0, 0.0)
         }
         ComponentType::FrostedGlass => {
-            let frosted_glass_comp = world
-                .components
+            let frosted_glass_comp = components
                 .get_component::<FrostedGlassComponent>(entity_id)
                 .expect("FrostedGlass Type Component should have FrostedGlassComponent");
             (

@@ -221,6 +221,13 @@ impl World {
             .ok();
     }
 
+    pub fn get_entities_with_component<T: EcsComponent + 'static>(&self) -> Vec<EntityId> {
+        let type_id = TypeId::of::<T>();
+        self.components
+            .get(&type_id)
+            .map_or_else(Vec::new, |entity_map| entity_map.keys().cloned().collect())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }

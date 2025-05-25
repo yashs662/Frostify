@@ -173,7 +173,10 @@ impl ImageBuilder {
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(format!("{} Render Data Buffer", entity_id).as_str()),
-                    contents: bytemuck::cast_slice(&[create_entity_buffer_data(world, entity_id)]),
+                    contents: bytemuck::cast_slice(&[create_entity_buffer_data(
+                        &world.components,
+                        entity_id,
+                    )]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
@@ -218,6 +221,8 @@ impl ImageBuilder {
                 render_data_buffer: Some(render_data_buffer),
                 bind_group: Some(bind_group),
                 sampler: Some(sampler),
+                vertex_buffer: None, // Will be generated during layout sync
+                index_buffer: None,  // Will be generated during layout sync
             },
         );
 

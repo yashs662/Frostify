@@ -238,7 +238,7 @@ impl EcsSystem for AnimationSystem {
 
             updated_render_datas.push((
                 update.entity_id,
-                create_entity_buffer_data(world, update.entity_id),
+                create_entity_buffer_data(&world.components, update.entity_id),
             ));
         }
 

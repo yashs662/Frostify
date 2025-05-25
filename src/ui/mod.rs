@@ -29,6 +29,7 @@ pub mod animation;
 pub mod asset;
 pub mod color;
 pub mod ecs;
+pub mod geometry;
 pub mod img_utils;
 pub mod layout;
 pub mod text_renderer;
@@ -495,15 +496,6 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
                     anchor: Anchor::Left,
                 },
                 when: AnimationWhen::Hover,
-            })
-            .with_animation(AnimationConfig {
-                duration: Duration::from_secs(1),
-                direction: AnimationDirection::Alternate,
-                easing: EasingFunction::EaseOutQuart,
-                animation_type: AnimationType::Opacity {
-                    range: AnimationRange::new(1.0, 0.0),
-                },
-                when: AnimationWhen::Forever,
             })
             .with_clipping(true);
 

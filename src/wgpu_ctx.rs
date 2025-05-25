@@ -392,6 +392,7 @@ impl<'window> WgpuCtx<'window> {
                                 occlusion_query_set: None,
                                 timestamp_writes: None,
                             });
+                        render_pass.set_pipeline(&app_pipelines.unified_pipeline);
 
                         // Extract entity data
                         if let (Some(_bounds), Some(render_data)) = (
@@ -403,11 +404,34 @@ impl<'window> WgpuCtx<'window> {
                                 .get_component::<RenderDataComponent>(*entity_id),
                         ) {
                             // Simple rendering
-                            if let Some(bind_group) = &render_data.bind_group {
-                                render_pass.set_pipeline(&app_pipelines.unified_pipeline);
-                                render_pass.set_bind_group(0, bind_group, &[]);
-                                render_pass.draw(0..3, 0..1);
-                            }
+                            render_pass.set_bind_group(
+                                0,
+                                render_data.bind_group.as_ref().expect(
+                                    "Expected bind group to exist for entity before rendering",
+                                ),
+                                &[],
+                            );
+                            render_pass.set_vertex_buffer(
+                                0,
+                                render_data
+                                    .vertex_buffer
+                                    .as_ref()
+                                    .expect(
+                                        "expected vertex buffer to be set before rendering entity",
+                                    )
+                                    .slice(..),
+                            );
+                            render_pass.set_index_buffer(
+                                render_data
+                                    .index_buffer
+                                    .as_ref()
+                                    .expect(
+                                        "expected index buffer to be set before rendering entity",
+                                    )
+                                    .slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                            render_pass.draw_indexed(0..6, 0, 0..1);
                         }
                     }
 
@@ -449,6 +473,7 @@ impl<'window> WgpuCtx<'window> {
                             render_group.entity_ids.clone(),
                         );
                     } else {
+                        render_pass.set_pipeline(&app_pipelines.unified_pipeline);
                         // Render each entity manually
                         for &entity_id in &render_group.entity_ids {
                             if let (Some(visual), Some(render_data), Some(interaction)) = (
@@ -466,11 +491,34 @@ impl<'window> WgpuCtx<'window> {
                                 }
 
                                 // Simple rendering
-                                if let Some(bind_group) = &render_data.bind_group {
-                                    render_pass.set_pipeline(&app_pipelines.unified_pipeline);
-                                    render_pass.set_bind_group(0, bind_group, &[]);
-                                    render_pass.draw(0..3, 0..1);
-                                }
+                                render_pass.set_bind_group(
+                                    0,
+                                    render_data.bind_group.as_ref().expect(
+                                        "Expected bind group to exist for entity before rendering",
+                                    ),
+                                    &[],
+                                );
+                                render_pass.set_vertex_buffer(
+                                0,
+                                render_data
+                                    .vertex_buffer
+                                    .as_ref()
+                                    .expect(
+                                        "expected vertex buffer to be set before rendering entity",
+                                    )
+                                    .slice(..),
+                            );
+                                render_pass.set_index_buffer(
+                                render_data
+                                    .index_buffer
+                                    .as_ref()
+                                    .expect(
+                                        "expected index buffer to be set before rendering entity",
+                                    )
+                                    .slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                                render_pass.draw_indexed(0..6, 0, 0..1);
                             }
                         }
                     }

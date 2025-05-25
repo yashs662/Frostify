@@ -91,6 +91,8 @@ pub struct RenderDataComponent {
     pub render_data_buffer: Option<wgpu::Buffer>,
     pub bind_group: Option<wgpu::BindGroup>,
     pub sampler: Option<wgpu::Sampler>,
+    pub vertex_buffer: Option<wgpu::Buffer>,
+    pub index_buffer: Option<wgpu::Buffer>,
 }
 
 #[derive(Debug, Clone, EcsComponent)]

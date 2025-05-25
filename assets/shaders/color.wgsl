@@ -1,34 +1,34 @@
 struct VertexInput {
-    @location(0) position : vec3<f32>,
-    @location(1) tex_coords : vec2<f32>,
-};
+    @location(0) position: vec2<f32>,  // Vertex position in clip space
+    @location(1) uv: vec2<f32>,        // UV coordinates (0-1 range)
+}
 
 struct ComponentUniform {
     color : vec4<f32>,
-    position : vec2<f32>,       // Position in pixels (top-left corner)
-    size : vec2<f32>,           // Size in pixels (width, height)
-    border_radius : vec4<f32>,  // Corner radii in pixels (top-left, top-right, bottom-left, bottom-right)
-    screen_size : vec2<f32>,    // Viewport dimensions in pixels
-    use_texture : u32,          // Flag: 0 for color, 1 for texture, 2 for frosted glass
-    blur_radius: f32,           // Blur intensity for frosted glass
-    opacity: f32,               // Component opacity
-    tint_intensity: f32,        // Tint intensity for the tint color
-    border_width: f32,          // Border thickness in pixels
-    border_position: u32,       // Border position: 0=inside, 1=center, 2=outside
-    border_color: vec4<f32>,    // Border color
-    inner_bounds: vec4<f32>,    // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
-    outer_bounds: vec4<f32>,    // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
-    corner_centers: vec4<f32>,  // (tl_center.x, tl_center.y, tr_center.x, tr_center.y)
-    corner_centers2: vec4<f32>, // (bl_center.x, bl_center.y, br_center.x, br_center.y)
-    corner_radii: vec4<f32>,    // (inner_tl_radius, inner_tr_radius, inner_bl_radius, inner_br_radius)
-    corner_radii2: vec4<f32>,   // (outer_tl_radius, outer_tr_radius, outer_bl_radius, outer_br_radius)
-    shadow_color: vec4<f32>,    // Shadow color
-    shadow_offset: vec2<f32>,   // Shadow offset
-    shadow_blur: f32,           // Shadow blur intensity
-    shadow_opacity: f32,        // Shadow opacity
-    clip_bounds: vec4<f32>,     // Clipping bounds (min_x, min_y, max_x, max_y)
-    clip_border_radius: vec4<f32>, // Clipping border radius (top-left, top-right, bottom-left, bottom-right)
-    clip_enabled: vec2<f32>,    // Whether clipping is enabled (x, y)
+    position : vec2<f32>,           // Position in pixels (top-left corner)
+    size : vec2<f32>,               // Size in pixels (width, height)
+    border_radius : vec4<f32>,      // Corner radii in pixels (top-left, top-right, bottom-left, bottom-right)
+    screen_size : vec2<f32>,        // Viewport dimensions in pixels
+    use_texture : u32,              // Flag: 0 for color, 1 for texture, 2 for frosted glass
+    blur_radius: f32,               // Blur intensity for frosted glass
+    opacity: f32,                   // Component opacity
+    tint_intensity: f32,            // Tint intensity for the tint color
+    border_width: f32,              // Border thickness in pixels
+    border_position: u32,           // Border position: 0=inside, 1=center, 2=outside
+    border_color: vec4<f32>,        // Border color
+    inner_bounds: vec4<f32>,        // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
+    outer_bounds: vec4<f32>,        // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
+    corner_centers: vec4<f32>,      // (tl_center.x, tl_center.y, tr_center.x, tr_center.y)
+    corner_centers2: vec4<f32>,     // (bl_center.x, bl_center.y, br_center.x, br_center.y)
+    corner_radii: vec4<f32>,        // (inner_tl_radius, inner_tr_radius, inner_bl_radius, inner_br_radius)
+    corner_radii2: vec4<f32>,       // (outer_tl_radius, outer_tr_radius, outer_bl_radius, outer_br_radius)
+    shadow_color: vec4<f32>,        // Shadow color
+    shadow_offset: vec2<f32>,       // Shadow offset
+    shadow_blur: f32,               // Shadow blur intensity
+    shadow_opacity: f32,            // Shadow opacity
+    clip_bounds: vec4<f32>,         // Clipping bounds (min_x, min_y, max_x, max_y)
+    clip_border_radius: vec4<f32>,  // Clipping border radius (top-left, top-right, bottom-left, bottom-right)
+    clip_enabled: vec2<f32>,        // Whether clipping is enabled (x, y)
 }
 
 @group(0) @binding(0)
@@ -44,31 +44,37 @@ var s_diffuse : sampler;
 struct VertexOutput {
     @builtin(position) clip_position : vec4<f32>,
     @location(0) color : vec4<f32>,
-    @location(1) uv : vec2<f32>, // Screen-space UV coordinates
-};
+    @location(1) uv : vec2<f32>,           // UV coordinates within the quad (0-1)
+    @location(2) world_pos : vec2<f32>,    // World position in pixels
+}
 
-// Vertex shader that creates a full-screen triangle
 @vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
-    // Generate a full-screen triangle (efficiently covers the screen with 3 vertices)
-    var pos = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>(3.0, -1.0),
-        vec2<f32>(-1.0, 3.0)
-    );
-    var uv = array<vec2<f32>, 3>(
-        vec2<f32>(0.0, 0.0),
-        vec2<f32>(2.0, 0.0),
-        vec2<f32>(0.0, 2.0)
-    );
+fn vs_main(vertex: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = vec4<f32>(pos[vertex_index], 0.0, 1.0);
-    out.uv = uv[vertex_index];
+    out.clip_position = vec4<f32>(vertex.position, 0.0, 1.0);
+    out.uv = vertex.uv;
+    
+    // Calculate world position from UV and component bounds
+    // Expand bounds to include shadow if present
+    let shadow_expansion = vec2<f32>(
+        abs(component.shadow_offset.x) + component.shadow_blur * 2.0,
+        abs(component.shadow_offset.y) + component.shadow_blur * 2.0
+    );
+    
+    let expanded_min = vec2<f32>(
+        component.outer_bounds.x - shadow_expansion.x,
+        component.outer_bounds.y - shadow_expansion.y
+    );
+    let expanded_max = vec2<f32>(
+        component.outer_bounds.z + shadow_expansion.x,
+        component.outer_bounds.w + shadow_expansion.y
+    );
+    
+    out.world_pos = mix(expanded_min, expanded_max, vertex.uv);
     out.color = component.color;
     return out;
 }
 
-// Optimized function to check if pixel is in a corner and get corner properties
 fn check_corner(pixel_coords: vec2<f32>) -> vec4<f32> {
     // Pre-computed corner centers
     let tl_center = vec2<f32>(component.corner_centers.x, component.corner_centers.y);
@@ -103,7 +109,6 @@ fn check_corner(pixel_coords: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(0.0);
 }
 
-// Optimized function to check if we're in the border area
 fn check_border(pixel_coords: vec2<f32>, corner_result: vec4<f32>) -> bool {
     if (component.border_width <= 0.0) {
         return false;
@@ -138,7 +143,6 @@ fn check_border(pixel_coords: vec2<f32>, corner_result: vec4<f32>) -> bool {
     return outside_inner && inside_outer;
 }
 
-// Function to calculate texture coordinates based on pixel position
 fn calculate_tex_coords(pixel_coords: vec2<f32>) -> vec2<f32> {
     let content_min = component.position;
     let content_max = component.position + component.size;
@@ -158,7 +162,6 @@ fn calculate_tex_coords(pixel_coords: vec2<f32>) -> vec2<f32> {
     }
 }
 
-// Function to get content color (regular color, texture, or frosted glass)
 fn get_content_color(pixel_coords: vec2<f32>, tex_coords: vec2<f32>, base_color: vec4<f32>) -> vec4<f32> {
     let content_min = component.position;
     let content_max = component.position + component.size;
@@ -192,13 +195,13 @@ fn get_content_color(pixel_coords: vec2<f32>, tex_coords: vec2<f32>, base_color:
     }
 }
 
-// Enhanced blur implementation with increased strength and no repeating patterns
+// High-quality Gaussian blur function with improved sampling
 fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius: f32) -> vec4<f32> {
     // Early exit for minimal blur
     if (blur_radius < 0.05) {
         return textureSample(tex, samp, uv);
     }
-    
+
     // Get texture dimensions
     let tex_size = vec2<f32>(textureDimensions(tex));
     let pixel_size = 1.0 / tex_size;
@@ -227,7 +230,6 @@ fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius
     var total_weight = 0.0;
     
     // Scale steps with blur radius to ensure strong blur
-    // For very large blur values, cap the steps but increase the sampling distance
     let num_steps = min(20, max(8, i32(sqrt(effective_radius) * 1.5)));
     
     // Center sample has highest weight
@@ -279,15 +281,6 @@ fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius
     return result / max(0.001, total_weight);
 }
 
-// Convert screen UVs to pixel coordinates 
-fn uv_to_pixels(uv: vec2<f32>) -> vec2<f32> {
-    return vec2<f32>(
-        uv.x * component.screen_size.x,
-        (1.0 - uv.y) * component.screen_size.y
-    );
-}
-
-// Optimized shadow calculation that uses fewer operations
 fn simple_shadow(pixel_pos: vec2<f32>, shadow_pos: vec2<f32>, shadow_size: vec2<f32>, radius: vec4<f32>, blur: f32) -> f32 {
     // Bail early if pixel is far outside shadow region
     let shadow_min = shadow_pos - vec2<f32>(blur * 2.0);
@@ -387,7 +380,7 @@ fn is_inside_rounded_rect(pos: vec2<f32>, rect_min: vec2<f32>, rect_max: vec2<f3
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let pixel_coords = uv_to_pixels(in.uv);
+    let pixel_coords = in.world_pos;
     
     // Early clip test - avoid all calculations if outside clip region
     if (component.clip_enabled.x > 0.5 || component.clip_enabled.y > 0.5) {
@@ -416,15 +409,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 discard;
             }
         }
-    }
-    
-    // Early exit for pixels outside outer bounds - no shadow calculation needed
-    if (pixel_coords.x < component.outer_bounds.x - component.shadow_blur * 2.0 || 
-        pixel_coords.x > component.outer_bounds.z + component.shadow_blur * 2.0 || 
-        pixel_coords.y < component.outer_bounds.y - component.shadow_blur * 2.0 || 
-        pixel_coords.y > component.outer_bounds.w + component.shadow_blur * 2.0) {
-        // Completely outside any possible rendering area
-        discard;
     }
     
     // Shadow calculation - only perform if shadow is actually visible

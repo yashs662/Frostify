@@ -10,6 +10,7 @@ use crate::{
             },
             resources::{RenderOrderResource, WgpuQueueResource},
         },
+        geometry::QuadGeometry,
         text_renderer::OptionalTextUpdateData,
         z_index_manager::ZIndexManager,
     },
@@ -826,17 +827,37 @@ impl LayoutContext {
             .expect("expected WgpuQueueResource to exist")
             .clone();
 
-        self.world
-            .for_each_component::<RenderDataComponent, _>(|id, render_data_comp| {
-                device_queue.queue.write_buffer(
-                    render_data_comp
-                        .render_data_buffer
-                        .as_ref()
-                        .expect("RenderDataComponent should have a valid render data buffer"),
-                    0,
-                    bytemuck::cast_slice(&[create_entity_buffer_data(&self.world, id)]),
-                );
-            });
+        for entity in self
+            .world
+            .get_entities_with_component::<RenderDataComponent>()
+        {
+            let render_data = create_entity_buffer_data(&self.world.components, entity);
+            let render_data_comp = self
+                .world
+                .components
+                .get_component_mut::<RenderDataComponent>(entity)
+                .expect("Expected RenderDataComponent to exist");
+            // Generate quad geometry from component bounds and render data
+            let quad_geometry = QuadGeometry::from_component_bounds(
+                &render_data,
+                self.viewport_size.width,
+                self.viewport_size.height,
+            );
+
+            let (vertex_buffer, index_buffer) = quad_geometry.create_buffers(&wgpu_ctx.device);
+
+            render_data_comp.vertex_buffer = Some(vertex_buffer);
+            render_data_comp.index_buffer = Some(index_buffer);
+
+            device_queue.queue.write_buffer(
+                render_data_comp
+                    .render_data_buffer
+                    .as_ref()
+                    .expect("RenderDataComponent should have a valid render data buffer"),
+                0,
+                bytemuck::cast_slice(&[render_data]),
+            );
+        }
 
         // Use the z-index manager to determine render order
         let render_order_resource = self
