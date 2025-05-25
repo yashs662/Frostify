@@ -9,7 +9,7 @@ use crate::{
             builders::image::ScaleMode,
         },
         layout::{
-            Anchor, BorderRadius, Bounds, ClipBounds, ComponentOffset, FlexValue, Layout,
+            BorderRadius, Bounds, ClipBounds, ComponentOffset, FlexValue, Layout,
             LayoutSize, Position, Size,
         },
     },
@@ -21,11 +21,7 @@ pub struct TransformComponent {
     pub size: LayoutSize,
     pub offset: ComponentOffset,
     pub position_type: Position,
-    pub z_index: i32,
-    pub max_scale_factor: f32,
-    pub min_scale_factor: f32,
     pub scale_factor: f32,
-    pub scale_anchor: Anchor,
 }
 
 #[derive(Debug, Clone, EcsComponent)]
@@ -135,7 +131,6 @@ pub struct PreFitSizeComponent {
 
 #[derive(Debug, Clone, EcsComponent)]
 pub struct ImageComponent {
-    pub image_path: String,
     pub scale_mode: ScaleMode,
     pub original_width: u32,
     pub original_height: u32,

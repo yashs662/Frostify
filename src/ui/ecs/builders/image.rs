@@ -110,7 +110,6 @@ impl ImageBuilder {
         world.add_component(
             entity_id,
             ImageComponent {
-                image_path: self.file_name.clone(),
                 original_width: img.width,
                 original_height: img.height,
                 scale_mode: self.scale_mode,

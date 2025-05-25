@@ -1,7 +1,7 @@
 use crate::{
     app::AppEvent,
     ui::{
-        animation::{Animation, AnimationConfig, AnimationType, AnimationWhen},
+        animation::{Animation, AnimationConfig, AnimationWhen},
         color::Color,
         ecs::{
             BorderPosition, EntityId, World,
@@ -185,16 +185,8 @@ pub fn add_common_components(
     entity_id: EntityId,
     props: &EntityBuilderProps,
 ) {
-    let mut min_scale_factor = 1.0;
-    let mut max_scale_factor = 1.0;
-
     // Add animation component if configured
     for animation_config in &props.animations {
-        if let AnimationType::Scale { range, anchor: _ } = &animation_config.animation_type {
-            min_scale_factor = range.from;
-            max_scale_factor = range.to;
-        }
-
         let animation = Animation::new(animation_config.clone());
         // check if animation component already exists
         if let Some(animation_comp) = world
@@ -231,11 +223,7 @@ pub fn add_common_components(
             },
             offset: props.offset.clone().unwrap_or_default(),
             position_type: props.position.unwrap_or_default(),
-            z_index: props.z_index.unwrap_or(0),
-            max_scale_factor,
-            min_scale_factor,
             scale_factor: 1.0,
-            scale_anchor: Anchor::Center, // Default
         },
     );
 
