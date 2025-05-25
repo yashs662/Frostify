@@ -1,0 +1,124 @@
+use crate::{
+    ui::{
+        color::Color,
+        ecs::{
+            ComponentType, EntityId, World,
+            builders::{EntityBuilder, EntityBuilderProps, add_common_components},
+            components::{LayoutComponent, TextComponent},
+        },
+        layout::{Bounds, Layout},
+        z_index_manager::ZIndexManager,
+    },
+    wgpu_ctx::WgpuCtx,
+};
+
+pub struct TextConfig {
+    pub text: String,
+    pub font_size: f32,
+    pub line_height_multiplier: f32,
+    pub color: Color,
+}
+
+impl Default for TextConfig {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            font_size: 16.0,
+            line_height_multiplier: 1.5,
+            color: Color::Black,
+        }
+    }
+}
+
+pub struct TextBuilder {
+    common: EntityBuilderProps,
+    config: TextConfig,
+}
+
+impl EntityBuilder for TextBuilder {
+    fn common_props(&mut self) -> &mut EntityBuilderProps {
+        &mut self.common
+    }
+}
+
+#[allow(dead_code)]
+impl TextBuilder {
+    pub fn new() -> Self {
+        Self {
+            common: EntityBuilderProps::default(),
+            config: TextConfig::default(),
+        }
+    }
+
+    pub fn with_text<S: Into<String>>(mut self, text: S) -> Self {
+        self.config.text = text.into();
+        self
+    }
+
+    pub fn with_font_size(mut self, font_size: f32) -> Self {
+        self.config.font_size = font_size;
+        self
+    }
+
+    pub fn with_line_height(mut self, line_height: f32) -> Self {
+        self.config.line_height_multiplier = line_height;
+        self
+    }
+
+    pub fn with_color(mut self, color: Color) -> Self {
+        self.config.color = color;
+        self
+    }
+
+    pub fn build(
+        self,
+        world: &mut World,
+        wgpu_ctx: &mut WgpuCtx,
+        z_index_manager: &mut ZIndexManager,
+    ) -> EntityId {
+        let component_type = ComponentType::Text;
+
+        let entity_id = world.create_entity(
+            self.common
+                .debug_name.clone()
+                .expect("Debug name is required for all components, tried to create a text component without it."),
+            component_type,
+        );
+
+        add_common_components(world, z_index_manager, entity_id, &self.common);
+
+        // Add layout component
+        let mut layout = Layout::new();
+        if let Some(margin) = self.common.margin {
+            layout.margin = margin;
+        }
+        if let Some(padding) = self.common.padding {
+            layout.padding = padding;
+        }
+        world.add_component(entity_id, LayoutComponent { layout });
+
+        // Add text component
+        // TODO: Make Fit to size work again
+        world.add_component(
+            entity_id,
+            TextComponent {
+                text: self.config.text.clone(),
+                font_size: self.config.font_size,
+                line_height_multiplier: self.config.line_height_multiplier,
+                color: self.config.color,
+            },
+        );
+
+        // Configure
+        wgpu_ctx.text_handler.register_text(
+            entity_id,
+            self.config.text.clone(),
+            self.config.font_size,
+            self.config.line_height_multiplier,
+            Bounds::default(),
+            self.config.color,
+        );
+
+        entity_id
+    }
+}

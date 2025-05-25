@@ -1,10 +1,10 @@
 use crate::ui::{
     color::Color,
-    layout::{Bounds, ComponentSize},
+    ecs::EntityId,
+    layout::{Bounds, Size},
 };
 use glyphon::Metrics;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 struct TextRenderData {
     buffer: glyphon::Buffer,
@@ -49,7 +49,7 @@ impl OptionalTextUpdateData {
 }
 
 struct TextRenderBuffers {
-    buffers: HashMap<Uuid, TextRenderData>,
+    buffers: HashMap<EntityId, TextRenderData>,
 }
 
 impl TextRenderBuffers {
@@ -59,13 +59,13 @@ impl TextRenderBuffers {
         }
     }
 
-    fn get(&self, id: Uuid) -> Option<&TextRenderData> {
+    fn get(&self, id: EntityId) -> Option<&TextRenderData> {
         self.buffers.get(&id)
     }
 
     fn register(
         &mut self,
-        id: Uuid,
+        id: EntityId,
         buffer: glyphon::Buffer,
         metrics: Metrics,
         bounds: Bounds,
@@ -78,7 +78,7 @@ impl TextRenderBuffers {
     fn create_buffer(
         font_system: &mut glyphon::FontSystem,
         font_metrics: glyphon::Metrics,
-        size: ComponentSize,
+        size: Size,
         text: &str,
     ) -> glyphon::Buffer {
         let mut buffer = glyphon::Buffer::new(font_system, font_metrics);
@@ -139,7 +139,7 @@ impl TextHandler {
 
     pub fn register_text(
         &mut self,
-        id: Uuid,
+        id: EntityId,
         text: String,
         font_size: f32,
         line_height_multiplier: f32,
@@ -176,7 +176,7 @@ impl TextHandler {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         render_pass: &mut wgpu::RenderPass<'a>,
-        components_to_draw: Vec<Uuid>,
+        components_to_draw: Vec<EntityId>,
     ) {
         let text_areas = self
             .buffers
@@ -215,11 +215,7 @@ impl TextHandler {
             .unwrap();
     }
 
-    pub fn trim_atlas(&mut self) {
-        self.atlas.trim();
-    }
-
-    pub fn update(&mut self, update_data: (Uuid, OptionalTextUpdateData)) {
+    pub fn update(&mut self, update_data: (EntityId, OptionalTextUpdateData)) {
         let (key, value) = update_data;
         if let Some(data) = self.buffers.buffers.get_mut(&key) {
             if let Some(updated_text) = value.text {
@@ -246,7 +242,7 @@ impl TextHandler {
         }
     }
 
-    pub fn measure_text(&self, id: Uuid) -> Option<ComponentSize> {
+    pub fn measure_text(&self, id: EntityId) -> Option<Size> {
         if let Some(data) = self.buffers.get(id) {
             let buffer = &data.buffer;
             let (width, total_lines) = buffer
@@ -254,11 +250,13 @@ impl TextHandler {
                 .fold((0.0, 0usize), |(width, total_lines), run| {
                     (run.line_w.max(width), total_lines + 1)
                 });
+            let height = total_lines as f32 * buffer.metrics().line_height;
 
-            Some(ComponentSize {
-                width,
-                height: (total_lines as f32 * buffer.metrics().line_height),
-            })
+            if width == 0.0 || height == 0.0 {
+                None
+            } else {
+                Some(Size { width, height })
+            }
         } else {
             None
         }

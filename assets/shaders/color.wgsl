@@ -11,12 +11,11 @@ struct ComponentUniform {
     screen_size : vec2<f32>,    // Viewport dimensions in pixels
     use_texture : u32,          // Flag: 0 for color, 1 for texture, 2 for frosted glass
     blur_radius: f32,           // Blur intensity for frosted glass
-    opacity: f32,               // Overall opacity for frosted glass
+    opacity: f32,               // Component opacity
     tint_intensity: f32,        // Tint intensity for the tint color
-    border_color: vec4<f32>,    // Border color
     border_width: f32,          // Border thickness in pixels
     border_position: u32,       // Border position: 0=inside, 1=center, 2=outside
-    _padding2: vec2<f32>,       // Padding for alignment
+    border_color: vec4<f32>,    // Border color
     inner_bounds: vec4<f32>,    // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
     outer_bounds: vec4<f32>,    // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
     corner_centers: vec4<f32>,  // (tl_center.x, tl_center.y, tr_center.x, tr_center.y)
@@ -28,6 +27,7 @@ struct ComponentUniform {
     shadow_blur: f32,           // Shadow blur intensity
     shadow_opacity: f32,        // Shadow opacity
     clip_bounds: vec4<f32>,     // Clipping bounds (min_x, min_y, max_x, max_y)
+    clip_border_radius: vec4<f32>, // Clipping border radius (top-left, top-right, bottom-left, bottom-right)
     clip_enabled: vec2<f32>,    // Whether clipping is enabled (x, y)
 }
 
@@ -158,11 +158,6 @@ fn calculate_tex_coords(pixel_coords: vec2<f32>) -> vec2<f32> {
     }
 }
 
-// Simple border color function without anti-aliasing
-fn get_border_color(pixel_coords: vec2<f32>, in_corner: bool, corner_dist: f32, inner_radius: f32, outer_radius: f32) -> vec4<f32> {
-    return component.border_color;
-}
-
 // Function to get content color (regular color, texture, or frosted glass)
 fn get_content_color(pixel_coords: vec2<f32>, tex_coords: vec2<f32>, base_color: vec4<f32>) -> vec4<f32> {
     let content_min = component.position;
@@ -195,11 +190,6 @@ fn get_content_color(pixel_coords: vec2<f32>, tex_coords: vec2<f32>, base_color:
         // Plain color mode
         return base_color;
     }
-}
-
-// Normal distribution function for Gaussian kernel
-fn normpdf(x: f32, sigma: f32) -> f32 {
-    return 0.39894 * exp(-0.5 * x * x / (sigma * sigma)) / sigma;
 }
 
 // Enhanced blur implementation with increased strength and no repeating patterns
@@ -359,14 +349,73 @@ fn simple_shadow(pixel_pos: vec2<f32>, shadow_pos: vec2<f32>, shadow_size: vec2<
     return clamp(1.0 - dist_to_shape / max(0.001, blur), 0.0, 1.0);
 }
 
+fn is_inside_rounded_rect(pos: vec2<f32>, rect_min: vec2<f32>, rect_max: vec2<f32>, radii: vec4<f32>) -> bool {
+    // Early exit for points clearly inside the non-rounded part
+    if (pos.x >= rect_min.x + radii.x && pos.x <= rect_max.x - radii.y &&
+        pos.y >= rect_min.y + radii.x && pos.y <= rect_max.y - radii.z) {
+        return true;
+    }
+    
+    // Get corner centers
+    let tl_center = vec2<f32>(rect_min.x + radii.x, rect_min.y + radii.x);
+    let tr_center = vec2<f32>(rect_max.x - radii.y, rect_min.y + radii.y);
+    let bl_center = vec2<f32>(rect_min.x + radii.z, rect_max.y - radii.z);
+    let br_center = vec2<f32>(rect_max.x - radii.w, rect_max.y - radii.w);
+    
+    // Check corners using squared distances
+    if (pos.x <= tl_center.x && pos.y <= tl_center.y) {
+        let dist_sq = dot(pos - tl_center, pos - tl_center);
+        return dist_sq <= radii.x * radii.x;
+    }
+    if (pos.x >= tr_center.x && pos.y <= tr_center.y) {
+        let dist_sq = dot(pos - tr_center, pos - tr_center);
+        return dist_sq <= radii.y * radii.y;
+    }
+    if (pos.x <= bl_center.x && pos.y >= bl_center.y) {
+        let dist_sq = dot(pos - bl_center, pos - bl_center);
+        return dist_sq <= radii.z * radii.z;
+    }
+    if (pos.x >= br_center.x && pos.y >= br_center.y) {
+        let dist_sq = dot(pos - br_center, pos - br_center);
+        return dist_sq <= radii.w * radii.w;
+    }
+    
+    // In the non-corner regions, check against rect bounds
+    return pos.x >= rect_min.x && pos.x <= rect_max.x && 
+           pos.y >= rect_min.y && pos.y <= rect_max.y;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let pixel_coords = uv_to_pixels(in.uv);
     
     // Early clip test - avoid all calculations if outside clip region
-    if ((component.clip_enabled.x > 0.5 && (pixel_coords.x < component.clip_bounds.x || pixel_coords.x > component.clip_bounds.z)) ||
-        (component.clip_enabled.y > 0.5 && (pixel_coords.y < component.clip_bounds.y || pixel_coords.y > component.clip_bounds.w))) {
-        discard;
+    if (component.clip_enabled.x > 0.5 || component.clip_enabled.y > 0.5) {
+        // Check if we need to use rounded clipping
+        let use_rounded_clip = component.clip_border_radius.x > 0.0 || 
+                               component.clip_border_radius.y > 0.0 || 
+                               component.clip_border_radius.z > 0.0 || 
+                               component.clip_border_radius.w > 0.0;
+                               
+        if (use_rounded_clip) {
+            // Use rounded rectangle clipping
+            let inside_clip = is_inside_rounded_rect(
+                pixel_coords,
+                vec2<f32>(component.clip_bounds.x, component.clip_bounds.y),
+                vec2<f32>(component.clip_bounds.z, component.clip_bounds.w),
+                component.clip_border_radius
+            );
+            
+            if (!inside_clip) {
+                discard;
+            }
+        } else {
+            // Use original rectangular clipping
+            if ((component.clip_enabled.x > 0.5 && (pixel_coords.x < component.clip_bounds.x || pixel_coords.x > component.clip_bounds.z)) ||
+                (component.clip_enabled.y > 0.5 && (pixel_coords.y < component.clip_bounds.y || pixel_coords.y > component.clip_bounds.w))) {
+                discard;
+            }
+        }
     }
     
     // Early exit for pixels outside outer bounds - no shadow calculation needed
@@ -402,7 +451,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (pixel_coords.x < component.outer_bounds.x || pixel_coords.x > component.outer_bounds.z || 
         pixel_coords.y < component.outer_bounds.y || pixel_coords.y > component.outer_bounds.w) {
         // Only show shadow if outside component bounds
-        return shadow_color;
+        return vec4<f32>(shadow_color.rgb, shadow_color.a * component.opacity);
     }
 
     // Check corner - optimized to avoid sqrt when possible
@@ -414,7 +463,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         
         if (corner_dist_sq > outer_radius_sq) {
             // Only show shadow if outside component bounds
-            return shadow_color;
+            return vec4<f32>(shadow_color.rgb, shadow_color.a * component.opacity);
         }
     }
 
@@ -425,16 +474,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (component.border_width > 0.0) {
         let in_border = check_border(pixel_coords, corner_result);
         if (in_border) {
-            return component.border_color;
+            return vec4<f32>(component.border_color.rgb, component.border_color.a * component.opacity);
         }
     }
     
     // Content color with early exit for simple case
     if (component.use_texture == 0u) {
         // Plain color mode - fastest path
-        return in.color;
+        return vec4<f32>(in.color.rgb, in.color.a * component.opacity);
     } else {
         // More complex texture or frosted glass
-        return get_content_color(pixel_coords, tex_coords, in.color);
+        let content_color = get_content_color(pixel_coords, tex_coords, in.color);
+        return vec4<f32>(content_color.rgb, content_color.a * component.opacity);
     }
 }

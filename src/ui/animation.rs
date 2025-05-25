@@ -1,16 +1,5 @@
-use crate::{
-    ui::{
-        color::Color,
-        component::{
-            BackgroundColorConfig, Component, ComponentConfig, ComponentMetaData, ComponentType,
-        },
-        layout::{Anchor, Position},
-    },
-    wgpu_ctx::WgpuCtx,
-};
-use log::{debug, error};
+use crate::ui::{color::Color, layout::Anchor};
 use std::{f32::consts::PI, time::Duration};
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct AnimationConfig {
@@ -22,7 +11,7 @@ pub struct AnimationConfig {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AnimationDirection {
     Forward,
     Backward,
@@ -30,27 +19,45 @@ pub enum AnimationDirection {
     AlternateReverse,
 }
 
+impl AnimationDirection {
+    pub fn is_flippable(&self) -> bool {
+        matches!(
+            self,
+            AnimationDirection::Alternate | AnimationDirection::AlternateReverse
+        )
+    }
+}
+
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AnimationWhen {
     Hover,
-    OnClick,
     Forever,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimationRange<T> {
+    pub from: T,
+    pub to: T,
+}
+
+impl<T> AnimationRange<T> {
+    pub fn new(from: T, to: T) -> Self {
+        Self { from, to }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AnimationType {
     Color {
-        from: Color,
-        to: Color,
+        range: AnimationRange<Color>,
     },
     FrostedGlassTint {
-        from: Color,
-        to: Color,
+        range: AnimationRange<Color>,
     },
     Scale {
-        from: f32,
-        to: f32,
+        range: AnimationRange<f32>,
         // TODO: Scale anchor does nothing as of now, scaled position is
         // calculated based on how the parent is placing the scaled object
 
@@ -58,6 +65,9 @@ pub enum AnimationType {
         // more space than required as the scale is also taken into account even though
         // the object is not scaled at the moment
         anchor: Anchor,
+    },
+    Opacity {
+        range: AnimationRange<f32>,
     },
 }
 
@@ -268,113 +278,22 @@ impl EasingFunction {
 pub struct Animation {
     pub config: AnimationConfig,
     pub progress: f32,
+    /// Only used for Forever animations
+    /// to determine if the animation is going forward or backward,
+    /// when the animation can reverse directions
+    pub is_going_forward: bool,
 }
 
 impl Animation {
     pub fn new(config: AnimationConfig) -> Self {
+        let mut is_going_forward = true;
+        if config.direction == AnimationDirection::Backward {
+            is_going_forward = false;
+        }
         Self {
             config,
             progress: 0.0,
-        }
-    }
-
-    pub fn update(&mut self, delta_time: f32, forward: bool) -> f32 {
-        // Calculate the delta based on frame time and duration
-        let delta = delta_time / self.config.duration.as_secs_f32();
-
-        // Update progress based on animation type
-        match self.config.direction {
-            AnimationDirection::Forward => {
-                if forward {
-                    // Animate in slowly
-                    self.progress = (self.progress + delta).min(1.0);
-                } else {
-                    // Instant out
-                    self.progress = 0.0;
-                }
-            }
-            AnimationDirection::Backward => {
-                if forward {
-                    // Instant in
-                    self.progress = 1.0;
-                } else {
-                    // Animate out slowly
-                    self.progress = (self.progress - delta).max(0.0);
-                }
-            }
-            AnimationDirection::Alternate => {
-                self.progress = if forward {
-                    (self.progress + delta).min(1.0)
-                } else {
-                    (self.progress - delta).max(0.0)
-                };
-            }
-            AnimationDirection::AlternateReverse => {
-                self.progress = if forward {
-                    (self.progress - delta).max(0.0)
-                } else {
-                    (self.progress + delta).min(1.0)
-                };
-            }
-        }
-
-        self.config.easing.compute(self.progress)
-    }
-
-    pub fn configure_component(&self, component: &mut Component, wgpu_ctx: &mut WgpuCtx) {
-        match self.config.animation_type {
-            AnimationType::Color { from, to: _ } => {
-                // Find existing background color component or create new one
-                let bg_id = if let Some((id, _)) = component
-                    .children_ids
-                    .iter()
-                    .find(|(_, t)| matches!(t, ComponentType::BackgroundColor))
-                {
-                    *id
-                } else {
-                    debug!(
-                        "Component Doesn't have a background color component, creating one for animated color"
-                    );
-                    let bg_id = Uuid::new_v4();
-                    let mut bg = Component::new(bg_id, ComponentType::BackgroundColor);
-                    bg.transform.position_type = Position::Fixed(Anchor::Center);
-                    bg.set_debug_name("Animated Color Background");
-                    bg.set_z_index(0);
-                    bg.configure(
-                        ComponentConfig::BackgroundColor(BackgroundColorConfig { color: from }),
-                        wgpu_ctx,
-                    );
-                    component.add_child_to_front(bg);
-                    bg_id
-                };
-
-                // Add animation to the background component
-                if let Some(ComponentMetaData::ChildComponents(children)) = component
-                    .metadata
-                    .iter_mut()
-                    .find(|m| matches!(m, ComponentMetaData::ChildComponents(_)))
-                {
-                    if let Some(bg_component) = children.iter_mut().find(|c| c.id == bg_id) {
-                        bg_component.animations.push(self.clone());
-                    }
-                }
-            }
-            AnimationType::FrostedGlassTint { from: _, to: _ } => {
-                if !component
-                    .children_ids
-                    .iter()
-                    .any(|(_, t)| matches!(t, ComponentType::FrostedGlass))
-                {
-                    error!(
-                        "added frosted glass tint animation but the component doesn't have a frosted glass tint component"
-                    );
-                }
-            }
-            AnimationType::Scale { from, to, anchor } => {
-                component.transform.scale_anchor = anchor;
-                component.transform.min_scale_factor = from;
-                component.transform.max_scale_factor = to;
-            }
+            is_going_forward,
         }
     }
 }

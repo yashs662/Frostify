@@ -1,8 +1,15 @@
 use crate::{
+    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
-        component::ComponentType,
-        components::core::frosted_glass::FrostedGlassComponent,
-        layout::{ComponentSize, LayoutContext},
+        ecs::{
+            EntityId, World,
+            components::{
+                BoundsComponent, InteractionComponent, RenderDataComponent, VisualComponent,
+            },
+            resources::RenderGroupsResource,
+            systems::RenderPrepareSystem,
+        },
+        layout::Size,
         text_renderer::TextHandler,
     },
     utils::create_unified_pipeline,
@@ -73,7 +80,7 @@ impl<'window> WgpuCtx<'window> {
             format: surface_caps.formats[0],
             width,
             height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::AutoVsync, // TODO: Allow the user to configure this in future
             alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -269,14 +276,20 @@ impl<'window> WgpuCtx<'window> {
         self.blit_bind_group = None;
     }
 
-    pub fn get_screen_size(&self) -> ComponentSize {
-        ComponentSize {
+    pub fn get_screen_size(&self) -> Size {
+        Size {
             width: self.surface_config.width as f32,
             height: self.surface_config.height as f32,
         }
     }
 
-    pub fn draw(&mut self, layout_context: &mut LayoutContext) {
+    /// Draw the UI using the ECS system approach
+    pub fn draw(&mut self, world: &mut World) {
+        // check if we have any thing to draw
+        if world.is_empty() {
+            log::warn!("Tried to draw an empty world");
+            return;
+        }
         let surface_texture = if let Some(surface) = &self.surface {
             surface
                 .get_current_texture()
@@ -308,8 +321,10 @@ impl<'window> WgpuCtx<'window> {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        // Render all components to the main render texture
-        // Pre-fetch resources we'll need
+        // Run RenderPrepareSystem to create render groups
+        world.run_system(RenderPrepareSystem);
+
+        // Create a local clone of the device and frame_sample_view
         let device = &self.device;
         let queue = &self.queue;
         let frame_sample_view = self.frame_sample_view.as_ref();
@@ -321,8 +336,15 @@ impl<'window> WgpuCtx<'window> {
         let surface_width = self.surface_config.width;
         let surface_height = self.surface_config.height;
 
-        let render_groups = prepare_render_groups(layout_context);
+        // Get the render groups resource and clone it to avoid borrowing issues
+        let render_groups = world
+            .resources
+            .get_resource::<RenderGroupsResource>()
+            .cloned()
+            .expect("RenderGroupsResource not found")
+            .groups;
 
+        // Process each render group
         for (idx, render_group) in render_groups.iter().enumerate() {
             let load_op = if idx == 0 {
                 wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
@@ -342,13 +364,12 @@ impl<'window> WgpuCtx<'window> {
                     );
                 }
 
-                for (frosted_idx, frosted_component) in
-                    render_group.component_ids.iter().enumerate()
-                {
-                    if let Some(component) = layout_context.get_component_mut(frosted_component) {
+                for (frosted_idx, entity_id) in render_group.entity_ids.iter().enumerate() {
+                    // Create a render pass for this frosted glass component
+                    {
                         if let Some(frame_view) = frame_sample_view {
-                            FrostedGlassComponent::update_with_frame_texture(
-                                component, device, frame_view,
+                            update_frosted_glass_with_frame_texture(
+                                world, *entity_id, frame_view, device,
                             );
                         }
 
@@ -372,14 +393,27 @@ impl<'window> WgpuCtx<'window> {
                                 timestamp_writes: None,
                             });
 
-                        layout_context.draw_single(
-                            &mut render_pass,
-                            app_pipelines,
-                            frosted_component,
-                        );
+                        // Extract entity data
+                        if let (Some(_bounds), Some(render_data)) = (
+                            world
+                                .components
+                                .get_component::<BoundsComponent>(*entity_id),
+                            world
+                                .components
+                                .get_component::<RenderDataComponent>(*entity_id),
+                        ) {
+                            // Simple rendering
+                            if let Some(bind_group) = &render_data.bind_group {
+                                render_pass.set_pipeline(&app_pipelines.unified_pipeline);
+                                render_pass.set_bind_group(0, bind_group, &[]);
+                                render_pass.draw(0..3, 0..1);
+                            }
+                        }
                     }
 
-                    if frosted_idx != render_group.component_ids.len() - 1 {
+                    if render_group.entity_ids.len() > 1
+                        && frosted_idx < render_group.entity_ids.len() - 1
+                    {
                         WgpuCtx::capture_current_frame_texture(
                             main_render_texture,
                             frame_sample_texture,
@@ -390,43 +424,65 @@ impl<'window> WgpuCtx<'window> {
                     }
                 }
             } else {
-                // Normal rendering logic
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Progressive Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: main_render_texture_view, // Render to SMAA color target
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: load_op,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
+                // Normal rendering logic - handle in a single pass
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("ECS Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: main_render_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: load_op,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
 
-                if render_group.is_text {
-                    text_handler.render(
-                        device,
-                        queue,
-                        &mut render_pass,
-                        render_group.component_ids.clone(),
-                    );
-                } else {
-                    layout_context.draw_group(
-                        &mut render_pass,
-                        app_pipelines,
-                        render_group.component_ids.clone(),
-                    );
+                    if render_group.is_text {
+                        text_handler.render(
+                            device,
+                            queue,
+                            &mut render_pass,
+                            render_group.entity_ids.clone(),
+                        );
+                    } else {
+                        // Render each entity manually
+                        for &entity_id in &render_group.entity_ids {
+                            if let (Some(visual), Some(render_data), Some(interaction)) = (
+                                world.components.get_component::<VisualComponent>(entity_id),
+                                world
+                                    .components
+                                    .get_component::<RenderDataComponent>(entity_id),
+                                world
+                                    .components
+                                    .get_component::<InteractionComponent>(entity_id),
+                            ) {
+                                // Skip if not visible or if not active
+                                if !visual.is_visible() || !interaction.is_active {
+                                    continue;
+                                }
+
+                                // Simple rendering
+                                if let Some(bind_group) = &render_data.bind_group {
+                                    render_pass.set_pipeline(&app_pipelines.unified_pipeline);
+                                    render_pass.set_bind_group(0, bind_group, &[]);
+                                    render_pass.draw(0..3, 0..1);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        let blit_pipeline = self.app_pipelines.blit_pipeline.as_ref().unwrap();
-        let bind_group = self.blit_bind_group.as_ref().unwrap();
-
+        // Final blit to screen
         {
+            let blit_pipeline = self.app_pipelines.blit_pipeline.as_ref().unwrap();
+            let bind_group = self.blit_bind_group.as_ref().unwrap();
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Final Surface Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -444,7 +500,7 @@ impl<'window> WgpuCtx<'window> {
 
             render_pass.set_pipeline(blit_pipeline);
             render_pass.set_bind_group(0, bind_group, &[]);
-            render_pass.draw(0..6, 0..1); // Draw two triangles (a quad)
+            render_pass.draw(0..3, 0..1);
         }
 
         // Submit main rendering commands
@@ -453,41 +509,6 @@ impl<'window> WgpuCtx<'window> {
         // Let SMAA resolve the final image
         smaa_frame.resolve();
         surface_texture.present();
-    }
-
-    fn capture_current_frame_texture(
-        main_render_texture: &Option<Texture>,
-        frame_sample_texture: &Option<Texture>,
-        width: u32,
-        height: u32,
-        encoder: &mut wgpu::CommandEncoder,
-    ) {
-        if let (Some(main_texture), Some(sample_texture)) =
-            (main_render_texture, frame_sample_texture)
-        {
-            let texture_size = wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            };
-
-            // Copy from main render texture to frame sample texture
-            encoder.copy_texture_to_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: main_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: sample_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                texture_size,
-            );
-        }
     }
 
     fn ensure_blit_sampler(&mut self) {
@@ -502,8 +523,12 @@ impl<'window> WgpuCtx<'window> {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
+            mipmap_filter: wgpu::FilterMode::Linear,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 100.0,
+            compare: None,
+            anisotropy_clamp: 1,
+            border_color: None,
         });
         self.blit_sampler = Some(sampler);
     }
@@ -646,57 +671,84 @@ impl<'window> WgpuCtx<'window> {
         });
         self.blit_bind_group = Some(bind_group);
     }
+
+    fn capture_current_frame_texture(
+        main_render_texture: &Option<Texture>,
+        frame_sample_texture: &Option<Texture>,
+        width: u32,
+        height: u32,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        if let (Some(main_tex), Some(frame_tex)) = (main_render_texture, frame_sample_texture) {
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: main_tex,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: frame_tex,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+    }
 }
 
-struct RenderGroup {
-    component_ids: Vec<uuid::Uuid>,
-    is_frosted_glass: bool,
-    is_text: bool,
-}
+fn update_frosted_glass_with_frame_texture(
+    world: &mut World,
+    entity_id: EntityId,
+    frame_view: &wgpu::TextureView,
+    device: &wgpu::Device,
+) {
+    let render_comp = world
+        .components
+        .get_component_mut::<RenderDataComponent>(entity_id)
+        .expect("expected RenderDataComponent to exist to update frosted glass");
 
-fn prepare_render_groups(layout_context: &mut LayoutContext) -> Vec<RenderGroup> {
-    let render_order = layout_context.get_render_order().clone();
+    let sampler = render_comp
+        .sampler
+        .as_ref()
+        .expect("expected sampler to exist in render_comp for frosted glass");
 
-    let mut result = Vec::new();
-    let mut current_group = RenderGroup {
-        component_ids: Vec::new(),
-        is_frosted_glass: false,
-        is_text: false,
-    };
+    // Create unified bind group layout compatible with the shader
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+        label: Some(format!("{} Unified Bind Group Layout", entity_id).as_str()),
+    });
 
-    for component_id in render_order {
-        let Some(component) = layout_context.get_component(&component_id) else {
-            continue;
-        };
+    // Create bind group with all required resources
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &bind_group_layout,
+        entries: &[
+            // Component uniform data
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: render_comp.render_data_buffer.as_ref()
+                    .expect("expected render data buffer to exist for updating frame texture to frosted glass")
+                    .as_entire_binding(),
+            },
+            // Texture view
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(frame_view),
+            },
+            // Sampler
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+        label: Some(format!("{} Unified Bind Group", entity_id).as_str()),
+    });
 
-        if component.component_type == ComponentType::Container || !component.is_active() {
-            continue;
-        }
-
-        let is_frosted = component.is_frosted_component();
-        let is_text = component.is_text_component();
-
-        // Check if we need to start a new group
-        if (is_frosted != current_group.is_frosted_glass || is_text != current_group.is_text)
-            && !current_group.component_ids.is_empty()
-        {
-            result.push(current_group);
-            current_group = RenderGroup {
-                component_ids: Vec::new(),
-                is_frosted_glass: is_frosted,
-                is_text,
-            };
-        } else if current_group.component_ids.is_empty() {
-            current_group.is_frosted_glass = is_frosted;
-            current_group.is_text = is_text;
-        }
-
-        current_group.component_ids.push(component_id);
-    }
-
-    if !current_group.component_ids.is_empty() {
-        result.push(current_group);
-    }
-
-    result
+    render_comp.bind_group = Some(bind_group);
 }
