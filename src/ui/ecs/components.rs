@@ -9,8 +9,8 @@ use crate::{
             builders::image::ScaleMode,
         },
         layout::{
-            BorderRadius, Bounds, ClipBounds, ComponentOffset, FlexValue, Layout,
-            LayoutSize, Position, Size,
+            BorderRadius, Bounds, ClipBounds, ComponentOffset, FlexValue, Layout, LayoutSize,
+            Position, Size,
         },
     },
 };
