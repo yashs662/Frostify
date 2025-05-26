@@ -57,7 +57,7 @@ impl VisualComponent {
 #[derive(Debug, Clone, Copy, EcsComponent)]
 pub struct BoundsComponent {
     pub computed_bounds: Bounds,
-    pub screen_size: Size,
+    pub screen_size: Size<u32>,
     pub clip_bounds: Option<ClipBounds>,
     pub clip_self: bool,
     pub fit_to_size: bool,
@@ -139,7 +139,10 @@ pub struct ImageComponent {
 }
 
 impl ImageComponent {
-    pub fn calculate_fit_to_size(&self, old_bounds: &Bounds) -> Option<(Size, ComponentOffset)> {
+    pub fn calculate_fit_to_size(
+        &self,
+        old_bounds: &Bounds,
+    ) -> Option<(Size<f32>, ComponentOffset)> {
         // Here old_bounds is analogous to the container bounds as during layout it fills the parent
         let original_width = self.original_width as f32;
         let original_height = self.original_height as f32;

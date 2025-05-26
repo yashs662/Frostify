@@ -419,8 +419,8 @@ impl ApplicationHandler for App<'_> {
             self.window = Some(window.clone());
             let mut wgpu_ctx = WgpuCtx::new(window.clone());
             let viewport_size = Size {
-                width: wgpu_ctx.surface_config.width as f32,
-                height: wgpu_ctx.surface_config.height as f32,
+                width: wgpu_ctx.surface_config.width,
+                height: wgpu_ctx.surface_config.height,
             };
             // Create event channel
             let (event_tx, event_rx) = unbounded_channel();

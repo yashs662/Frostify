@@ -16,8 +16,8 @@ fn stretch_scaling_in_flex_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -67,8 +67,8 @@ fn contain_scaling_in_flex_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -120,8 +120,8 @@ fn cover_scaling_in_flex_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -172,8 +172,8 @@ fn original_scaling_in_flex_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -225,8 +225,8 @@ fn stretch_scaling_in_fixed_layout_center_anchor() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -277,8 +277,8 @@ fn contain_scaling_in_fixed_layout_center_anchor() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -331,8 +331,8 @@ fn contain_scaling_in_fixed_layout_top_left_anchor() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -385,8 +385,8 @@ fn cover_scaling_in_fixed_layout_center_anchor() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -438,8 +438,8 @@ fn cover_scaling_in_fixed_layout_top_left_anchor() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -491,8 +491,8 @@ fn original_scaling_in_fixed_layout_center_anchor() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -545,8 +545,8 @@ fn original_scaling_in_fixed_layout_top_left_anchor() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 

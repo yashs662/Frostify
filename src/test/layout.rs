@@ -12,8 +12,8 @@ fn basic_fixed_flex_row_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -77,8 +77,8 @@ fn basic_fixed_flex_column_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -143,8 +143,8 @@ fn basic_fill_flex_row_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -209,8 +209,8 @@ fn basic_fill_flex_column_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -275,8 +275,8 @@ fn basic_fill_flex_row_layout_with_padding() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -342,8 +342,8 @@ fn basic_fill_flex_column_layout_with_padding() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -409,8 +409,8 @@ fn nested_containers_with_flex_layout_fixed_nested_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -504,8 +504,8 @@ fn nested_containers_with_flex_layout_fill_nested_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -600,8 +600,8 @@ fn navbar_app_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -767,8 +767,8 @@ fn margin_and_padding_layout() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -835,8 +835,8 @@ fn fractional_sizing_in_a_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -900,8 +900,8 @@ fn offset_in_nested_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -952,8 +952,8 @@ fn offset_in_nested_container_with_flex_value() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -1004,8 +1004,8 @@ fn multiple_fill_containers_with_fraction_width_container() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
@@ -1081,8 +1081,8 @@ fn multiple_containers_with_different_directions_and_fractional_sizing() {
     let mut ctx = LayoutContext::default();
     let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
     let viewport_size = Size {
-        width: 1000.0,
-        height: 800.0,
+        width: 1000,
+        height: 800,
     };
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 

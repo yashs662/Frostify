@@ -1,4 +1,4 @@
-use crate::ui::ecs::RenderBufferData;
+use crate::ui::{ecs::RenderBufferData, layout::Size};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
@@ -37,11 +37,7 @@ pub struct QuadGeometry {
 
 impl QuadGeometry {
     /// Create a quad that covers the component bounds including shadow expansion
-    pub fn from_component_bounds(
-        render_data: &RenderBufferData,
-        screen_width: f32,
-        screen_height: f32,
-    ) -> Self {
+    pub fn from_component_bounds(render_data: &RenderBufferData, screen_size: Size<f32>) -> Self {
         // Calculate expanded bounds that include shadow
         let shadow_expansion_x = render_data.shadow_offset[0].abs() + render_data.shadow_blur * 2.0;
         let shadow_expansion_y = render_data.shadow_offset[1].abs() + render_data.shadow_blur * 2.0;
@@ -52,10 +48,10 @@ impl QuadGeometry {
         let expanded_max_y = render_data.outer_bounds[3] + shadow_expansion_y;
 
         // Convert to clip space coordinates (-1 to 1)
-        let clip_min_x = (expanded_min_x / screen_width) * 2.0 - 1.0;
-        let clip_max_x = (expanded_max_x / screen_width) * 2.0 - 1.0;
-        let clip_min_y = -((expanded_min_y / screen_height) * 2.0 - 1.0); // Flip Y
-        let clip_max_y = -((expanded_max_y / screen_height) * 2.0 - 1.0); // Flip Y
+        let clip_min_x = (expanded_min_x / screen_size.width) * 2.0 - 1.0;
+        let clip_max_x = (expanded_max_x / screen_size.width) * 2.0 - 1.0;
+        let clip_min_y = -((expanded_min_y / screen_size.height) * 2.0 - 1.0); // Flip Y
+        let clip_max_y = -((expanded_max_y / screen_size.height) * 2.0 - 1.0); // Flip Y
         // Create quad vertices (counter-clockwise)
         // Note: Since we flip the Y-axis for clip space, we need to adjust UV coordinates accordingly
         let vertices = [
@@ -95,13 +91,13 @@ impl QuadGeometry {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
             contents: bytemuck::cast_slice(&self.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Index Buffer"),
             contents: bytemuck::cast_slice(&self.indices),
-            usage: wgpu::BufferUsages::INDEX,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
         });
 
         (vertex_buffer, index_buffer)

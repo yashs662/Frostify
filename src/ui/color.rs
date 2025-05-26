@@ -135,9 +135,9 @@ impl Color {
         Color::Custom([color.r, color.g, color.b, color.a])
     }
 
-    pub fn to_glyphon_color(self) -> glyphon::Color {
+    pub fn to_cosmic_color(self) -> cosmic_text::Color {
         let [r, g, b, a] = self.to_rgb_0_255();
-        glyphon::Color::rgba(r, g, b, a)
+        cosmic_text::Color::rgba(r, g, b, a)
     }
 
     pub fn to_colorgrad_color(self) -> colorgrad::Color {

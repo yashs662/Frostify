@@ -276,10 +276,10 @@ impl<'window> WgpuCtx<'window> {
         self.blit_bind_group = None;
     }
 
-    pub fn get_screen_size(&self) -> Size {
+    pub fn get_screen_size(&self) -> Size<u32> {
         Size {
-            width: self.surface_config.width as f32,
-            height: self.surface_config.height as f32,
+            width: self.surface_config.width,
+            height: self.surface_config.height,
         }
     }
 
@@ -326,12 +326,10 @@ impl<'window> WgpuCtx<'window> {
 
         // Create a local clone of the device and frame_sample_view
         let device = &self.device;
-        let queue = &self.queue;
         let frame_sample_view = self.frame_sample_view.as_ref();
         let main_render_texture_view = self.main_render_view.as_ref().unwrap();
         let main_render_texture = &self.main_render_texture;
         let frame_sample_texture = &self.frame_sample_texture;
-        let text_handler = &mut self.text_handler;
         let app_pipelines = &mut self.app_pipelines;
         let surface_width = self.surface_config.width;
         let surface_height = self.surface_config.height;
@@ -465,40 +463,32 @@ impl<'window> WgpuCtx<'window> {
                         timestamp_writes: None,
                     });
 
-                    if render_group.is_text {
-                        text_handler.render(
-                            device,
-                            queue,
-                            &mut render_pass,
-                            render_group.entity_ids.clone(),
-                        );
-                    } else {
-                        render_pass.set_pipeline(&app_pipelines.unified_pipeline);
-                        // Render each entity manually
-                        for &entity_id in &render_group.entity_ids {
-                            if let (Some(visual), Some(render_data), Some(interaction)) = (
-                                world.components.get_component::<VisualComponent>(entity_id),
-                                world
-                                    .components
-                                    .get_component::<RenderDataComponent>(entity_id),
-                                world
-                                    .components
-                                    .get_component::<InteractionComponent>(entity_id),
-                            ) {
-                                // Skip if not visible or if not active
-                                if !visual.is_visible() || !interaction.is_active {
-                                    continue;
-                                }
+                    render_pass.set_pipeline(&app_pipelines.unified_pipeline);
+                    // Render each entity manually
+                    for &entity_id in &render_group.entity_ids {
+                        if let (Some(visual), Some(render_data), Some(interaction)) = (
+                            world.components.get_component::<VisualComponent>(entity_id),
+                            world
+                                .components
+                                .get_component::<RenderDataComponent>(entity_id),
+                            world
+                                .components
+                                .get_component::<InteractionComponent>(entity_id),
+                        ) {
+                            // Skip if not visible or if not active
+                            if !visual.is_visible() || !interaction.is_active {
+                                continue;
+                            }
 
-                                // Simple rendering
-                                render_pass.set_bind_group(
-                                    0,
-                                    render_data.bind_group.as_ref().expect(
-                                        "Expected bind group to exist for entity before rendering",
-                                    ),
-                                    &[],
-                                );
-                                render_pass.set_vertex_buffer(
+                            // Simple rendering
+                            render_pass.set_bind_group(
+                                0,
+                                render_data.bind_group.as_ref().expect(
+                                    "Expected bind group to exist for entity before rendering",
+                                ),
+                                &[],
+                            );
+                            render_pass.set_vertex_buffer(
                                 0,
                                 render_data
                                     .vertex_buffer
@@ -508,7 +498,7 @@ impl<'window> WgpuCtx<'window> {
                                     )
                                     .slice(..),
                             );
-                                render_pass.set_index_buffer(
+                            render_pass.set_index_buffer(
                                 render_data
                                     .index_buffer
                                     .as_ref()
@@ -518,8 +508,7 @@ impl<'window> WgpuCtx<'window> {
                                     .slice(..),
                                 wgpu::IndexFormat::Uint16,
                             );
-                                render_pass.draw_indexed(0..6, 0, 0..1);
-                            }
+                            render_pass.draw_indexed(0..6, 0, 0..1);
                         }
                     }
                 }

@@ -296,7 +296,6 @@ impl EcsSystem for AnimationSystem {
 pub struct RenderGroup {
     pub entity_ids: Vec<EntityId>,
     pub is_frosted_glass: bool,
-    pub is_text: bool,
 }
 
 pub struct RenderPrepareSystem;
@@ -317,7 +316,6 @@ impl EcsSystem for RenderPrepareSystem {
         let mut current_group = RenderGroup {
             entity_ids: Vec::new(),
             is_frosted_glass: false,
-            is_text: false,
         };
 
         for component_id in render_order {
@@ -350,22 +348,18 @@ impl EcsSystem for RenderPrepareSystem {
             }
 
             let is_frosted_glass = identity_comp.component_type == ComponentType::FrostedGlass;
-            let is_text = identity_comp.component_type == ComponentType::Text;
 
             // Check if we need to start a new group
-            if (is_frosted_glass != current_group.is_frosted_glass
-                || is_text != current_group.is_text)
+            if (is_frosted_glass != current_group.is_frosted_glass)
                 && !current_group.entity_ids.is_empty()
             {
                 render_groups.push(current_group);
                 current_group = RenderGroup {
                     entity_ids: Vec::new(),
                     is_frosted_glass,
-                    is_text,
                 };
             } else if current_group.entity_ids.is_empty() {
                 current_group.is_frosted_glass = is_frosted_glass;
-                current_group.is_text = is_text;
             }
 
             current_group.entity_ids.push(*component_id);

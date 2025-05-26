@@ -20,6 +20,7 @@ use crate::{
 use frostify_derive::time_function;
 use std::collections::BTreeMap;
 use tokio::sync::mpsc::UnboundedSender;
+use wgpu::util::DeviceExt;
 
 #[derive(Debug, Clone)]
 pub struct ComponentOffset {
@@ -37,9 +38,27 @@ impl Default for ComponentOffset {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Size {
-    pub width: f32,
-    pub height: f32,
+pub struct Size<T> {
+    pub width: T,
+    pub height: T,
+}
+
+impl From<Size<u32>> for Size<f32> {
+    fn from(val: Size<u32>) -> Self {
+        Size {
+            width: val.width as f32,
+            height: val.height as f32,
+        }
+    }
+}
+
+impl From<Size<f32>> for Size<u32> {
+    fn from(val: Size<f32>) -> Self {
+        Size {
+            width: val.width as u32,
+            height: val.height as u32,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -51,7 +70,7 @@ pub struct ComponentPosition {
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Bounds {
     pub position: ComponentPosition,
-    pub size: Size,
+    pub size: Size<f32>,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -237,7 +256,7 @@ pub struct LayoutContext {
     pub world: World,
     pub computed_bounds: BTreeMap<EntityId, Bounds>,
     pub root_component_id: Option<EntityId>,
-    pub viewport_size: Size,
+    pub viewport_size: Size<u32>,
     initialized: bool,
     pub z_index_manager: ZIndexManager,
 }
@@ -574,13 +593,13 @@ impl Edges {
 
 // Implementation for FlexValue
 impl FlexValue {
-    pub fn resolve(&self, available_space: f32, viewport_dimension: f32) -> f32 {
+    pub fn resolve(&self, available_space: f32, viewport_dimension: u32) -> f32 {
         match self {
             FlexValue::Auto => available_space,
             FlexValue::Fixed(value) => *value,
             FlexValue::Fraction(frac) => available_space * frac,
             FlexValue::Percentage(perc) => available_space * perc,
-            FlexValue::Viewport(perc) => viewport_dimension * perc,
+            FlexValue::Viewport(perc) => viewport_dimension as f32 * perc,
             FlexValue::Min(a, b) => f32::min(
                 a.resolve(available_space, viewport_dimension),
                 b.resolve(available_space, viewport_dimension),
@@ -608,7 +627,7 @@ struct SpacingData<'a> {
 impl LayoutContext {
     pub fn initialize(
         &mut self,
-        viewport_size: Size,
+        viewport_size: Size<u32>,
         wgpu_ctx: &mut WgpuCtx,
         event_sender: &UnboundedSender<AppEvent>,
     ) {
@@ -819,6 +838,92 @@ impl LayoutContext {
             }
         });
 
+        // Update text component textures and set up their render data
+        for entity in self.world.get_entities_with_component::<TextComponent>() {
+            log::debug!("Processing text entity: {}", entity);
+
+            // Update texture for this text component
+            wgpu_ctx.text_handler.update_texture_if_needed(
+                &wgpu_ctx.device,
+                &wgpu_ctx.queue,
+                entity,
+            );
+
+            // Collect render data first (before any mutable borrows)
+            let render_data = create_entity_buffer_data(&self.world.components, entity);
+
+            // Setup RenderDataComponent for text entities
+            if let Some(render_data_comp) = self
+                .world
+                .components
+                .get_component_mut::<RenderDataComponent>(entity)
+            {
+                // Create render data buffer if it doesn't exist
+                if render_data_comp.render_data_buffer.is_none() {
+                    let render_data_buffer =
+                        wgpu_ctx
+                            .device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some(format!("{} Text Render Data Buffer", entity).as_str()),
+                                contents: bytemuck::cast_slice(&[render_data]),
+                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                            });
+                    render_data_comp.render_data_buffer = Some(render_data_buffer);
+                }
+
+                // Setup bind group with text texture
+                if let Some(texture_view) = wgpu_ctx.text_handler.get_texture_view(entity) {
+                    log::debug!("Setting up texture view for text entity: {}", entity);
+                    let sampler = wgpu_ctx.text_handler.get_sampler();
+
+                    // Create unified bind group layout compatible with the shader
+                    let bind_group_layout = wgpu_ctx.device.create_bind_group_layout(
+                        &wgpu::BindGroupLayoutDescriptor {
+                            entries: crate::constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+                            label: Some(format!("{} Text Bind Group Layout", entity).as_str()),
+                        },
+                    );
+
+                    // Create bind group with text texture
+                    let bind_group =
+                        wgpu_ctx
+                            .device
+                            .create_bind_group(&wgpu::BindGroupDescriptor {
+                                layout: &bind_group_layout,
+                                entries: &[
+                                    // Component uniform data
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: render_data_comp
+                                            .render_data_buffer
+                                            .as_ref()
+                                            .expect("render data buffer should exist")
+                                            .as_entire_binding(),
+                                    },
+                                    // Text texture view
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::TextureView(texture_view),
+                                    },
+                                    // Sampler
+                                    wgpu::BindGroupEntry {
+                                        binding: 2,
+                                        resource: wgpu::BindingResource::Sampler(sampler),
+                                    },
+                                ],
+                                label: Some(format!("{} Text Bind Group", entity).as_str()),
+                            });
+
+                    render_data_comp.bind_group = Some(bind_group);
+                    render_data_comp.sampler = Some(sampler.clone());
+
+                    log::debug!("Successfully set up bind group for text entity: {}", entity);
+                } else {
+                    log::warn!("No texture view available for text entity: {}", entity);
+                }
+            }
+        }
+
         // Update render data buffers
         let device_queue = self
             .world
@@ -838,11 +943,8 @@ impl LayoutContext {
                 .get_component_mut::<RenderDataComponent>(entity)
                 .expect("Expected RenderDataComponent to exist");
             // Generate quad geometry from component bounds and render data
-            let quad_geometry = QuadGeometry::from_component_bounds(
-                &render_data,
-                self.viewport_size.width,
-                self.viewport_size.height,
-            );
+            let quad_geometry =
+                QuadGeometry::from_component_bounds(&render_data, self.viewport_size.into());
 
             let (vertex_buffer, index_buffer) = quad_geometry.create_buffers(&wgpu_ctx.device);
 
@@ -884,12 +986,12 @@ impl LayoutContext {
         let available_space = match (parent_bounds, transform_comp.position_type) {
             (None, Position::Absolute(_)) => Bounds {
                 position: ComponentPosition { x: 0.0, y: 0.0 },
-                size: self.viewport_size,
+                size: self.viewport_size.into(),
             },
             (Some(bounds), _) => bounds,
             _ => Bounds {
                 position: ComponentPosition { x: 0.0, y: 0.0 },
-                size: self.viewport_size,
+                size: self.viewport_size.into(),
             },
         };
 
@@ -1168,7 +1270,7 @@ impl LayoutContext {
         // For absolute positioning, we position relative to the viewport
         let parent_bounds = Bounds {
             position: ComponentPosition { x: 0.0, y: 0.0 },
-            size: self.viewport_size,
+            size: self.viewport_size.into(),
         };
 
         self.calculate_fixed_bounds(transform_comp, parent_bounds, anchor)

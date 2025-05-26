@@ -121,7 +121,7 @@ pub fn create_entity_buffer_data(
     };
 
     let use_texture = match identity_comp.component_type {
-        ComponentType::BackgroundGradient | ComponentType::Image => 1,
+        ComponentType::BackgroundGradient | ComponentType::Image | ComponentType::Text => 1,
         ComponentType::FrostedGlass => 2,
         _ => 0,
     };
@@ -284,8 +284,8 @@ pub fn create_entity_buffer_data(
                 [
                     0.0,
                     0.0,
-                    bounds_comp.screen_size.width,
-                    bounds_comp.screen_size.height,
+                    bounds_comp.screen_size.width as f32,
+                    bounds_comp.screen_size.height as f32,
                 ],
                 [0.0, 0.0, 0.0, 0.0],
                 [0.0, 0.0],
@@ -298,8 +298,8 @@ pub fn create_entity_buffer_data(
         size,
         border_radius: visual_comp.border_radius.values(),
         screen_size: [
-            bounds_comp.screen_size.width,
-            bounds_comp.screen_size.height,
+            bounds_comp.screen_size.width as f32,
+            bounds_comp.screen_size.height as f32,
         ],
         use_texture,
         blur_radius,
