@@ -632,6 +632,7 @@ impl ApplicationHandler for App<'_> {
                             y: y as f32,
                         };
                         self.layout_context.world.run_system(MouseScrollSystem);
+                        self.layout_context.world.run_system(ComponentHoverSystem);
                     }
                 }
             }
