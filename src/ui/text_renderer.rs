@@ -6,8 +6,24 @@ use crate::{
         layout::{Bounds, Size},
     },
 };
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{
+    Attrs, Buffer, CacheKeyFlags, Family, FontFeatures, FontSystem, Metrics, Shaping, Stretch,
+    Style, SwashCache, Weight,
+};
 use std::collections::HashMap;
+
+const TEXT_ATTRS: Attrs = Attrs {
+    color_opt: None,
+    family: Family::SansSerif,
+    stretch: Stretch::Normal,
+    style: Style::Normal,
+    weight: Weight::BOLD,
+    metadata: 0,
+    cache_key_flags: CacheKeyFlags::empty(),
+    metrics_opt: None,
+    letter_spacing_opt: None,
+    font_features: FontFeatures { features: vec![] },
+};
 
 struct TextRenderData {
     buffer: Buffer,
@@ -99,7 +115,7 @@ impl TextRenderBuffers {
         buffer.set_text(
             font_system,
             text,
-            &Attrs::new().family(Family::SansSerif),
+            &TEXT_ATTRS,
             Shaping::Advanced,
         );
         buffer
@@ -383,7 +399,7 @@ impl TextHandler {
                 data.buffer.set_text(
                     &mut self.font_system,
                     &updated_text,
-                    &Attrs::new().family(Family::SansSerif),
+                    &TEXT_ATTRS,
                     Shaping::Advanced,
                 );
                 needs_reshape = true;
