@@ -1,20 +1,18 @@
-use crate::{
-    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-    ui::{
-        ecs::{
-            BorderPosition, ComponentType, EcsComponents, EntityId, RenderBufferData,
-            components::{
-                BoundsComponent, ColorComponent, FrostedGlassComponent, IdentityComponent,
-                VisualComponent,
-            },
+use crate::ui::{
+    ecs::{
+        BorderPosition, ComponentType, EcsComponents, EntityId, RenderBufferData,
+        components::{
+            BoundsComponent, ColorComponent, FrostedGlassComponent, IdentityComponent,
+            VisualComponent,
         },
-        geometry::QuadVertex,
     },
+    geometry::QuadVertex,
 };
 
 pub fn create_unified_pipeline(
     device: &wgpu::Device,
     swap_chain_format: wgpu::TextureFormat,
+    unified_bind_group_layout: &wgpu::BindGroupLayout,
 ) -> wgpu::RenderPipeline {
     // Create unified shader for both color and texture
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -22,16 +20,10 @@ pub fn create_unified_pipeline(
         source: wgpu::ShaderSource::Wgsl(include_str!("../assets/shaders/color.wgsl").into()),
     });
 
-    // Create unified bind group layout that supports both color-only and texture rendering
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-        label: Some("Unified Bind Group Layout"),
-    });
-
     // Pipeline layout that works for both standard components and frosted glass
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Unified Pipeline Layout"),
-        bind_group_layouts: &[&bind_group_layout],
+        bind_group_layouts: &[unified_bind_group_layout],
         push_constant_ranges: &[],
     });
 

@@ -876,20 +876,12 @@ impl LayoutContext {
                     log::debug!("Setting up texture view for text entity: {}", entity);
                     let sampler = wgpu_ctx.text_handler.get_sampler();
 
-                    // Create unified bind group layout compatible with the shader
-                    let bind_group_layout = wgpu_ctx.device.create_bind_group_layout(
-                        &wgpu::BindGroupLayoutDescriptor {
-                            entries: crate::constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-                            label: Some(format!("{} Text Bind Group Layout", entity).as_str()),
-                        },
-                    );
-
                     // Create bind group with text texture
                     let bind_group =
                         wgpu_ctx
                             .device
                             .create_bind_group(&wgpu::BindGroupDescriptor {
-                                layout: &bind_group_layout,
+                                layout: &wgpu_ctx.unified_bind_group_layout,
                                 entries: &[
                                     // Component uniform data
                                     wgpu::BindGroupEntry {

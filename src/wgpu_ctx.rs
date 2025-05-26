@@ -41,6 +41,7 @@ pub struct WgpuCtx<'window> {
     blit_sampler: Option<wgpu::Sampler>,
     blit_bind_group: Option<wgpu::BindGroup>,
     smaa_target: Option<SmaaTarget>,
+    pub unified_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl<'window> WgpuCtx<'window> {
@@ -87,7 +88,15 @@ impl<'window> WgpuCtx<'window> {
         };
         surface.configure(&device, &surface_config);
 
-        let unified_pipeline = create_unified_pipeline(&device, surface_config.format);
+        // Create unified bind group layout compatible with the shader
+        let unified_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+                label: Some("Unified Bind Group Layout"),
+            });
+
+        let unified_pipeline =
+            create_unified_pipeline(&device, surface_config.format, &unified_bind_group_layout);
         let text_handler = TextHandler::new(&device, &surface_config, &queue);
 
         let smaa_target = SmaaTarget::new(
@@ -117,6 +126,7 @@ impl<'window> WgpuCtx<'window> {
             blit_sampler: None,
             blit_bind_group: None,
             smaa_target: Some(smaa_target),
+            unified_bind_group_layout,
         }
     }
 
@@ -157,7 +167,15 @@ impl<'window> WgpuCtx<'window> {
             desired_maximum_frame_latency: 2,
         };
 
-        let unified_pipeline = create_unified_pipeline(&device, surface_config.format);
+        // Create unified bind group layout compatible with the shader
+        let unified_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
+                label: Some("Unified Bind Group Layout"),
+            });
+
+        let unified_pipeline =
+            create_unified_pipeline(&device, surface_config.format, &unified_bind_group_layout);
         let text_handler = TextHandler::new(&device, &surface_config, &queue);
 
         WgpuCtx {
@@ -178,6 +196,7 @@ impl<'window> WgpuCtx<'window> {
             blit_sampler: None,
             blit_bind_group: None,
             smaa_target: None,
+            unified_bind_group_layout,
         }
     }
 
@@ -367,7 +386,11 @@ impl<'window> WgpuCtx<'window> {
                     {
                         if let Some(frame_view) = frame_sample_view {
                             update_frosted_glass_with_frame_texture(
-                                world, *entity_id, frame_view, device,
+                                world,
+                                *entity_id,
+                                frame_view,
+                                device,
+                                &self.unified_bind_group_layout,
                             );
                         }
 
@@ -745,6 +768,7 @@ fn update_frosted_glass_with_frame_texture(
     entity_id: EntityId,
     frame_view: &wgpu::TextureView,
     device: &wgpu::Device,
+    unified_bind_group_layout: &wgpu::BindGroupLayout,
 ) {
     let render_comp = world
         .components
@@ -756,15 +780,9 @@ fn update_frosted_glass_with_frame_texture(
         .as_ref()
         .expect("expected sampler to exist in render_comp for frosted glass");
 
-    // Create unified bind group layout compatible with the shader
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-        label: Some(format!("{} Unified Bind Group Layout", entity_id).as_str()),
-    });
-
     // Create bind group with all required resources
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &bind_group_layout,
+        layout: unified_bind_group_layout,
         entries: &[
             // Component uniform data
             wgpu::BindGroupEntry {

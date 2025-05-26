@@ -1,7 +1,6 @@
 use wgpu::{SamplerDescriptor, util::DeviceExt};
 
 use crate::{
-    constants::UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
     ui::{
         ecs::{
             ComponentType, EntityId, World,
@@ -180,20 +179,11 @@ impl ImageBuilder {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        // Create unified bind group layout compatible with the shader
-        let bind_group_layout =
-            wgpu_ctx
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: UNIFIED_BIND_GROUP_LAYOUT_ENTRIES,
-                    label: Some(format!("{} Unified Bind Group Layout", entity_id).as_str()),
-                });
-
         // Create bind group with all required resources
         let bind_group = wgpu_ctx
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &bind_group_layout,
+                layout: &wgpu_ctx.unified_bind_group_layout,
                 entries: &[
                     // Component uniform data
                     wgpu::BindGroupEntry {
