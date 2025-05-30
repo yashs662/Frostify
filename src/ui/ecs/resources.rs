@@ -5,6 +5,7 @@ use crate::{
         layout::ComponentPosition,
     },
 };
+use cosmic_text::{FontSystem, SwashCache};
 use frostify_derive::EcsResource;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -45,4 +46,19 @@ pub struct EventSenderResource {
 #[derive(EcsResource, Default)]
 pub struct RequestReLayoutResource {
     pub request_relayout: bool,
+}
+
+#[derive(EcsResource)]
+pub struct TextRenderingResource {
+    pub font_system: FontSystem,
+    pub swash_cache: SwashCache,
+}
+
+impl Default for TextRenderingResource {
+    fn default() -> Self {
+        Self {
+            font_system: FontSystem::new(),
+            swash_cache: SwashCache::new(),
+        }
+    }
 }

@@ -10,7 +10,6 @@ use crate::{
             systems::RenderPrepareSystem,
         },
         layout::Size,
-        text_renderer::TextHandler,
     },
     utils::create_unified_pipeline,
 };
@@ -30,7 +29,6 @@ pub struct WgpuCtx<'window> {
     pub surface_config: wgpu::SurfaceConfiguration,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
-    pub text_handler: TextHandler,
     pub app_pipelines: AppPipelines,
     // Main render texture for all drawing operations
     main_render_texture: Option<wgpu::Texture>,
@@ -97,7 +95,6 @@ impl<'window> WgpuCtx<'window> {
 
         let unified_pipeline =
             create_unified_pipeline(&device, surface_config.format, &unified_bind_group_layout);
-        let text_handler = TextHandler::new(&device, &surface_config, &queue);
 
         let smaa_target = SmaaTarget::new(
             &device,
@@ -113,7 +110,6 @@ impl<'window> WgpuCtx<'window> {
             surface_config,
             device,
             queue,
-            text_handler,
             app_pipelines: AppPipelines {
                 unified_pipeline,
                 blit_pipeline: None,
@@ -176,14 +172,12 @@ impl<'window> WgpuCtx<'window> {
 
         let unified_pipeline =
             create_unified_pipeline(&device, surface_config.format, &unified_bind_group_layout);
-        let text_handler = TextHandler::new(&device, &surface_config, &queue);
 
         WgpuCtx {
             surface: None,
             surface_config,
             device,
             queue,
-            text_handler,
             app_pipelines: AppPipelines {
                 unified_pipeline,
                 blit_pipeline: None,
@@ -281,8 +275,6 @@ impl<'window> WgpuCtx<'window> {
         if let Some(surface) = &self.surface {
             surface.configure(&self.device, &self.surface_config);
         }
-        self.text_handler
-            .update_viewport_size(&self.surface_config, &self.queue);
         if let Some(smaa_target) = &mut self.smaa_target {
             smaa_target.resize(&self.device, width, height);
         }
@@ -775,11 +767,6 @@ fn update_frosted_glass_with_frame_texture(
         .get_component_mut::<RenderDataComponent>(entity_id)
         .expect("expected RenderDataComponent to exist to update frosted glass");
 
-    let sampler = render_comp
-        .sampler
-        .as_ref()
-        .expect("expected sampler to exist in render_comp for frosted glass");
-
     // Create bind group with all required resources
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: unified_bind_group_layout,
@@ -787,9 +774,7 @@ fn update_frosted_glass_with_frame_texture(
             // Component uniform data
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: render_comp.render_data_buffer.as_ref()
-                    .expect("expected render data buffer to exist for updating frame texture to frosted glass")
-                    .as_entire_binding(),
+                resource: render_comp.render_data_buffer.as_entire_binding(),
             },
             // Texture view
             wgpu::BindGroupEntry {
@@ -799,7 +784,7 @@ fn update_frosted_glass_with_frame_texture(
             // Sampler
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::Sampler(sampler),
+                resource: wgpu::BindingResource::Sampler(&render_comp.sampler),
             },
         ],
         label: Some(format!("{} Unified Bind Group", entity_id).as_str()),

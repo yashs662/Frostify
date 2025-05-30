@@ -8,19 +8,17 @@ use crate::{
                 InteractionComponent, LayoutComponent, PreFitSizeComponent, RenderDataComponent,
                 TextComponent, TransformComponent, VisualComponent,
             },
-            resources::{RenderOrderResource, WgpuQueueResource},
+            resources::{RenderOrderResource, TextRenderingResource, WgpuQueueResource},
         },
         geometry::QuadGeometry,
-        text_renderer::OptionalTextUpdateData,
         z_index_manager::ZIndexManager,
     },
     utils::create_entity_buffer_data,
     wgpu_ctx::WgpuCtx,
 };
 use frostify_derive::time_function;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use tokio::sync::mpsc::UnboundedSender;
-use wgpu::util::DeviceExt;
 
 #[derive(Debug, Clone)]
 pub struct ComponentOffset {
@@ -738,6 +736,10 @@ impl LayoutContext {
         let max_relayout_attempts = 3;
         let mut relayout_attempts = 0;
 
+        let text_entities: Vec<EntityId> =
+            self.world.get_entities_with_component::<TextComponent>();
+        let mut text_updated_bounds: HashMap<EntityId, Bounds> = HashMap::new();
+
         while requires_relayout && relayout_attempts < max_relayout_attempts {
             requires_relayout = false;
 
@@ -752,6 +754,10 @@ impl LayoutContext {
                     if let Some(computed_bounds) = self.computed_bounds.get(&id) {
                         bounds_comp.computed_bounds = *computed_bounds;
                         bounds_comp.screen_size = self.viewport_size;
+
+                        if text_entities.contains(&id) {
+                            text_updated_bounds.insert(id, bounds_comp.computed_bounds);
+                        }
                     }
                     if bounds_comp.fit_to_size {
                         entities_with_fit_to_size.push((id, bounds_comp.computed_bounds));
@@ -779,24 +785,20 @@ impl LayoutContext {
                 }
 
                 // Check if any text components need to be fit to size
-                if self
+                if let Some(text_comp) = self
                     .world
                     .components
                     .get_component::<TextComponent>(*entity_id)
-                    .is_some()
                 {
-                    let text_min_size = wgpu_ctx.text_handler.measure_text(*entity_id);
-                    if let Some(text_min_size) = text_min_size {
-                        if text_min_size != old_bounds.size {
+                    if let Some((calc_size, calc_offset)) =
+                        text_comp.calculate_fit_to_size(old_bounds)
+                    {
+                        if calc_size != old_bounds.size {
                             let new_bounds = Bounds {
                                 position: old_bounds.position,
-                                size: text_min_size,
+                                size: calc_size,
                             };
-                            entities_requiring_resizing.push((
-                                *entity_id,
-                                new_bounds,
-                                ComponentOffset::default(),
-                            ));
+                            entities_requiring_resizing.push((*entity_id, new_bounds, calc_offset));
                         }
                     }
                 }
@@ -829,93 +831,6 @@ impl LayoutContext {
             );
         }
 
-        // Update text components with new bounds
-        self.world.for_each_component::<TextComponent, _>(|id, _| {
-            if let Some(text_bounds) = self.computed_bounds.get(&id) {
-                wgpu_ctx
-                    .text_handler
-                    .update((id, OptionalTextUpdateData::new().with_bounds(*text_bounds)));
-            }
-        });
-
-        // Update text component textures and set up their render data
-        for entity in self.world.get_entities_with_component::<TextComponent>() {
-            log::debug!("Processing text entity: {}", entity);
-
-            // Update texture for this text component
-            wgpu_ctx.text_handler.update_texture_if_needed(
-                &wgpu_ctx.device,
-                &wgpu_ctx.queue,
-                entity,
-            );
-
-            // Collect render data first (before any mutable borrows)
-            let render_data = create_entity_buffer_data(&self.world.components, entity);
-
-            // Setup RenderDataComponent for text entities
-            if let Some(render_data_comp) = self
-                .world
-                .components
-                .get_component_mut::<RenderDataComponent>(entity)
-            {
-                // Create render data buffer if it doesn't exist
-                if render_data_comp.render_data_buffer.is_none() {
-                    let render_data_buffer =
-                        wgpu_ctx
-                            .device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some(format!("{} Text Render Data Buffer", entity).as_str()),
-                                contents: bytemuck::cast_slice(&[render_data]),
-                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                            });
-                    render_data_comp.render_data_buffer = Some(render_data_buffer);
-                }
-
-                // Setup bind group with text texture
-                if let Some(texture_view) = wgpu_ctx.text_handler.get_texture_view(entity) {
-                    log::debug!("Setting up texture view for text entity: {}", entity);
-                    let sampler = wgpu_ctx.text_handler.get_sampler();
-
-                    // Create bind group with text texture
-                    let bind_group =
-                        wgpu_ctx
-                            .device
-                            .create_bind_group(&wgpu::BindGroupDescriptor {
-                                layout: &wgpu_ctx.unified_bind_group_layout,
-                                entries: &[
-                                    // Component uniform data
-                                    wgpu::BindGroupEntry {
-                                        binding: 0,
-                                        resource: render_data_comp
-                                            .render_data_buffer
-                                            .as_ref()
-                                            .expect("render data buffer should exist")
-                                            .as_entire_binding(),
-                                    },
-                                    // Text texture view
-                                    wgpu::BindGroupEntry {
-                                        binding: 1,
-                                        resource: wgpu::BindingResource::TextureView(texture_view),
-                                    },
-                                    // Sampler
-                                    wgpu::BindGroupEntry {
-                                        binding: 2,
-                                        resource: wgpu::BindingResource::Sampler(sampler),
-                                    },
-                                ],
-                                label: Some(format!("{} Text Bind Group", entity).as_str()),
-                            });
-
-                    render_data_comp.bind_group = Some(bind_group);
-                    render_data_comp.sampler = Some(sampler.clone());
-
-                    log::debug!("Successfully set up bind group for text entity: {}", entity);
-                } else {
-                    log::warn!("No texture view available for text entity: {}", entity);
-                }
-            }
-        }
-
         // Update render data buffers
         let device_queue = self
             .world
@@ -944,13 +859,66 @@ impl LayoutContext {
             render_data_comp.index_buffer = Some(index_buffer);
 
             device_queue.queue.write_buffer(
-                render_data_comp
-                    .render_data_buffer
-                    .as_ref()
-                    .expect("RenderDataComponent should have a valid render data buffer"),
+                &render_data_comp.render_data_buffer,
                 0,
                 bytemuck::cast_slice(&[render_data]),
             );
+        }
+
+        // Update text components with new bounds and handle texture updates
+        let text_resource = self
+            .world
+            .resources
+            .get_resource_mut::<TextRenderingResource>()
+            .expect("TextRenderingResource should exist");
+
+        for (entity, new_bounds) in text_updated_bounds {
+            let (text_comp, render_data_comp) = self
+                .world
+                .components
+                .get_components_mut_pair::<TextComponent, RenderDataComponent>(entity)
+                .expect("Expected TextComponent and RenderDataComponent to exist");
+
+            text_comp.update_bounds(new_bounds, &mut text_resource.font_system);
+            text_comp.update_texture_if_needed(
+                &wgpu_ctx.device,
+                &wgpu_ctx.queue,
+                &mut text_resource.font_system,
+                &mut text_resource.swash_cache,
+            );
+
+            if text_comp.bind_group_update_required() {
+                let texture_view = text_comp.get_texture_view().expect(
+                    "Expected TextComponent to have a valid texture view after updating texture",
+                );
+
+                let bind_group = wgpu_ctx
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        layout: &wgpu_ctx.unified_bind_group_layout,
+                        entries: &[
+                            // Component uniform data
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: render_data_comp.render_data_buffer.as_entire_binding(),
+                            },
+                            // Text texture view
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(texture_view),
+                            },
+                            // Sampler
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::Sampler(&render_data_comp.sampler),
+                            },
+                        ],
+                        label: Some(format!("{} Text Bind Group", entity).as_str()),
+                    });
+
+                render_data_comp.bind_group = Some(bind_group);
+                text_comp.reset_bind_group_update_required();
+            }
         }
 
         // Use the z-index manager to determine render order

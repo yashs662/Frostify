@@ -268,10 +268,7 @@ impl EcsSystem for AnimationSystem {
                 .expect("Expected RenderDataComponent to be present for entity, while updating animation");
 
             device_queue.queue.write_buffer(
-                render_data_comp
-                    .render_data_buffer
-                    .as_ref()
-                    .expect("RenderDataComponent should have a valid render data buffer"),
+                &render_data_comp.render_data_buffer,
                 0,
                 bytemuck::cast_slice(&[render_data]),
             );

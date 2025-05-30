@@ -32,7 +32,6 @@ pub mod ecs;
 pub mod geometry;
 pub mod img_utils;
 pub mod layout;
-pub mod text_renderer;
 pub mod z_index_manager;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, EnumString)]
@@ -254,6 +253,7 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
         .with_font_size(24.0)
         .with_color(Color::White)
         .with_size(100, 100)
+        .set_fit_to_size()
         .build(
             &mut layout_context.world,
             wgpu_ctx,
@@ -279,6 +279,7 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
         .with_font_size(24.0)
         .with_color(Color::Red)
         .with_size(100, 100)
+        .set_fit_to_size()
         .build(
             &mut layout_context.world,
             wgpu_ctx,

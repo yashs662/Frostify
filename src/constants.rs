@@ -29,8 +29,6 @@ pub const UNIFIED_BIND_GROUP_LAYOUT_ENTRIES: &[wgpu::BindGroupLayoutEntry] = &[
         count: None,
     },
 ];
-pub const TEXT_TEXTURE_HORIZONTAL_PADDING: i32 = 3;
-pub const TEXT_TEXTURE_VERTICAL_PADDING: i32 = 5;
 pub const CREDENTIAL_SERVICE_NAME: &str = "Frostify";
 pub const CREDENTIAL_USER_NAME: &str = "Frostify_user";
 pub const WINDOW_RESIZE_BORDER_WIDTH: f64 = 2.0;

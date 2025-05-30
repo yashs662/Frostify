@@ -14,6 +14,10 @@ use crate::{
         },
     },
 };
+use cosmic_text::{
+    Attrs, Buffer, CacheKeyFlags, Family, FontFeatures, FontSystem, Metrics, Shaping, Stretch,
+    Style, SwashCache, Weight,
+};
 use frostify_derive::EcsComponent;
 
 #[derive(Debug, Clone, EcsComponent)]
@@ -88,9 +92,9 @@ pub struct IdentityComponent {
 
 #[derive(Debug, Clone, EcsComponent)]
 pub struct RenderDataComponent {
-    pub render_data_buffer: Option<wgpu::Buffer>,
+    pub render_data_buffer: wgpu::Buffer,
+    pub sampler: wgpu::Sampler,
     pub bind_group: Option<wgpu::BindGroup>,
-    pub sampler: Option<wgpu::Sampler>,
     pub vertex_buffer: Option<wgpu::Buffer>,
     pub index_buffer: Option<wgpu::Buffer>,
 }
@@ -116,12 +120,305 @@ pub struct FrostedGlassComponent {
     pub tint_intensity: f32,
 }
 
+const TEXT_ATTRS: Attrs = Attrs {
+    color_opt: None,
+    family: Family::SansSerif,
+    stretch: Stretch::Normal,
+    style: Style::Normal,
+    weight: Weight::BOLD,
+    metadata: 0,
+    cache_key_flags: CacheKeyFlags::empty(),
+    metrics_opt: None,
+    letter_spacing_opt: None,
+    font_features: FontFeatures { features: vec![] },
+};
+
 #[derive(Debug, Clone, EcsComponent)]
 pub struct TextComponent {
     pub text: String,
     pub font_size: f32,
     pub line_height_multiplier: f32,
     pub color: Color,
+    buffer: Option<Buffer>,
+    metrics: Option<Metrics>,
+    texture: Option<wgpu::Texture>,
+    texture_view: Option<wgpu::TextureView>,
+    needs_update: bool,
+    cached_bounds: Option<Bounds>,
+    bind_group_update_required: bool,
+}
+
+impl TextComponent {
+    pub fn new(text: String, font_size: f32, line_height_multiplier: f32, color: Color) -> Self {
+        Self {
+            text,
+            font_size,
+            line_height_multiplier,
+            color,
+            buffer: None,
+            metrics: None,
+            texture: None,
+            texture_view: None,
+            needs_update: true,
+            cached_bounds: None,
+            bind_group_update_required: false, // Initially false
+        }
+    }
+
+    pub fn initialize_rendering(&mut self, font_system: &mut FontSystem) {
+        if self.buffer.is_none() {
+            let metrics =
+                Metrics::new(self.font_size, self.font_size * self.line_height_multiplier);
+            let mut buffer = Buffer::new(font_system, metrics);
+            buffer.set_text(font_system, &self.text, &TEXT_ATTRS, Shaping::Advanced);
+            self.buffer = Some(buffer);
+            self.metrics = Some(metrics);
+            self.needs_update = true;
+        }
+    }
+
+    pub fn update_text(&mut self, new_text: String, font_system: &mut FontSystem) {
+        if self.text != new_text {
+            self.text = new_text;
+            if let Some(ref mut buffer) = self.buffer {
+                buffer.set_text(font_system, &self.text, &TEXT_ATTRS, Shaping::Advanced);
+                self.needs_update = true;
+            }
+        }
+    }
+
+    pub fn update_bounds(&mut self, bounds: Bounds, font_system: &mut FontSystem) {
+        let bounds_changed = match self.cached_bounds {
+            Some(cached) => {
+                cached.position.x != bounds.position.x
+                    || cached.position.y != bounds.position.y
+                    || cached.size.width != bounds.size.width
+                    || cached.size.height != bounds.size.height
+            }
+            None => true,
+        };
+
+        if bounds_changed {
+            self.cached_bounds = Some(bounds);
+            if let Some(ref mut buffer) = self.buffer {
+                buffer.set_size(
+                    font_system,
+                    Some(bounds.size.width),
+                    Some(bounds.size.height),
+                );
+                self.needs_update = true;
+            }
+        }
+    }
+
+    pub fn measure_text(&self) -> Option<Size<f32>> {
+        if let Some(ref buffer) = self.buffer {
+            let mut max_width = 0.0f32;
+            let mut total_height = 0.0f32;
+
+            for run in buffer.layout_runs() {
+                max_width = max_width.max(run.line_w);
+                total_height += run.line_height;
+            }
+
+            // If no runs, fallback to buffer metrics
+            if total_height == 0.0 {
+                if let Some(run) = buffer.layout_runs().next() {
+                    total_height = run.line_height;
+                }
+            }
+
+            if max_width == 0.0 || total_height == 0.0 {
+                None
+            } else {
+                Some(Size {
+                    width: max_width + 6.0,      // Add padding for side bearings
+                    height: total_height + 12.0, // More padding for ascenders/descenders
+                })
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn calculate_fit_to_size(
+        &self,
+        old_bounds: &Bounds,
+    ) -> Option<(Size<f32>, ComponentOffset)> {
+        if let Some(text_size) = self.measure_text() {
+            if text_size != old_bounds.size {
+                Some((text_size, ComponentOffset::default()))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn update_texture_if_needed(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        font_system: &mut FontSystem,
+        swash_cache: &mut SwashCache,
+    ) {
+        if !self.needs_update {
+            return;
+        }
+
+        let Some(ref mut buffer) = self.buffer else {
+            return;
+        };
+
+        // Shape the buffer
+        buffer.shape_until_scroll(font_system, false);
+
+        // Calculate dimensions - need to do this before taking mutable reference to buffer
+        let (text_width, text_height) = {
+            let mut max_width = 0.0f32;
+            let mut total_height = 0.0f32;
+
+            for run in buffer.layout_runs() {
+                max_width = max_width.max(run.line_w);
+                total_height += run.line_height;
+            }
+
+            // If no runs, fallback to buffer metrics
+            if total_height == 0.0 {
+                if let Some(run) = buffer.layout_runs().next() {
+                    total_height = run.line_height;
+                }
+            }
+
+            // Add padding, especially for descenders
+            let width = (max_width.ceil() as u32 + 6).max(1); // Extra padding for side bearings
+            let height = (total_height.ceil() as u32 + 12).max(1); // More padding for ascenders/descenders
+
+            (width, height)
+        };
+
+        if text_width == 0 || text_height == 0 {
+            return;
+        }
+
+        // Create texture
+        let texture_size = wgpu::Extent3d {
+            width: text_width,
+            height: text_height,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Text Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create image buffer
+        let mut image_data = vec![0u8; (text_width * text_height * 4) as usize];
+
+        let start_instant = std::time::Instant::now();
+
+        // Draw text - TODO: Optimize this part
+        buffer.draw(
+            font_system,
+            swash_cache,
+            self.color.to_cosmic_color(),
+            |x, y, w, h, color| {
+                // Fill the rectangle with the given color
+                for py in 0..h {
+                    for px in 0..w {
+                        let buffer_x = x + px as i32 + 3; // TEXT_TEXTURE_HORIZONTAL_PADDING
+                        let buffer_y = y + py as i32 + 5; // TEXT_TEXTURE_VERTICAL_PADDING
+
+                        if buffer_x >= 0
+                            && buffer_y >= 0
+                            && buffer_x < text_width as i32
+                            && buffer_y < text_height as i32
+                        {
+                            let index =
+                                ((buffer_y as u32 * text_width + buffer_x as u32) * 4) as usize;
+                            if index + 3 < image_data.len() {
+                                // Use alpha blending to combine overlapping glyphs
+                                let src_alpha = color.a() as f32 / 255.0;
+                                let dst_alpha = image_data[index + 3] as f32 / 255.0;
+
+                                if src_alpha > 0.0 {
+                                    let inv_alpha = 1.0 - src_alpha;
+                                    image_data[index] = ((color.r() as f32 * src_alpha
+                                        + image_data[index] as f32 * inv_alpha)
+                                        .min(255.0))
+                                        as u8;
+                                    image_data[index + 1] = ((color.g() as f32 * src_alpha
+                                        + image_data[index + 1] as f32 * inv_alpha)
+                                        .min(255.0))
+                                        as u8;
+                                    image_data[index + 2] = ((color.b() as f32 * src_alpha
+                                        + image_data[index + 2] as f32 * inv_alpha)
+                                        .min(255.0))
+                                        as u8;
+                                    image_data[index + 3] =
+                                        ((src_alpha + dst_alpha * (1.0 - src_alpha)) * 255.0)
+                                            .min(255.0)
+                                            as u8;
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        );
+
+        log::trace!(
+            "Text rendering took {} µs for {}x{}",
+            start_instant.elapsed().as_micros(),
+            text_width,
+            text_height
+        );
+
+        // Upload to GPU
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &image_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(text_width * 4),
+                rows_per_image: Some(text_height),
+            },
+            texture_size,
+        );
+
+        // Update component state
+        self.texture = Some(texture);
+        self.texture_view = Some(texture_view);
+        self.needs_update = false;
+        self.bind_group_update_required = true;
+    }
+
+    pub fn get_texture_view(&self) -> Option<&wgpu::TextureView> {
+        self.texture_view.as_ref()
+    }
+
+    pub fn bind_group_update_required(&self) -> bool {
+        self.bind_group_update_required
+    }
+
+    pub fn reset_bind_group_update_required(&mut self) {
+        self.bind_group_update_required = false;
+    }
 }
 
 /// Useful in properly re-fitting the component when screen size changes

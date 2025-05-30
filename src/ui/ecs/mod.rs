@@ -2,7 +2,7 @@ use crate::{app::AppEvent, ui::color::Color};
 use components::IdentityComponent;
 use resources::{
     EventSenderResource, MouseResource, RenderGroupsResource, RenderOrderResource,
-    RequestReLayoutResource, WgpuQueueResource,
+    RequestReLayoutResource, TextRenderingResource, WgpuQueueResource,
 };
 use std::{
     any::{Any, TypeId},
@@ -140,6 +140,32 @@ impl EcsComponents {
             .and_then(|boxed_component| boxed_component.as_any_mut().downcast_mut::<T>())
     }
 
+    pub fn get_components_mut_pair<T1: EcsComponent + 'static, T2: EcsComponent + 'static>(
+        &mut self,
+        entity_id: EntityId,
+    ) -> Option<(&mut T1, &mut T2)> {
+        let type1_id = TypeId::of::<T1>();
+        let type2_id = TypeId::of::<T2>();
+        let type_ids = [&type1_id, &type2_id];
+
+        match self.inner.get_disjoint_mut(type_ids) {
+            [Some(map1), Some(map2)] => {
+                let comp1 = map1
+                    .get_mut(&entity_id)
+                    .and_then(|boxed| boxed.as_any_mut().downcast_mut::<T1>());
+                let comp2 = map2
+                    .get_mut(&entity_id)
+                    .and_then(|boxed| boxed.as_any_mut().downcast_mut::<T2>());
+                if let (Some(c1), Some(c2)) = (comp1, comp2) {
+                    Some((c1, c2))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub fn entry(&mut self, type_id: TypeId) -> &mut HashMap<EntityId, Box<dyn EcsComponent>> {
         self.inner.entry(type_id).or_default()
     }
@@ -251,12 +277,14 @@ impl World {
         self.add_resource(RenderGroupsResource::default());
         self.add_resource(MouseResource::default());
         self.add_resource(RequestReLayoutResource::default());
+        self.add_resource(TextRenderingResource::default());
     }
 
     fn reset_resources(&mut self) {
         self.resources.remove_resource::<RenderOrderResource>();
         self.resources.remove_resource::<RenderGroupsResource>();
         self.resources.remove_resource::<MouseResource>();
+        self.resources.remove_resource::<TextRenderingResource>();
         self.initialize_resetable_resources();
     }
 

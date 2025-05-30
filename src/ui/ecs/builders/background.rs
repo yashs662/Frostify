@@ -240,9 +240,9 @@ impl BackgroundBuilder {
         world.add_component(
             entity_id,
             RenderDataComponent {
-                render_data_buffer: Some(render_data_buffer),
+                render_data_buffer,
+                sampler,
                 bind_group: Some(bind_group),
-                sampler: Some(sampler),
                 vertex_buffer: None, // Will be generated during layout sync
                 index_buffer: None,  // Will be generated during layout sync
             },
