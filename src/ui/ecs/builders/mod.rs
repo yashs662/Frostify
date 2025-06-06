@@ -1,10 +1,12 @@
+use core::panic;
+
 use crate::{
     app::AppEvent,
     ui::{
         animation::{Animation, AnimationConfig, AnimationWhen},
         color::Color,
         ecs::{
-            BorderPosition, EntityId, World,
+            BorderPosition, EntityId, NamedRef, World,
             components::{
                 AnimationComponent, BoundsComponent, HierarchyComponent, InteractionComponent,
                 PreFitSizeComponent, TransformComponent, VisualComponent,
@@ -21,6 +23,7 @@ pub mod background;
 pub mod button;
 pub mod container;
 pub mod image;
+pub mod modal;
 pub mod text;
 
 /// Common properties shared across component builders
@@ -48,6 +51,7 @@ pub struct EntityBuilderProps {
     pub shadow_opacity: Option<f32>,
     pub clip_self: Option<bool>, // Whether component should be clipped by its parent
     pub as_inactive: bool,       // Whether component should be inactive on creation
+    pub named_reference: Option<NamedRef>,
 }
 
 /// Trait for component builders that share common properties
@@ -61,7 +65,7 @@ pub trait EntityBuilder: Sized {
         self
     }
 
-    fn with_inactive(mut self) -> Self {
+    fn with_spawn_as_inactive(mut self) -> Self {
         self.common_props().as_inactive = true;
         self
     }
@@ -88,6 +92,11 @@ pub trait EntityBuilder: Sized {
 
     fn with_fixed_position(mut self, anchor: Anchor) -> Self {
         self.common_props().position = Some(Position::Fixed(anchor));
+        self
+    }
+
+    fn with_absolute_position(mut self, anchor: Anchor) -> Self {
+        self.common_props().position = Some(Position::Absolute(anchor));
         self
     }
 
@@ -176,6 +185,11 @@ pub trait EntityBuilder: Sized {
         self.common_props().clip_self = Some(false);
         self
     }
+
+    fn with_named_ref(mut self, named_entity: NamedRef) -> Self {
+        self.common_props().named_reference = Some(named_entity);
+        self
+    }
 }
 
 /// Adds Animation, Transform, Hierarchy, and Visual components to the entity
@@ -185,6 +199,18 @@ pub fn add_common_components(
     entity_id: EntityId,
     props: &EntityBuilderProps,
 ) {
+    // Ensure NamedEntity if set is not already in the world
+    if let Some(named_entity) = &props.named_reference {
+        if world.named_entities.contains_key(named_entity) {
+            panic!(
+                "Named entity '{}' already exists in the world. Entity IDs must be unique.",
+                named_entity
+            );
+        } else {
+            world.named_entities.insert(*named_entity, entity_id);
+        }
+    }
+
     // Add animation component if configured
     for animation_config in &props.animations {
         let animation = Animation::new(animation_config.clone());
@@ -278,6 +304,8 @@ pub fn add_common_components(
             click_event: props.click_event,
             drag_event: props.drag_event,
             is_active: !props.as_inactive,
+            is_just_activated: !props.as_inactive,
+            is_just_deactivated: false,
         },
     );
 

@@ -1,5 +1,57 @@
 use crate::ui::ecs::EntityId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+
+/// Modal management system for tracking active modals and their ordering
+#[derive(Debug, Default)]
+pub struct ModalManager {
+    /// Stack of currently active modals (most recent at the back)
+    active_modals: VecDeque<EntityId>,
+    /// Base z-index for modal layer (well above normal components)
+    modal_base_z_index: i32,
+    /// Z-index increment between stacked modals
+    modal_z_increment: i32,
+}
+
+impl ModalManager {
+    pub fn new() -> Self {
+        Self {
+            active_modals: VecDeque::new(),
+            modal_base_z_index: 10000, // Start modals at z-index 10000
+            modal_z_increment: 1000,   // Each modal gets +1000 z-index
+        }
+    }
+
+    /// Register a new modal as active
+    pub fn open_modal(&mut self, modal_id: EntityId) {
+        // Remove modal if it already exists in the stack (bring to front)
+        self.active_modals.retain(|&id| id != modal_id);
+        // Add to the back (top of stack)
+        self.active_modals.push_back(modal_id);
+    }
+
+    /// Remove a modal from the active stack
+    pub fn close_modal(&mut self, modal_id: EntityId) {
+        self.active_modals.retain(|&id| id != modal_id);
+    }
+
+    /// Get the z-index for a specific modal
+    pub fn get_modal_z_index(&self, modal_id: EntityId) -> Option<i32> {
+        self.active_modals
+            .iter()
+            .position(|&id| id == modal_id)
+            .map(|position| self.modal_base_z_index + (position as i32 * self.modal_z_increment))
+    }
+
+    /// Get all active modals in order (bottom to top)
+    pub fn get_active_modals(&self) -> impl Iterator<Item = &EntityId> {
+        self.active_modals.iter()
+    }
+
+    pub fn clear(&mut self) {
+        self.active_modals.clear();
+    }
+}
+
 #[derive(Debug)]
 pub struct ZIndexManager {
     /// Base z-index assigned to each component
@@ -20,6 +72,10 @@ pub struct ZIndexManager {
     registration_order: HashMap<EntityId, usize>,
     /// Counter for registration order
     registration_counter: usize,
+    /// Modal management system
+    modal_manager: ModalManager,
+    /// Track which entities are modals for special handling
+    modal_entities: HashSet<EntityId>,
 }
 
 impl Default for ZIndexManager {
@@ -40,6 +96,8 @@ impl ZIndexManager {
             root_id: None,
             registration_order: HashMap::new(),
             registration_counter: 0,
+            modal_manager: ModalManager::new(),
+            modal_entities: HashSet::new(),
         }
     }
 
@@ -52,6 +110,8 @@ impl ZIndexManager {
         self.root_id = None;
         self.registration_order.clear();
         self.registration_counter = 0;
+        self.modal_manager.clear();
+        self.modal_entities.clear();
     }
 
     pub fn set_root_id(&mut self, root_id: EntityId) {
@@ -120,19 +180,26 @@ impl ZIndexManager {
 
     /// Recursively compute z-index for a component and its descendants
     fn compute_component_z_index(&mut self, component_id: EntityId, depth: i32) {
-        // Calculate absolute z-index:
-        // depth * level_increment + base_index + adjustment
-        let base = self.base_indices.get(&component_id).cloned().unwrap_or(0);
-        let adjustment = self.adjustments.get(&component_id).cloned().unwrap_or(0);
-        let parent_adjustment =
-            if let Some(parent_id) = self.hierarchy.get(&component_id).unwrap_or(&None) {
-                // Inherit parent's adjustment to ensure children maintain relative position
-                self.adjustments.get(parent_id).cloned().unwrap_or(0)
-            } else {
-                0
-            };
-        // Parent's adjustment is factored in to ensure all children inherit parent's positioning
-        let absolute_z_index = depth * self.level_increment + base + adjustment + parent_adjustment;
+        let absolute_z_index = if self.modal_entities.contains(&component_id) {
+            // If this is a modal, use the modal z-index if it's active
+            self.modal_manager
+                .get_modal_z_index(component_id)
+                .unwrap_or(-10000)
+        } else {
+            // Calculate absolute z-index for non-modal components:
+            // depth * level_increment + base_index + adjustment
+            let base = self.base_indices.get(&component_id).cloned().unwrap_or(0);
+            let adjustment = self.adjustments.get(&component_id).cloned().unwrap_or(0);
+            let parent_adjustment =
+                if let Some(parent_id) = self.hierarchy.get(&component_id).unwrap_or(&None) {
+                    // Inherit parent's adjustment to ensure children maintain relative position
+                    self.adjustments.get(parent_id).cloned().unwrap_or(0)
+                } else {
+                    0
+                };
+            // Parent's adjustment is factored in to ensure all children inherit parent's positioning
+            depth * self.level_increment + base + adjustment + parent_adjustment
+        };
 
         // Store the computed z-index
         self.computed_indices.insert(component_id, absolute_z_index);
@@ -169,8 +236,28 @@ impl ZIndexManager {
             // Start with the root
             render_order.push(root_id);
 
-            // Then add all elements in hierarchical order
+            // Then add all elements in hierarchical order (excluding modals)
             self.add_children_to_render_order(root_id, &mut render_order);
+        }
+
+        // Add active modals on top, ordered by their modal z-index
+        let mut active_modals: Vec<(EntityId, i32)> = self
+            .modal_manager
+            .get_active_modals()
+            .filter_map(|&modal_id| {
+                self.modal_manager
+                    .get_modal_z_index(modal_id)
+                    .map(|z_index| (modal_id, z_index))
+            })
+            .collect();
+
+        // Sort modals by their z-index to ensure proper rendering order
+        active_modals.sort_by_key(|(_, z_index)| *z_index);
+
+        // Add modals and their children to render order
+        for (modal_id, _) in active_modals {
+            render_order.push(modal_id);
+            self.add_children_to_render_order(modal_id, &mut render_order);
         }
 
         render_order
@@ -178,12 +265,18 @@ impl ZIndexManager {
 
     /// Helper function to recursively add children to render order
     fn add_children_to_render_order(&self, parent_id: EntityId, render_order: &mut Vec<EntityId>) {
-        // Find all direct children of this parent
+        // Find all direct children of this parent (excluding modals when traversing normal hierarchy)
         let mut children: Vec<(EntityId, i32, usize)> = self
             .hierarchy
             .iter()
             .filter_map(|(id, parent)| {
                 if *parent == Some(parent_id) {
+                    // Skip modals if we're not currently processing a modal hierarchy
+                    if !self.modal_entities.contains(&parent_id) && self.modal_entities.contains(id)
+                    {
+                        return None;
+                    }
+
                     let z_index = *self.computed_indices.get(id).unwrap_or(&0);
                     let registration_order =
                         *self.registration_order.get(id).unwrap_or(&usize::MAX);
@@ -207,5 +300,26 @@ impl ZIndexManager {
             render_order.push(child_id);
             self.add_children_to_render_order(child_id, render_order);
         }
+    }
+
+    /// Register a component as a modal entity
+    pub fn register_modal(&mut self, modal_id: EntityId) {
+        self.modal_entities.insert(modal_id);
+    }
+
+    /// Open a modal (activates it and places it on top)
+    pub fn open_modal(&mut self, modal_id: EntityId) {
+        if !self.modal_entities.contains(&modal_id) {
+            panic!(
+                "Attempted to open entity {} as modal, but it's not registered as a modal",
+                modal_id
+            );
+        }
+        self.modal_manager.open_modal(modal_id);
+    }
+
+    /// Close a specific modal
+    pub fn close_modal(&mut self, modal_id: EntityId) {
+        self.modal_manager.close_modal(modal_id);
     }
 }

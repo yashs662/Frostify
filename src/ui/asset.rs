@@ -25,6 +25,7 @@ pub fn initialize_assets() {
         "close.png",
         "minimize.png",
         "maximize.png",
+        "settings.png",
         "test.png",
         "album_art.png",
         "frostify_logo.png",

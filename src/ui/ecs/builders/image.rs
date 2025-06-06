@@ -99,7 +99,7 @@ impl ImageBuilder {
         let img_loader = RgbaImg::new(self.file_name.as_str());
         let img = if let Err(img_load_err) = img_loader {
             panic!(
-                "Failed to load image file: {}, error: {}",
+                "Failed to load image file: {}, error: {}, Did you forget to add the file to the asset manager?",
                 self.file_name, img_load_err
             );
         } else {

@@ -1,5 +1,6 @@
 use crate::{app::AppEvent, ui::color::Color};
 use components::IdentityComponent;
+use frostify_derive::EntityCategories;
 use resources::{
     EventSenderResource, MouseResource, RenderGroupsResource, RenderOrderResource,
     RequestReLayoutResource, TextRenderingResource, WgpuQueueResource,
@@ -9,6 +10,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
 };
+use strum_macros::Display;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -87,6 +89,23 @@ pub enum GradientType {
 pub struct GradientColorStop {
     pub color: Color,
     pub position: f32, // 0.0 to 1.0 representing the position along the gradient line
+}
+
+/// This enum is used to access certain named entities via their EntityId.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Hash, EntityCategories)]
+pub enum NamedRef {
+    #[modal]
+    SettingsModal,
+    #[player]
+    CurrentSongAlbumArt,
+}
+
+pub trait ModalEntity {
+    fn is_modal(&self) -> bool;
+}
+
+pub trait PlayerEntity {
+    fn is_player_entity(&self) -> bool;
 }
 
 // Component trait - data containers
@@ -211,16 +230,7 @@ pub struct World {
     entities: Vec<EntityId>,
     pub components: EcsComponents,
     pub resources: EcsResources,
-}
-
-impl Debug for World {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("World")
-            .field("entities", &self.entities)
-            .field("components", &self.components.inner.keys())
-            .field("resources", &self.resources.inner.keys())
-            .finish()
-    }
+    pub named_entities: HashMap<NamedRef, EntityId>,
 }
 
 impl Default for World {
@@ -235,6 +245,7 @@ impl World {
             entities: Vec::new(),
             components: EcsComponents::new(),
             resources: EcsResources::new(),
+            named_entities: HashMap::new(),
         }
     }
 

@@ -76,6 +76,8 @@ pub struct InteractionComponent {
     pub click_event: Option<AppEvent>,
     pub drag_event: Option<AppEvent>,
     pub is_active: bool,
+    pub is_just_activated: bool,
+    pub is_just_deactivated: bool,
 }
 
 // Animation Component

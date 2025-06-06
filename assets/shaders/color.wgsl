@@ -1,3 +1,51 @@
+
+// TODO: Future reference - https://www.shadertoy.com/view/4ccXz7
+// Stripped Down version of the Shader toy
+// xy: half size
+// float sd_rectangle(vec2 p, vec2 xy) {
+//     vec2 d = abs(p) - max(xy, 0.0);
+//     float outer = length(max(d, 0.0));
+//     float inner = min(max(d.x, d.y), 0.0);
+//     return outer + inner;
+// }
+
+// xy: half size
+// r: radius [top left, top right, bottom left, bottom right]
+// float sd_rounded_rectangle(vec2 p, vec2 xy, vec4 r) {
+//     float s = r[int(p[0] > 0.0) + int(p[1] < 0.0) * 2];
+//     // shrink when `radius < min(w,h)/2`
+//     s = min(s, min(xy.x, xy.y));
+//     return sd_rectangle(p, xy - s) - s;
+// }
+
+// xy: half size
+// border: border width [top, right, bottom, left]
+// float sd_border(vec2 p, vec2 xy, float outer_radius, float inner_radius) {
+//     vec2 dp = vec2(0);
+//     vec2 inner_p = p + dp;
+//     vec2 dxy = vec2(inner_radius, inner_radius);
+//     vec2 inner_xy = xy - dxy;
+//     float d2 = sd_rounded_rectangle(p, xy, vec4(outer_radius));
+//     if(d2 > 0.0 || inner_xy.x < 0.0 || inner_xy.y < 0.0) {
+//         return d2;
+//     }
+//     vec4 inner_r = vec4(inner_radius);
+//     float d1 = sd_rounded_rectangle(inner_p, inner_xy, inner_r);
+//     return d1 < 0.0 ? -d1 : max(-d1, d2);
+// }
+
+// void mainImage( out vec4 fragColor, in vec2 fragCoord )
+// {
+//     float w = min(iResolution.x, iResolution.y) / 2.0;
+//     vec2 p = (fragCoord * 2.0 - iResolution.xy) / w;
+//     vec2 m = (iMouse.xy * 2.0 - iResolution.xy) / w;
+// 
+//     vec4 r = vec4(0.1, 0.2, 0.3, 0.4);
+//     float d = sd_border(p, abs(m), 0.1, 0.1);
+// 
+//     fragColor = vec4(smoothstep(0.01, -0.01, d));
+// }
+
 struct VertexInput {
     @location(0) position: vec2<f32>,  // Vertex position in clip space
     @location(1) uv: vec2<f32>,        // UV coordinates (0-1 range)

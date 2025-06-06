@@ -5,10 +5,11 @@ use crate::{
     ui::{
         self, UiView,
         ecs::{
+            ModalEntity, NamedRef,
             resources::{MouseResource, RequestReLayoutResource},
             systems::{
-                AnimationSystem, ComponentHoverResetSystem, ComponentHoverSystem, MouseInputSystem,
-                MouseScrollSystem,
+                AnimationSystem, ComponentActivationSystem, ComponentHoverResetSystem,
+                ComponentHoverSystem, MouseInputSystem, MouseScrollSystem,
             },
         },
         layout::{self, ComponentPosition, Size},
@@ -37,6 +38,8 @@ pub enum AppEvent {
     PlayPause,
     PreviousTrack,
     NextTrack,
+    OpenModal(NamedRef),
+    CloseModal(NamedRef),
 }
 
 #[derive(Default)]
@@ -216,6 +219,90 @@ impl App<'_> {
                         debug!("Login event received");
                         if let Some(worker) = &self.worker {
                             worker.start_oauth();
+                        }
+                        return true;
+                    }
+                    AppEvent::OpenModal(modal_entity) => {
+                        if let Some(entity_id) = self
+                            .layout_context
+                            .world
+                            .named_entities
+                            .iter()
+                            .find_map(|(named_entity, id)| {
+                                // check if the named entity is of some AppNamedModals type
+                                if *named_entity == modal_entity {
+                                    if named_entity.is_modal() {
+                                        debug!("Received OpenModal event for: {}", named_entity);
+                                        Some(*id)
+                                    } else {
+                                        panic!(
+                                            "Received OpenModal event for non-modal entity: {}",
+                                            named_entity
+                                        );
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                        {
+                            // Open the modal through the modal management system
+                            self.layout_context.z_index_manager.open_modal(entity_id);
+
+                            // Activate the modal component
+                            self.layout_context
+                                .world
+                                .run_system(ComponentActivationSystem {
+                                    entity_id,
+                                    activate: true,
+                                    affect_children: true,
+                                });
+                        } else {
+                            panic!(
+                                "Received OpenModal event for non-existent modal entity: {}. Did you forget to use with_named_ref() on the modal entity?",
+                                modal_entity
+                            );
+                        }
+                        return true;
+                    }
+                    AppEvent::CloseModal(modal_entity) => {
+                        if let Some(entity_id) = self
+                            .layout_context
+                            .world
+                            .named_entities
+                            .iter()
+                            .find_map(|(named_entity, id)| {
+                                // check if the named entity is of some AppNamedModals type
+                                if *named_entity == modal_entity {
+                                    if named_entity.is_modal() {
+                                        debug!("Received CloseModal event for: {}", named_entity);
+                                        Some(*id)
+                                    } else {
+                                        panic!(
+                                            "Received CloseModal event for non-modal entity: {}",
+                                            named_entity
+                                        );
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                        {
+                            // Close the modal through the modal management system
+                            self.layout_context.z_index_manager.close_modal(entity_id);
+
+                            // Deactivate the modal component
+                            self.layout_context
+                                .world
+                                .run_system(ComponentActivationSystem {
+                                    entity_id,
+                                    activate: false,
+                                    affect_children: true,
+                                });
+                        } else {
+                            panic!(
+                                "Received CloseModal event for non-existent modal entity: {}. Did you forget to use with_named_ref() on the modal entity?",
+                                modal_entity
+                            );
                         }
                         return true;
                     }

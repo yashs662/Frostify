@@ -1,6 +1,9 @@
 use crate::{
     app::AppEvent,
-    ui::layout::{FlexDirection, FlexValue},
+    ui::{
+        ecs::NamedRef,
+        layout::{ComponentOffset, FlexDirection, FlexValue},
+    },
     wgpu_ctx::WgpuCtx,
 };
 use animation::{
@@ -584,6 +587,100 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     layout_context.add_child_to_parent(main_container_id, player_container_id);
 }
 
+fn create_settings_modal(
+    wgpu_ctx: &mut WgpuCtx,
+    layout_context: &mut layout::LayoutContext,
+) -> EntityId {
+    let modal_parent_container_id = ContainerBuilder::new()
+        .with_debug_name("Settings Modal Parent Container")
+        .with_direction(FlexDirection::Column)
+        .with_align_items(AlignItems::Center)
+        .with_justify_content(JustifyContent::Center)
+        .with_named_ref(NamedRef::SettingsModal)
+        .with_absolute_position(Anchor::Center)
+        .with_spawn_as_inactive()
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    // Register the modal with the z-index manager
+    layout_context
+        .z_index_manager
+        .register_modal(modal_parent_container_id);
+
+    let modal_backdrop = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
+        tint_color: Color::Black,
+        blur_radius: 10.0,
+        tint_intensity: 0.5,
+    })
+    .with_debug_name("Settings Modal Backdrop")
+    .with_fixed_position(Anchor::Center)
+    .with_z_index(-1)
+    .with_click_event(AppEvent::CloseModal(NamedRef::SettingsModal))
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    let modal_container_id = ContainerBuilder::new()
+        .with_debug_name("Settings Modal Container")
+        .with_size(FlexValue::Fixed(400.0), FlexValue::Fixed(300.0))
+        .with_direction(FlexDirection::Column)
+        .with_padding(Edges::all(20.0))
+        .build(
+            &mut layout_context.world,
+            &mut layout_context.z_index_manager,
+        );
+
+    let modal_background_id = BackgroundBuilder::with_color(BackgroundColorConfig {
+        color: Color::DarkGray.darken(0.1),
+    })
+    .with_debug_name("Settings Modal Background")
+    .with_fixed_position(Anchor::Center)
+    .with_border_radius(BorderRadius::all(5.0))
+    .with_border(2.0, Color::White)
+    .with_shadow(Color::White, (0.0, 0.0), 20.0, 0.2)
+    .with_z_index(-1)
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
+    let close_modal_button_id = ButtonBuilder::new()
+        .with_debug_name("Close Modal Button")
+        .with_content_padding(Edges::all(5.0))
+        .with_size(FlexValue::Fixed(30.0), FlexValue::Fixed(30.0))
+        .with_border_radius(BorderRadius::all(4.0))
+        .with_click_event(AppEvent::CloseModal(NamedRef::SettingsModal))
+        .with_background_color(BackgroundColorConfig {
+            color: Color::Transparent,
+        })
+        .with_foreground_image("close.png")
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Color {
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
+            },
+            when: AnimationWhen::Hover,
+        })
+        .with_fixed_position(Anchor::TopRight)
+        .with_offset(ComponentOffset::new(-10.0, 10.0))
+        .build(layout_context, wgpu_ctx);
+
+    layout_context.add_child_to_parent(modal_container_id, modal_background_id);
+    layout_context.add_child_to_parent(modal_container_id, close_modal_button_id);
+
+    layout_context.add_child_to_parent(modal_parent_container_id, modal_backdrop);
+    layout_context.add_child_to_parent(modal_parent_container_id, modal_container_id);
+
+    modal_parent_container_id
+}
+
 fn create_nav_bar(
     wgpu_ctx: &mut WgpuCtx,
     layout_context: &mut layout::LayoutContext,
@@ -631,6 +728,28 @@ fn create_nav_bar(
             &mut layout_context.world,
             &mut layout_context.z_index_manager,
         );
+
+    // Settings button
+    let settings_button_id = ButtonBuilder::new()
+        .with_debug_name("Settings Button")
+        .with_content_padding(Edges::all(5.0))
+        .with_size(FlexValue::Fixed(30.0), FlexValue::Fixed(30.0))
+        .with_border_radius(BorderRadius::all(4.0))
+        .with_click_event(AppEvent::OpenModal(NamedRef::SettingsModal))
+        .with_background_color(BackgroundColorConfig {
+            color: Color::Transparent,
+        })
+        .with_foreground_image("settings.png")
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(200),
+            easing: EasingFunction::EaseOutExpo,
+            direction: AnimationDirection::Alternate,
+            animation_type: AnimationType::Color {
+                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
+            },
+            when: AnimationWhen::Hover,
+        })
+        .build(layout_context, wgpu_ctx);
 
     // Minimize button
     let minimize_button_id = ButtonBuilder::new()
@@ -698,13 +817,17 @@ fn create_nav_bar(
         })
         .build(layout_context, wgpu_ctx);
 
+    let settings_modal_id = create_settings_modal(wgpu_ctx, layout_context);
+
     // Add buttons to the nav buttons container
+    layout_context.add_child_to_parent(nav_buttons_container_id, settings_button_id);
     layout_context.add_child_to_parent(nav_buttons_container_id, minimize_button_id);
     layout_context.add_child_to_parent(nav_buttons_container_id, maximize_button_id);
     layout_context.add_child_to_parent(nav_buttons_container_id, close_button_id);
 
     // add the nav buttons container to the nav bar container
     layout_context.add_child_to_parent(nav_bar_container_id, nav_buttons_container_id);
+    layout_context.add_child_to_parent(nav_bar_container_id, settings_modal_id);
 
     nav_bar_container_id
 }
@@ -758,6 +881,7 @@ fn create_player_bar(
         .with_scale_mode(ScaleMode::ContainNoCenter)
         .with_shadow(Color::Black, (0.0, 0.0), 4.0, 0.4)
         .with_uniform_border_radius(5.0)
+        .with_named_ref(NamedRef::CurrentSongAlbumArt)
         .build(
             &mut layout_context.world,
             wgpu_ctx,

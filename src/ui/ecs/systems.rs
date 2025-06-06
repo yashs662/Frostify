@@ -15,7 +15,7 @@ use crate::{
     },
     utils::create_entity_buffer_data,
 };
-use frostify_derive::time_system;
+use frostify_derive::{time_function, time_system};
 
 pub struct AnimationSystem {
     pub frame_time: f32,
@@ -42,6 +42,8 @@ impl EcsSystem for AnimationSystem {
         // First pass: Collect animation updates without mutating components
         let mut updates = Vec::new();
         let mut animations_to_be_flipped = Vec::new();
+        let mut entities_with_exit_anim_completed = Vec::new();
+        let mut entities_with_entry_anim_completed = Vec::new();
         let mut any_update_requires_relayout = false;
 
         // Get relevant entities and build update list
@@ -66,7 +68,33 @@ impl EcsSystem for AnimationSystem {
                     let should_animate_forward = match animation.config.when {
                         AnimationWhen::Hover => is_hovered,
                         AnimationWhen::Forever => animation.is_going_forward,
+                        AnimationWhen::Entry => interaction_comp.is_just_activated,
+                        AnimationWhen::Exit => interaction_comp.is_just_deactivated,
                     };
+
+                    // Reset animation progress when starting a new entry/exit animation
+                    let mut current_progress = animation.progress;
+                    if matches!(
+                        animation.config.when,
+                        AnimationWhen::Entry | AnimationWhen::Exit
+                    ) && should_animate_forward
+                        && animation.progress >= 1.0
+                    {
+                        current_progress = 0.0;
+                    }
+
+                    if matches!(
+                        animation.config.when,
+                        AnimationWhen::Entry | AnimationWhen::Exit
+                    ) && should_animate_forward
+                    {
+                        log::debug!(
+                            "Processing animation for entity: {}, index: {}, when: {:?}",
+                            entity_id,
+                            index,
+                            animation.config.when,
+                        )
+                    }
 
                     // Calculate delta based on frame time and duration
                     let delta = self.frame_time / animation.config.duration.as_secs_f32();
@@ -75,30 +103,46 @@ impl EcsSystem for AnimationSystem {
                     let raw_progress = match animation.config.direction {
                         AnimationDirection::Forward => {
                             if should_animate_forward {
-                                (animation.progress + delta).min(1.0)
+                                (current_progress + delta).min(1.0)
                             } else {
-                                0.0 // Instant reset
+                                // Don't reset entry/exit animations when not animating
+                                match animation.config.when {
+                                    AnimationWhen::Entry | AnimationWhen::Exit => current_progress,
+                                    _ => 0.0, // Instant reset for other animation types
+                                }
                             }
                         }
                         AnimationDirection::Backward => {
                             if should_animate_forward {
                                 1.0 // Instant full
                             } else {
-                                (animation.progress - delta).max(0.0)
+                                // Don't reset entry/exit animations when not animating
+                                match animation.config.when {
+                                    AnimationWhen::Entry | AnimationWhen::Exit => current_progress,
+                                    _ => (current_progress - delta).max(0.0),
+                                }
                             }
                         }
                         AnimationDirection::Alternate => {
                             if should_animate_forward {
-                                (animation.progress + delta).min(1.0)
+                                (current_progress + delta).min(1.0)
                             } else {
-                                (animation.progress - delta).max(0.0)
+                                // Don't reset entry/exit animations when not animating
+                                match animation.config.when {
+                                    AnimationWhen::Entry | AnimationWhen::Exit => current_progress,
+                                    _ => (current_progress - delta).max(0.0),
+                                }
                             }
                         }
                         AnimationDirection::AlternateReverse => {
                             if should_animate_forward {
-                                (animation.progress - delta).max(0.0)
+                                (current_progress - delta).max(0.0)
                             } else {
-                                (animation.progress + delta).min(1.0)
+                                // Don't reset entry/exit animations when not animating
+                                match animation.config.when {
+                                    AnimationWhen::Entry | AnimationWhen::Exit => current_progress,
+                                    _ => (current_progress + delta).min(1.0),
+                                }
                             }
                         }
                     };
@@ -106,8 +150,18 @@ impl EcsSystem for AnimationSystem {
                     // Apply easing to the calculated raw progress
                     let eased_progress = animation.config.easing.compute(raw_progress);
                     let should_process = should_animate_forward
-                        || animation.progress > 0.0
+                        || current_progress > 0.0
                         || animation.config.when == AnimationWhen::Forever;
+
+                    // Don't process completed entry/exit animations that aren't actively animating
+                    if matches!(
+                        animation.config.when,
+                        AnimationWhen::Entry | AnimationWhen::Exit
+                    ) && !should_animate_forward
+                        && raw_progress >= 1.0
+                    {
+                        continue;
+                    }
 
                     if !should_process {
                         continue;
@@ -164,10 +218,25 @@ impl EcsSystem for AnimationSystem {
 
                     // check if we need to flip the animation direction for forever animations
                     if animation.config.when == AnimationWhen::Forever
-                        && animation.config.direction.is_flippable()
+                        && animation.config.direction.allows_reverse_transition()
                         && (raw_progress >= 1.0 || raw_progress <= 0.0)
                     {
                         animations_to_be_flipped.push((entity_id, index));
+                    }
+
+                    // Check if we need to stop playing entry and exit animations
+                    if animation.config.when == AnimationWhen::Entry
+                        && raw_progress >= 1.0
+                        && interaction_comp.is_just_activated
+                    {
+                        entities_with_entry_anim_completed.push(entity_id);
+                    }
+
+                    if animation.config.when == AnimationWhen::Exit
+                        && raw_progress >= 1.0
+                        && interaction_comp.is_just_deactivated
+                    {
+                        entities_with_exit_anim_completed.push(entity_id);
                     }
                 }
             }
@@ -240,6 +309,26 @@ impl EcsSystem for AnimationSystem {
                 update.entity_id,
                 create_entity_buffer_data(&world.components, update.entity_id),
             ));
+        }
+
+        // Handle completed entry and exit animations
+        for entity_id in entities_with_entry_anim_completed {
+            if let Some(interaction_comp) = world
+                .components
+                .get_component_mut::<InteractionComponent>(entity_id)
+            {
+                interaction_comp.is_just_activated = false;
+            }
+        }
+
+        for entity_id in entities_with_exit_anim_completed {
+            if let Some(interaction_comp) = world
+                .components
+                .get_component_mut::<InteractionComponent>(entity_id)
+            {
+                interaction_comp.is_just_deactivated = false;
+                interaction_comp.is_active = false;
+            }
         }
 
         // Flip the animation direction for forever animations
@@ -582,6 +671,153 @@ impl EcsSystem for MouseScrollSystem {
             }
         }
     }
+}
+
+pub struct ComponentActivationSystem {
+    pub activate: bool,
+    pub entity_id: EntityId,
+    pub affect_children: bool,
+}
+
+#[time_system]
+impl EcsSystem for ComponentActivationSystem {
+    fn run(&mut self, world: &mut World) {
+        // Parent
+        let (parent_has_entry_anim, parent_has_exit_anim) = if let Some(parent_anim_comp) = world
+            .components
+            .get_component::<AnimationComponent>(self.entity_id)
+        {
+            let parent_has_entry_anim = parent_anim_comp
+                .animations
+                .iter()
+                .any(|anim| anim.config.when == AnimationWhen::Entry);
+            let parent_has_exit_anim = parent_anim_comp
+                .animations
+                .iter()
+                .any(|anim| anim.config.when == AnimationWhen::Exit);
+            (parent_has_entry_anim, parent_has_exit_anim)
+        } else {
+            (false, false)
+        };
+
+        let parent_interaction_comp = world
+            .components
+            .get_component_mut::<InteractionComponent>(self.entity_id)
+            .expect("Expected InteractionComponent to be present for parent entity");
+
+        // reset both just activated and deactivated flags
+        parent_interaction_comp.is_just_activated = false;
+        parent_interaction_comp.is_just_deactivated = false;
+
+        if self.activate {
+            if parent_interaction_comp.is_active {
+                log::warn!(
+                    "Trying to activate an already active component: {}",
+                    self.entity_id
+                );
+                return; // Already active, no need to activate again
+            }
+
+            parent_interaction_comp.is_active = true;
+
+            if parent_has_entry_anim {
+                parent_interaction_comp.is_just_activated = true;
+            }
+        } else {
+            if !parent_interaction_comp.is_active {
+                log::warn!(
+                    "Trying to deactivate an already inactive component: {}",
+                    self.entity_id
+                );
+                return; // Already inactive, no need to deactivate again
+            }
+
+            // Instant deactivation by default
+            parent_interaction_comp.is_active = false;
+
+            // The animation system will handle the deactivation - This is to handle exit animations
+            if parent_has_exit_anim {
+                parent_interaction_comp.is_active = true;
+                parent_interaction_comp.is_just_deactivated = true;
+            }
+        }
+
+        if !self.affect_children {
+            return;
+        }
+
+        let children = gather_all_children(world, self.entity_id);
+        for child_id in children {
+            let (child_has_entry_anim, child_has_exit_anim) = if let Some(child_anim_comp) = world
+                .components
+                .get_component::<AnimationComponent>(child_id)
+            {
+                let child_has_entry_anim = child_anim_comp
+                    .animations
+                    .iter()
+                    .any(|anim| anim.config.when == AnimationWhen::Entry);
+                let child_has_exit_anim = child_anim_comp
+                    .animations
+                    .iter()
+                    .any(|anim| anim.config.when == AnimationWhen::Exit);
+                (child_has_entry_anim, child_has_exit_anim)
+            } else {
+                (false, false)
+            };
+
+            if let Some(interaction_comp) = world
+                .components
+                .get_component_mut::<InteractionComponent>(child_id)
+            {
+                // Reset both just activated and deactivated flags
+                interaction_comp.is_just_activated = false;
+                interaction_comp.is_just_deactivated = false;
+
+                if self.activate {
+                    interaction_comp.is_active = true;
+                    if child_has_entry_anim {
+                        interaction_comp.is_just_activated = true;
+                    }
+                } else {
+                    interaction_comp.is_active = false;
+
+                    // The animation system will handle the deactivation - This is to handle exit animations
+                    if child_has_exit_anim {
+                        interaction_comp.is_active = true;
+                        interaction_comp.is_just_deactivated = true;
+                    }
+                }
+            }
+        }
+
+        // Request a relayout after activating/deactivating components
+        let request_relayout_resource = world
+            .resources
+            .get_resource_mut::<RequestReLayoutResource>()
+            .expect("Expected RequestReLayoutResource to be present");
+        request_relayout_resource.request_relayout = true;
+    }
+}
+
+/// function to iteratively collect all children entities
+#[time_function]
+fn gather_all_children(world: &World, root_entity_id: EntityId) -> Vec<EntityId> {
+    let mut all_children = Vec::new();
+    let mut to_process = vec![root_entity_id];
+
+    while let Some(entity_id) = to_process.pop() {
+        if let Some(hierarchy_comp) = world
+            .components
+            .get_component::<HierarchyComponent>(entity_id)
+        {
+            for &child_id in &hierarchy_comp.children {
+                all_children.push(child_id);
+                to_process.push(child_id);
+            }
+        }
+    }
+
+    all_children
 }
 
 fn is_hit(

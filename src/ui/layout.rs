@@ -35,6 +35,15 @@ impl Default for ComponentOffset {
     }
 }
 
+impl ComponentOffset {
+    pub fn new(x: impl Into<FlexValue>, y: impl Into<FlexValue>) -> Self {
+        Self {
+            x: x.into(),
+            y: y.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Size<T> {
     pub width: T,
@@ -160,10 +169,14 @@ pub struct Edges {
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Position {
     #[default]
-    Flex, // Default - follows flex layout rules
-    Fixed(Anchor),      // Fixed position relative to parent
-    Absolute(Anchor),   // Absolute position relative to root
-    Grid(usize, usize), // Position in a grid (row, column)
+    /// Default - follows flex layout rules
+    Flex,
+    /// Fixed position relative to parent
+    Fixed(Anchor),
+    /// Absolute position relative to root
+    Absolute(Anchor),
+    /// Position in a grid (row, column)
+    Grid(usize, usize),
 }
 
 // Anchor enum
@@ -249,7 +262,7 @@ pub enum Overflow {
 }
 
 // LayoutContext to manage component relationships and computed layouts
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct LayoutContext {
     pub world: World,
     pub computed_bounds: BTreeMap<EntityId, Bounds>,
@@ -695,6 +708,22 @@ impl LayoutContext {
     }
 
     pub fn add_child_to_parent(&mut self, parent_id: EntityId, child_id: EntityId) {
+        let is_parent_active = self
+            .world
+            .components
+            .get_component::<InteractionComponent>(parent_id)
+            .expect("Parent entity must have an InteractionComponent")
+            .is_active;
+
+        // Deactivate the child if the parent is not active
+        if !is_parent_active {
+            self.world
+                .components
+                .get_component_mut::<InteractionComponent>(child_id)
+                .expect("Child entity must have an InteractionComponent")
+                .is_active = false;
+        }
+
         // Update the child's parent reference
         let hierarchy = self
             .world

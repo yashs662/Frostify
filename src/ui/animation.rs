@@ -20,7 +20,7 @@ pub enum AnimationDirection {
 }
 
 impl AnimationDirection {
-    pub fn is_flippable(&self) -> bool {
+    pub fn allows_reverse_transition(&self) -> bool {
         matches!(
             self,
             AnimationDirection::Alternate | AnimationDirection::AlternateReverse
@@ -33,6 +33,8 @@ impl AnimationDirection {
 pub enum AnimationWhen {
     Hover,
     Forever,
+    Entry,
+    Exit,
 }
 
 #[derive(Debug, Clone, PartialEq)]
