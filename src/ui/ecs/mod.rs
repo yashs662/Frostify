@@ -332,6 +332,7 @@ impl World {
     pub fn reset(&mut self) {
         self.entities.clear();
         self.components.clear();
+        self.named_entities.clear();
         self.reset_resources();
         log::trace!("World reset");
     }
