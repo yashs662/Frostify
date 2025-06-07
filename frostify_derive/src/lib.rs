@@ -81,6 +81,32 @@ pub fn time_system(_attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! { #input }.into()
 }
 
+// proc macro to time any function
+#[proc_macro_attribute]
+pub fn time_function(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Parse the token stream into a function
+    let mut input = parse_macro_input!(item as syn::ItemFn);
+
+    // Get the function name
+    let func_name = &input.sig.ident;
+
+    // Wrap the function body with timing code
+    let original_body = &input.block;
+    input.block = syn::parse2(quote! {
+        {
+            let start = std::time::Instant::now();
+            let result = #original_body;
+            let elapsed = start.elapsed();
+            log::trace!("{} executed in: {:?}", stringify!(#func_name), elapsed);
+            result
+        }
+    })
+    .unwrap();
+
+    // Generate the resulting token stream
+    quote! { #input }.into()
+}
+
 #[proc_macro_derive(EntityCategories, attributes(modal, player))]
 pub fn derive_entity_categories(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -147,30 +173,4 @@ pub fn derive_entity_categories(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
-}
-
-// proc macro to time any function
-#[proc_macro_attribute]
-pub fn time_function(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    // Parse the token stream into a function
-    let mut input = parse_macro_input!(item as syn::ItemFn);
-
-    // Get the function name
-    let func_name = &input.sig.ident;
-
-    // Wrap the function body with timing code
-    let original_body = &input.block;
-    input.block = syn::parse2(quote! {
-        {
-            let start = std::time::Instant::now();
-            let result = #original_body;
-            let elapsed = start.elapsed();
-            log::trace!("{} executed in: {:?}", stringify!(#func_name), elapsed);
-            result
-        }
-    })
-    .unwrap();
-
-    // Generate the resulting token stream
-    quote! { #input }.into()
 }

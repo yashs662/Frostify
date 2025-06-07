@@ -82,14 +82,9 @@ fn main() -> Result<(), EventLoopError> {
             let now = time::OffsetDateTime::now_utc().to_offset(offset);
             writeln!(
                 buf,
-                "{} [{}] - {}:{} - {}",
+                "{} [{}] - {}",
                 now.format(&time_format).unwrap(),
                 level,
-                record
-                    .file()
-                    .unwrap_or("unknown")
-                    .trim_start_matches(&format!("src{}", std::path::MAIN_SEPARATOR)),
-                record.line().unwrap_or(0),
                 record.args()
             )
         })

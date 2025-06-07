@@ -380,8 +380,8 @@ impl TextComponent {
         );
 
         log::trace!(
-            "Text rendering took {} µs for {}x{}",
-            start_instant.elapsed().as_micros(),
+            "Text rendering took {:?} for {}x{}",
+            start_instant.elapsed(),
             text_width,
             text_height
         );

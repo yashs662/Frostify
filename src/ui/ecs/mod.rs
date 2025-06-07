@@ -320,11 +320,16 @@ impl World {
             },
         );
 
+        let truncated_name = if debug_name.len() > 40 {
+            format!("{}...", &debug_name[..37])
+        } else {
+            debug_name.clone()
+        };
+
         log::trace!(
-            "Created new Entity: {} with type {:?} and id {:?}",
-            debug_name,
-            component_type,
-            entity_id
+            "New Entity | {:<40} | ID: {}",
+            truncated_name,
+            entity_id,
         );
         entity_id
     }
