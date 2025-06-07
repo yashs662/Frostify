@@ -44,5 +44,8 @@ strum_macros = "0.27.1"
 # Derive crate for Frostify
 frostify_derive = { path = "./frostify_derive" }
 
+[features]
+console = []
+
 [build-dependencies]
 winresource = "0.1.22"

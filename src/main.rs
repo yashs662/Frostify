@@ -1,5 +1,5 @@
 #![cfg_attr(
-    all(target_os = "windows", not(debug_assertions),),
+    all(target_os = "windows", not(debug_assertions), not(feature = "console")),
     windows_subsystem = "windows"
 )]
 
@@ -90,9 +90,10 @@ fn main() -> Result<(), EventLoopError> {
         })
         .filter_level(LevelFilter::Off);
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "console"))]
     builder.filter_module("Frostify", LevelFilter::Trace);
-    #[cfg(not(debug_assertions))]
+
+    #[cfg(all(not(debug_assertions), not(feature = "console")))]
     builder.filter_module("Frostify", LevelFilter::Warn);
 
     builder.init();
