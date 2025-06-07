@@ -326,11 +326,7 @@ impl World {
             debug_name.clone()
         };
 
-        log::trace!(
-            "New Entity | {:<40} | ID: {}",
-            truncated_name,
-            entity_id,
-        );
+        log::trace!("New Entity | {:<40} | ID: {}", truncated_name, entity_id,);
         entity_id
     }
 

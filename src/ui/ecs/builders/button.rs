@@ -117,32 +117,52 @@ impl ButtonBuilder {
     }
 
     pub fn with_background_color(mut self, color: BackgroundColorConfig) -> Self {
-        if self.background_gradient.is_some() || self.background_frosted_glass.is_some() || self.background_image.is_some() {
-            log::warn!("Background color is set, but other background properties are also defined. This may lead to unexpected behavior.");
+        if self.background_gradient.is_some()
+            || self.background_frosted_glass.is_some()
+            || self.background_image.is_some()
+        {
+            log::warn!(
+                "Background color is set, but other background properties are also defined. This may lead to unexpected behavior."
+            );
         }
         self.background_color = Some(color);
         self
     }
 
     pub fn with_background_gradient(mut self, gradient: BackgroundGradientConfig) -> Self {
-        if self.background_color.is_some() || self.background_frosted_glass.is_some() || self.background_image.is_some() {
-            log::warn!("Background gradient is set, but other background properties are also defined. This may lead to unexpected behavior.");
+        if self.background_color.is_some()
+            || self.background_frosted_glass.is_some()
+            || self.background_image.is_some()
+        {
+            log::warn!(
+                "Background gradient is set, but other background properties are also defined. This may lead to unexpected behavior."
+            );
         }
         self.background_gradient = Some(gradient);
         self
     }
 
     pub fn with_background_frosted_glass(mut self, config: FrostedGlassConfig) -> Self {
-        if self.background_color.is_some() || self.background_gradient.is_some() || self.background_image.is_some() {
-            log::warn!("Background frosted glass is set, but other background properties are also defined. This may lead to unexpected behavior.");
+        if self.background_color.is_some()
+            || self.background_gradient.is_some()
+            || self.background_image.is_some()
+        {
+            log::warn!(
+                "Background frosted glass is set, but other background properties are also defined. This may lead to unexpected behavior."
+            );
         }
         self.background_frosted_glass = Some(config);
         self
     }
 
     pub fn with_background_image<T: Into<String>>(mut self, image: T) -> Self {
-        if self.background_color.is_some() || self.background_gradient.is_some() || self.background_frosted_glass.is_some() {
-            log::warn!("Background image is set, but other background properties are also defined. This may lead to unexpected behavior.");
+        if self.background_color.is_some()
+            || self.background_gradient.is_some()
+            || self.background_frosted_glass.is_some()
+        {
+            log::warn!(
+                "Background image is set, but other background properties are also defined. This may lead to unexpected behavior."
+            );
         }
         self.background_image = Some(image.into());
         self
