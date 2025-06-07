@@ -73,6 +73,19 @@ pub enum AnimationType {
     },
 }
 
+impl AnimationType {
+    /// Returns `true` if the animation type is generic, meaning it can be used
+    /// for any component that supports animations, such as `Scale` or `Opacity`.
+    /// Unlike specific animations like `Color` or `FrostedGlassTint`,
+    /// which are more specialized and may not apply to all components.
+    pub fn is_generic(&self) -> bool {
+        matches!(
+            self,
+            AnimationType::Scale { .. } | AnimationType::Opacity { .. }
+        )
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EasingFunction {
@@ -283,19 +296,19 @@ pub struct Animation {
     /// Only used for Forever animations
     /// to determine if the animation is going forward or backward,
     /// when the animation can reverse directions
-    pub is_going_forward: bool,
+    pub is_forever_going_forward: bool,
 }
 
 impl Animation {
     pub fn new(config: AnimationConfig) -> Self {
-        let mut is_going_forward = true;
+        let mut is_forever_going_forward = true;
         if config.direction == AnimationDirection::Backward {
-            is_going_forward = false;
+            is_forever_going_forward = false;
         }
         Self {
             config,
             progress: 0.0,
-            is_going_forward,
+            is_forever_going_forward,
         }
     }
 }

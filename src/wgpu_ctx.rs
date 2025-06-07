@@ -13,7 +13,6 @@ use crate::{
     },
     utils::create_unified_pipeline,
 };
-use smaa::{SmaaMode, SmaaTarget};
 use std::sync::Arc;
 use wgpu::{MemoryHints::Performance, Texture};
 use winit::window::Window;
@@ -38,7 +37,6 @@ pub struct WgpuCtx<'window> {
     frame_sample_view: Option<wgpu::TextureView>,
     blit_sampler: Option<wgpu::Sampler>,
     blit_bind_group: Option<wgpu::BindGroup>,
-    smaa_target: Option<SmaaTarget>,
     pub unified_bind_group_layout: wgpu::BindGroupLayout,
 }
 
@@ -95,16 +93,6 @@ impl<'window> WgpuCtx<'window> {
 
         let unified_pipeline =
             create_unified_pipeline(&device, surface_config.format, &unified_bind_group_layout);
-
-        let smaa_target = SmaaTarget::new(
-            &device,
-            &queue,
-            window.inner_size().width,
-            window.inner_size().height,
-            surface_config.format,
-            SmaaMode::Disabled,
-        );
-
         WgpuCtx {
             surface: Some(surface),
             surface_config,
@@ -121,7 +109,6 @@ impl<'window> WgpuCtx<'window> {
             frame_sample_view: None,
             blit_sampler: None,
             blit_bind_group: None,
-            smaa_target: Some(smaa_target),
             unified_bind_group_layout,
         }
     }
@@ -189,7 +176,6 @@ impl<'window> WgpuCtx<'window> {
             frame_sample_view: None,
             blit_sampler: None,
             blit_bind_group: None,
-            smaa_target: None,
             unified_bind_group_layout,
         }
     }
@@ -275,9 +261,6 @@ impl<'window> WgpuCtx<'window> {
         if let Some(surface) = &self.surface {
             surface.configure(&self.device, &self.surface_config);
         }
-        if let Some(smaa_target) = &mut self.smaa_target {
-            smaa_target.resize(&self.device, width, height);
-        }
 
         // Reset render textures to be recreated at the right size
         self.main_render_texture = None;
@@ -319,13 +302,6 @@ impl<'window> WgpuCtx<'window> {
         self.ensure_blit_bind_group_layout();
         self.ensure_blit_pipeline();
         self.ensure_blit_bind_group();
-
-        // Create SMAA frame with the final surface view as target
-        let smaa_frame = if let Some(smaa_target) = &mut self.smaa_target {
-            smaa_target.start_frame(&self.device, &self.queue, &surface_view)
-        } else {
-            panic!("SMAA target not initialized");
-        };
 
         // Create main rendering encoder
         let mut encoder = self
@@ -538,7 +514,7 @@ impl<'window> WgpuCtx<'window> {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Final Surface Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &smaa_frame,
+                    view: &surface_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -558,8 +534,6 @@ impl<'window> WgpuCtx<'window> {
         // Submit main rendering commands
         self.queue.submit(Some(encoder.finish()));
 
-        // Let SMAA resolve the final image
-        smaa_frame.resolve();
         surface_texture.present();
     }
 

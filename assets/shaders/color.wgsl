@@ -1,51 +1,3 @@
-
-// TODO: Future reference - https://www.shadertoy.com/view/4ccXz7
-// Stripped Down version of the Shader toy
-// xy: half size
-// float sd_rectangle(vec2 p, vec2 xy) {
-//     vec2 d = abs(p) - max(xy, 0.0);
-//     float outer = length(max(d, 0.0));
-//     float inner = min(max(d.x, d.y), 0.0);
-//     return outer + inner;
-// }
-
-// xy: half size
-// r: radius [top left, top right, bottom left, bottom right]
-// float sd_rounded_rectangle(vec2 p, vec2 xy, vec4 r) {
-//     float s = r[int(p[0] > 0.0) + int(p[1] < 0.0) * 2];
-//     // shrink when `radius < min(w,h)/2`
-//     s = min(s, min(xy.x, xy.y));
-//     return sd_rectangle(p, xy - s) - s;
-// }
-
-// xy: half size
-// border: border width [top, right, bottom, left]
-// float sd_border(vec2 p, vec2 xy, float outer_radius, float inner_radius) {
-//     vec2 dp = vec2(0);
-//     vec2 inner_p = p + dp;
-//     vec2 dxy = vec2(inner_radius, inner_radius);
-//     vec2 inner_xy = xy - dxy;
-//     float d2 = sd_rounded_rectangle(p, xy, vec4(outer_radius));
-//     if(d2 > 0.0 || inner_xy.x < 0.0 || inner_xy.y < 0.0) {
-//         return d2;
-//     }
-//     vec4 inner_r = vec4(inner_radius);
-//     float d1 = sd_rounded_rectangle(inner_p, inner_xy, inner_r);
-//     return d1 < 0.0 ? -d1 : max(-d1, d2);
-// }
-
-// void mainImage( out vec4 fragColor, in vec2 fragCoord )
-// {
-//     float w = min(iResolution.x, iResolution.y) / 2.0;
-//     vec2 p = (fragCoord * 2.0 - iResolution.xy) / w;
-//     vec2 m = (iMouse.xy * 2.0 - iResolution.xy) / w;
-// 
-//     vec4 r = vec4(0.1, 0.2, 0.3, 0.4);
-//     float d = sd_border(p, abs(m), 0.1, 0.1);
-// 
-//     fragColor = vec4(smoothstep(0.01, -0.01, d));
-// }
-
 struct VertexInput {
     @location(0) position: vec2<f32>,  // Vertex position in clip space
     @location(1) uv: vec2<f32>,        // UV coordinates (0-1 range)
@@ -123,74 +75,6 @@ fn vs_main(vertex: VertexInput) -> VertexOutput {
     return out;
 }
 
-fn check_corner(pixel_coords: vec2<f32>) -> vec4<f32> {
-    // Pre-computed corner centers
-    let tl_center = vec2<f32>(component.corner_centers.x, component.corner_centers.y);
-    let tr_center = vec2<f32>(component.corner_centers.z, component.corner_centers.w);
-    let bl_center = vec2<f32>(component.corner_centers2.x, component.corner_centers2.y);
-    let br_center = vec2<f32>(component.corner_centers2.z, component.corner_centers2.w);
-    
-    // Pre-computed radii
-    let inner_radii = component.corner_radii;
-    let outer_radii = component.corner_radii2;
-    
-    // Use squared distance to avoid sqrt
-    let tl_dist_sq = dot(pixel_coords - tl_center, pixel_coords - tl_center);
-    let tr_dist_sq = dot(pixel_coords - tr_center, pixel_coords - tr_center);
-    let bl_dist_sq = dot(pixel_coords - bl_center, pixel_coords - bl_center);
-    let br_dist_sq = dot(pixel_coords - br_center, pixel_coords - br_center);
-    
-    // Check corners using squared distances
-    if (pixel_coords.x <= tl_center.x && pixel_coords.y <= tl_center.y) {
-        return vec4<f32>(1.0, tl_dist_sq, inner_radii.x, outer_radii.x);
-    }
-    if (pixel_coords.x >= tr_center.x && pixel_coords.y <= tr_center.y) {
-        return vec4<f32>(1.0, tr_dist_sq, inner_radii.y, outer_radii.y);
-    }
-    if (pixel_coords.x <= bl_center.x && pixel_coords.y >= bl_center.y) {
-        return vec4<f32>(1.0, bl_dist_sq, inner_radii.z, outer_radii.z);
-    }
-    if (pixel_coords.x >= br_center.x && pixel_coords.y >= br_center.y) {
-        return vec4<f32>(1.0, br_dist_sq, inner_radii.w, outer_radii.w);
-    }
-    
-    return vec4<f32>(0.0);
-}
-
-fn check_border(pixel_coords: vec2<f32>, corner_result: vec4<f32>) -> bool {
-    if (component.border_width <= 0.0) {
-        return false;
-    }
-    
-    // Use pre-computed bounds
-    let inner_min = vec2<f32>(component.inner_bounds.x, component.inner_bounds.y);
-    let inner_max = vec2<f32>(component.inner_bounds.z, component.inner_bounds.w);
-    let outer_min = vec2<f32>(component.outer_bounds.x, component.outer_bounds.y);
-    let outer_max = vec2<f32>(component.outer_bounds.z, component.outer_bounds.w);
-    
-    // For corners, check if we're in the border ring using squared distances
-    let in_corner = corner_result.x > 0.5;
-    if (in_corner) {
-        let corner_dist_sq = corner_result.y;
-        let inner_radius_sq = corner_result.z * corner_result.z;
-        let outer_radius_sq = corner_result.w * corner_result.w;
-        return corner_dist_sq >= inner_radius_sq && corner_dist_sq <= outer_radius_sq;
-    }
-    
-    // For straight edges, check if outside the inner content area but inside the outer bounds
-    let outside_inner = pixel_coords.x <= inner_min.x || 
-                       pixel_coords.x >= inner_max.x || 
-                       pixel_coords.y <= inner_min.y || 
-                       pixel_coords.y >= inner_max.y;
-                       
-    let inside_outer = pixel_coords.x >= outer_min.x &&
-                      pixel_coords.x <= outer_max.x &&
-                      pixel_coords.y >= outer_min.y &&
-                      pixel_coords.y <= outer_max.y;
-                      
-    return outside_inner && inside_outer;
-}
-
 fn calculate_tex_coords(pixel_coords: vec2<f32>) -> vec2<f32> {
     let content_min = component.position;
     let content_max = component.position + component.size;
@@ -243,7 +127,7 @@ fn get_content_color(pixel_coords: vec2<f32>, tex_coords: vec2<f32>, base_color:
     }
 }
 
-// High-quality Gaussian blur function with improved sampling
+// High-quality Gaussian blur function
 fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius: f32) -> vec4<f32> {
     // Early exit for minimal blur
     if (blur_radius < 0.05) {
@@ -329,194 +213,206 @@ fn gaussian_blur(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius
     return result / max(0.001, total_weight);
 }
 
-fn simple_shadow(pixel_pos: vec2<f32>, shadow_pos: vec2<f32>, shadow_size: vec2<f32>, radius: vec4<f32>, blur: f32) -> f32 {
-    // Bail early if pixel is far outside shadow region
-    let shadow_min = shadow_pos - vec2<f32>(blur * 2.0);
-    let shadow_max = shadow_pos + shadow_size + vec2<f32>(blur * 2.0);
-    
-    if (pixel_pos.x < shadow_min.x || pixel_pos.x > shadow_max.x || 
-        pixel_pos.y < shadow_min.y || pixel_pos.y > shadow_max.y) {
-        return 0.0;
-    }
-    
-    // Get the shape bounds
-    let shape_min = shadow_pos;
-    let shape_max = shadow_pos + shadow_size;
-    
-    // Adjust radius to not exceed half the shape size
-    let max_radius = min(shadow_size.x, shadow_size.y) * 0.5;
-    let tl_radius = min(radius.x, max_radius);
-    let tr_radius = min(radius.y, max_radius);
-    let bl_radius = min(radius.z, max_radius);
-    let br_radius = min(radius.w, max_radius);
-    
-    // Get corner centers
-    let tl_center = vec2<f32>(shape_min.x + tl_radius, shape_min.y + tl_radius);
-    let tr_center = vec2<f32>(shape_max.x - tr_radius, shape_min.y + tr_radius);
-    let bl_center = vec2<f32>(shape_min.x + bl_radius, shape_max.y - bl_radius);
-    let br_center = vec2<f32>(shape_max.x - br_radius, shape_max.y - br_radius);
-    
-    // Distance to the shape
-    var dist_to_shape = 1000.0;
-    
-    // Optimized corner checks - only calculate distance if we're actually in the corner region
-    if (pixel_pos.x <= tl_center.x && pixel_pos.y <= tl_center.y) {
-        dist_to_shape = distance(pixel_pos, tl_center) - tl_radius;
-    }
-    else if (pixel_pos.x >= tr_center.x && pixel_pos.y <= tr_center.y) {
-        dist_to_shape = distance(pixel_pos, tr_center) - tr_radius;
-    }
-    else if (pixel_pos.x <= bl_center.x && pixel_pos.y >= bl_center.y) {
-        dist_to_shape = distance(pixel_pos, bl_center) - bl_radius;
-    }
-    else if (pixel_pos.x >= br_center.x && pixel_pos.y >= br_center.y) {
-        dist_to_shape = distance(pixel_pos, br_center) - br_radius;
-    }
-    // Inside main rectangle but outside corners
-    else if (pixel_pos.x >= shape_min.x && pixel_pos.x <= shape_max.x && 
-             pixel_pos.y >= shape_min.y && pixel_pos.y <= shape_max.y) {
-        // Inside the shape (no shadow)
-        return 0.0;
-    }
-    else {
-        // Nearest edge distance
-        dist_to_shape = min(
-            min(abs(pixel_pos.x - shape_min.x), abs(pixel_pos.x - shape_max.x)),
-            min(abs(pixel_pos.y - shape_min.y), abs(pixel_pos.y - shape_max.y))
-        );
-    }
-    
-    // Create more efficient falloff calculation
-    return clamp(1.0 - dist_to_shape / max(0.001, blur), 0.0, 1.0);
+// SDF for rectangle with half-size xy
+fn sd_rectangle(p: vec2<f32>, xy: vec2<f32>) -> f32 {
+    let d = abs(p) - max(xy, vec2<f32>(0.0));
+    let outer = length(max(d, vec2<f32>(0.0)));
+    let inner = min(max(d.x, d.y), 0.0);
+    return outer + inner;
 }
 
-fn is_inside_rounded_rect(pos: vec2<f32>, rect_min: vec2<f32>, rect_max: vec2<f32>, radii: vec4<f32>) -> bool {
-    // Early exit for points clearly inside the non-rounded part
-    if (pos.x >= rect_min.x + radii.x && pos.x <= rect_max.x - radii.y &&
-        pos.y >= rect_min.y + radii.x && pos.y <= rect_max.y - radii.z) {
-        return true;
+// SDF for rounded rectangle
+fn sd_rounded_rectangle(p: vec2<f32>, xy: vec2<f32>, r: vec4<f32>) -> f32 {
+    // Select appropriate radius based on quadrant
+    let quadrant_x = select(0u, 1u, p.x > 0.0);
+    let quadrant_y = select(0u, 2u, p.y < 0.0);
+    let radius_index = quadrant_x + quadrant_y;
+    
+    var s: f32;
+    switch radius_index {
+        case 0u: { s = r.x; }      // top-left
+        case 1u: { s = r.y; }      // top-right  
+        case 2u: { s = r.z; }      // bottom-left
+        default: { s = r.w; }      // bottom-right
     }
     
-    // Get corner centers
-    let tl_center = vec2<f32>(rect_min.x + radii.x, rect_min.y + radii.x);
-    let tr_center = vec2<f32>(rect_max.x - radii.y, rect_min.y + radii.y);
-    let bl_center = vec2<f32>(rect_min.x + radii.z, rect_max.y - radii.z);
-    let br_center = vec2<f32>(rect_max.x - radii.w, rect_max.y - radii.w);
+    // Clamp radius to prevent overlap
+    s = min(s, min(xy.x, xy.y));
     
-    // Check corners using squared distances
-    if (pos.x <= tl_center.x && pos.y <= tl_center.y) {
-        let dist_sq = dot(pos - tl_center, pos - tl_center);
-        return dist_sq <= radii.x * radii.x;
-    }
-    if (pos.x >= tr_center.x && pos.y <= tr_center.y) {
-        let dist_sq = dot(pos - tr_center, pos - tr_center);
-        return dist_sq <= radii.y * radii.y;
-    }
-    if (pos.x <= bl_center.x && pos.y >= bl_center.y) {
-        let dist_sq = dot(pos - bl_center, pos - bl_center);
-        return dist_sq <= radii.z * radii.z;
-    }
-    if (pos.x >= br_center.x && pos.y >= br_center.y) {
-        let dist_sq = dot(pos - br_center, pos - br_center);
-        return dist_sq <= radii.w * radii.w;
-    }
-    
-    // In the non-corner regions, check against rect bounds
-    return pos.x >= rect_min.x && pos.x <= rect_max.x && 
-           pos.y >= rect_min.y && pos.y <= rect_max.y;
+    return sd_rectangle(p, xy - vec2<f32>(s)) - s;
 }
+
+// Get SDF distance for component shape (handles border positioning)
+fn get_component_sdf(pixel_coords: vec2<f32>) -> f32 {
+    let component_center = component.position + component.size * 0.5;
+    let p = pixel_coords - component_center;
+    
+    // Adjust component size based on border position
+    var outer_half_size = component.size * 0.5;
+    if (component.border_width > 0.0 && component.border_position == 2u) {
+        // Outside border: component grows outward
+        outer_half_size = outer_half_size + vec2<f32>(component.border_width);
+    }
+    
+    return sd_rounded_rectangle(p, outer_half_size, component.border_radius);
+}
+
+// Get SDF distance for shadow
+fn get_shadow_sdf(pixel_coords: vec2<f32>) -> f32 {
+    let shadow_position = component.position + component.shadow_offset;
+    let shadow_center = shadow_position + component.size * 0.5;
+    let p = pixel_coords - shadow_center;
+    let half_size = component.size * 0.5;
+    
+    return sd_rounded_rectangle(p, half_size, component.border_radius);
+}
+
+// Get SDF distance for clipping bounds
+fn get_clip_sdf(pixel_coords: vec2<f32>) -> f32 {
+    let clip_center = vec2<f32>(
+        (component.clip_bounds.x + component.clip_bounds.z) * 0.5,
+        (component.clip_bounds.y + component.clip_bounds.w) * 0.5
+    );
+    let clip_half_size = vec2<f32>(
+        (component.clip_bounds.z - component.clip_bounds.x) * 0.5,
+        (component.clip_bounds.w - component.clip_bounds.y) * 0.5
+    );
+    let p = pixel_coords - clip_center;
+    
+    return sd_rounded_rectangle(p, clip_half_size, component.clip_border_radius);
+}
+
+// Get SDF distance for inner content area (excluding border)
+fn get_inner_sdf(pixel_coords: vec2<f32>) -> f32 {
+    if (component.border_width <= 0.0) {
+        return get_component_sdf(pixel_coords);
+    }
+    
+    let component_center = component.position + component.size * 0.5;
+    let p = pixel_coords - component_center;
+    
+    // For border positioning:
+    // - Inside: border grows inward, reducing content area
+    // - Center: border grows both ways, content area reduced by half border width
+    // - Outside: border grows outward, content area unchanged (but we still need inner bounds)
+    var border_inset: f32;
+    switch component.border_position {
+        case 0u: { border_inset = component.border_width; }      // inside
+        case 1u: { border_inset = component.border_width * 0.5; } // center
+        default: { border_inset = 0.0; }                         // outside (no content reduction)
+    }
+    
+    let inner_half_size = component.size * 0.5 - vec2<f32>(border_inset);
+    
+    // Calculate inner radii (border reduces corner radius by the inset amount)
+    let inner_radii = max(component.border_radius - vec4<f32>(border_inset), vec4<f32>(0.0));
+    
+    return sd_rounded_rectangle(p, inner_half_size, inner_radii);
+}
+
+// Simple shadow calculation using SDF
+fn calculate_shadow_intensity(pixel_coords: vec2<f32>) -> f32 {
+    if (component.shadow_blur <= 0.0 || component.shadow_opacity <= 0.0) {
+        return 0.0;
+    }
+    
+    let shadow_dist = get_shadow_sdf(pixel_coords);
+    
+    // Create soft shadow falloff
+    let shadow_edge = component.shadow_blur;
+    return smoothstep(shadow_edge, -shadow_edge, shadow_dist);
+}
+
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let pixel_coords = in.world_pos;
-    
-    // Early clip test - avoid all calculations if outside clip region
+   
+    // Early clip test using SDF
     if (component.clip_enabled.x > 0.5 || component.clip_enabled.y > 0.5) {
-        // Check if we need to use rounded clipping
-        let use_rounded_clip = component.clip_border_radius.x > 0.0 || 
-                               component.clip_border_radius.y > 0.0 || 
-                               component.clip_border_radius.z > 0.0 || 
-                               component.clip_border_radius.w > 0.0;
-                               
-        if (use_rounded_clip) {
-            // Use rounded rectangle clipping
-            let inside_clip = is_inside_rounded_rect(
-                pixel_coords,
-                vec2<f32>(component.clip_bounds.x, component.clip_bounds.y),
-                vec2<f32>(component.clip_bounds.z, component.clip_bounds.w),
-                component.clip_border_radius
-            );
-            
-            if (!inside_clip) {
-                discard;
-            }
-        } else {
-            // Use original rectangular clipping
-            if ((component.clip_enabled.x > 0.5 && (pixel_coords.x < component.clip_bounds.x || pixel_coords.x > component.clip_bounds.z)) ||
-                (component.clip_enabled.y > 0.5 && (pixel_coords.y < component.clip_bounds.y || pixel_coords.y > component.clip_bounds.w))) {
-                discard;
-            }
+        let clip_dist = get_clip_sdf(pixel_coords);
+        if (clip_dist > 0.5) {  // Small threshold for anti-aliasing
+            discard;
         }
     }
+   
+    // Get distances
+    let component_dist = get_component_sdf(pixel_coords);
+    let inner_dist = get_inner_sdf(pixel_coords);
     
-    // Shadow calculation - only perform if shadow is actually visible
+    // Calculate anti-aliasing factor based on screen-space derivatives
+    let fwidth_dist = fwidth(component_dist);
+    let aa_factor = clamp(fwidth_dist, 0.5, 2.0);
+    
+    // Shadow calculation
     var shadow_color = vec4<f32>(0.0);
     if (component.shadow_blur > 0.0 && component.shadow_opacity > 0.0) {
-        let shadow_position = component.position + component.shadow_offset;
-        let shadow_size = component.size;
-        
-        let shadow_intensity = simple_shadow(
-            pixel_coords,
-            shadow_position,
-            shadow_size,
-            component.border_radius,
-            component.shadow_blur
-        );
-        
+        let shadow_intensity = calculate_shadow_intensity(pixel_coords);
         shadow_color = vec4<f32>(
             component.shadow_color.rgb,
             component.shadow_color.a * shadow_intensity * component.shadow_opacity
         );
     }
     
-    // Check if pixel is outside component bounds
-    if (pixel_coords.x < component.outer_bounds.x || pixel_coords.x > component.outer_bounds.z || 
-        pixel_coords.y < component.outer_bounds.y || pixel_coords.y > component.outer_bounds.w) {
-        // Only show shadow if outside component bounds
+    // Component alpha with precise anti-aliasing
+    let component_alpha = smoothstep(aa_factor, -aa_factor, component_dist);
+    
+    if (component_alpha <= 0.001) {
+        // Completely outside component
         return vec4<f32>(shadow_color.rgb, shadow_color.a * component.opacity);
     }
-
-    // Check corner - optimized to avoid sqrt when possible
-    let corner_result = check_corner(pixel_coords);
-    let in_corner = corner_result.x > 0.5;
-    if (in_corner) {
-        let corner_dist_sq = corner_result.y;
-        let outer_radius_sq = corner_result.w * corner_result.w;
-        
-        if (corner_dist_sq > outer_radius_sq) {
-            // Only show shadow if outside component bounds
-            return vec4<f32>(shadow_color.rgb, shadow_color.a * component.opacity);
-        }
-    }
-
-    // Inside component - render normally
-    let tex_coords = calculate_tex_coords(pixel_coords);
     
-    // Border check
+    // Check if we have a border
     if (component.border_width > 0.0) {
-        let in_border = check_border(pixel_coords, corner_result);
-        if (in_border) {
-            return vec4<f32>(component.border_color.rgb, component.border_color.a * component.opacity);
+        // Calculate inner content alpha
+        let inner_alpha = smoothstep(aa_factor, -aa_factor, inner_dist);
+        
+        // If we're inside the inner area, render content
+        if (inner_dist <= 0.0) {
+            // In content area
+            let tex_coords = calculate_tex_coords(pixel_coords);
+            
+            var content_color: vec4<f32>;
+            if (component.use_texture == 0u) {
+                content_color = vec4<f32>(in.color.rgb, in.color.a * inner_alpha * component_alpha);
+            } else {
+                let base_content = get_content_color(pixel_coords, tex_coords, in.color);
+                content_color = vec4<f32>(base_content.rgb, base_content.a * inner_alpha * component_alpha);
+            }
+            
+            // Mix border color at the edges for anti-aliasing
+            let border_mix_factor = 1.0 - inner_alpha;
+            let border_color_with_alpha = vec4<f32>(
+                component.border_color.rgb,
+                component.border_color.a * component_alpha
+            );
+            
+            let mixed_color = mix(content_color, border_color_with_alpha, border_mix_factor * border_color_with_alpha.a);
+            let final_color = mix(shadow_color, mixed_color, mixed_color.a);
+            return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
+        } else {
+            // In border area (between outer and inner boundaries)
+            let border_color_with_alpha = vec4<f32>(
+                component.border_color.rgb,
+                component.border_color.a * component_alpha
+            );
+            
+            let final_color = mix(shadow_color, border_color_with_alpha, border_color_with_alpha.a);
+            return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
         }
-    }
-    
-    // Content color with early exit for simple case
-    if (component.use_texture == 0u) {
-        // Plain color mode - fastest path
-        return vec4<f32>(in.color.rgb, in.color.a * component.opacity);
     } else {
-        // More complex texture or frosted glass
-        let content_color = get_content_color(pixel_coords, tex_coords, in.color);
-        return vec4<f32>(content_color.rgb, content_color.a * component.opacity);
+        // No border - render content directly
+        let tex_coords = calculate_tex_coords(pixel_coords);
+        
+        var content_color: vec4<f32>;
+        if (component.use_texture == 0u) {
+            content_color = vec4<f32>(in.color.rgb, in.color.a * component_alpha);
+        } else {
+            let base_content = get_content_color(pixel_coords, tex_coords, in.color);
+            content_color = vec4<f32>(base_content.rgb, base_content.a * component_alpha);
+        }
+        
+        let final_color = mix(shadow_color, content_color, content_color.a);
+        return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
     }
 }

@@ -117,21 +117,33 @@ impl ButtonBuilder {
     }
 
     pub fn with_background_color(mut self, color: BackgroundColorConfig) -> Self {
+        if self.background_gradient.is_some() || self.background_frosted_glass.is_some() || self.background_image.is_some() {
+            log::warn!("Background color is set, but other background properties are also defined. This may lead to unexpected behavior.");
+        }
         self.background_color = Some(color);
         self
     }
 
     pub fn with_background_gradient(mut self, gradient: BackgroundGradientConfig) -> Self {
+        if self.background_color.is_some() || self.background_frosted_glass.is_some() || self.background_image.is_some() {
+            log::warn!("Background gradient is set, but other background properties are also defined. This may lead to unexpected behavior.");
+        }
         self.background_gradient = Some(gradient);
         self
     }
 
     pub fn with_background_frosted_glass(mut self, config: FrostedGlassConfig) -> Self {
+        if self.background_color.is_some() || self.background_gradient.is_some() || self.background_image.is_some() {
+            log::warn!("Background frosted glass is set, but other background properties are also defined. This may lead to unexpected behavior.");
+        }
         self.background_frosted_glass = Some(config);
         self
     }
 
     pub fn with_background_image<T: Into<String>>(mut self, image: T) -> Self {
+        if self.background_color.is_some() || self.background_gradient.is_some() || self.background_frosted_glass.is_some() {
+            log::warn!("Background image is set, but other background properties are also defined. This may lead to unexpected behavior.");
+        }
         self.background_image = Some(image.into());
         self
     }
@@ -172,10 +184,12 @@ impl ButtonBuilder {
             );
 
         let mut current_child_z_index = 1;
-        let scale_animation = self
+        let generic_animations = self
             .animations
             .iter()
-            .find(|a| matches!(a.animation_type, AnimationType::Scale { .. }));
+            .filter(|a| a.animation_type.is_generic())
+            .cloned()
+            .collect::<Vec<_>>();
 
         let content_container = if let Some(padding) = self.content_padding {
             let content_container_id = ContainerBuilder::new()
@@ -217,7 +231,7 @@ impl ButtonBuilder {
                 background_color_builder =
                     background_color_builder.with_animation(animation.clone());
             }
-            if let Some(animation) = scale_animation {
+            for animation in &generic_animations {
                 background_color_builder =
                     background_color_builder.with_animation(animation.clone());
             }
@@ -243,7 +257,7 @@ impl ButtonBuilder {
                     .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
-            if let Some(animation) = scale_animation {
+            for animation in &generic_animations {
                 background_gradient_builder =
                     background_gradient_builder.with_animation(animation.clone());
             }
@@ -266,7 +280,7 @@ impl ButtonBuilder {
                 .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
-            if let Some(animation) = scale_animation {
+            for animation in &generic_animations {
                 background_image_builder =
                     background_image_builder.with_animation(animation.clone());
             }
@@ -292,7 +306,7 @@ impl ButtonBuilder {
                     .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
-            if let Some(animation) = scale_animation {
+            for animation in &generic_animations {
                 background_frosted_glass_builder =
                     background_frosted_glass_builder.with_animation(animation.clone());
             }
@@ -315,7 +329,7 @@ impl ButtonBuilder {
                 .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
-            if let Some(animation) = scale_animation {
+            for animation in &generic_animations {
                 foreground_image_builder =
                     foreground_image_builder.with_animation(animation.clone());
             }
@@ -346,7 +360,7 @@ impl ButtonBuilder {
                 .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
-            if let Some(animation) = scale_animation {
+            for animation in &generic_animations {
                 text_builder = text_builder.with_animation(animation.clone());
             }
 

@@ -67,7 +67,7 @@ impl EcsSystem for AnimationSystem {
                 for (index, animation) in anim_comp.animations.iter().enumerate() {
                     let should_animate_forward = match animation.config.when {
                         AnimationWhen::Hover => is_hovered,
-                        AnimationWhen::Forever => animation.is_going_forward,
+                        AnimationWhen::Forever => animation.is_forever_going_forward,
                         AnimationWhen::Entry => interaction_comp.is_just_activated,
                         AnimationWhen::Exit => interaction_comp.is_just_deactivated,
                     };
@@ -81,19 +81,6 @@ impl EcsSystem for AnimationSystem {
                         && animation.progress >= 1.0
                     {
                         current_progress = 0.0;
-                    }
-
-                    if matches!(
-                        animation.config.when,
-                        AnimationWhen::Entry | AnimationWhen::Exit
-                    ) && should_animate_forward
-                    {
-                        log::debug!(
-                            "Processing animation for entity: {}, index: {}, when: {:?}",
-                            entity_id,
-                            index,
-                            animation.config.when,
-                        )
                     }
 
                     // Calculate delta based on frame time and duration
@@ -291,20 +278,6 @@ impl EcsSystem for AnimationSystem {
                 }
             }
 
-            // Note: Special Case for TextComponent as it doesn't have a render
-            // data component it is handled in the TextRenderer
-
-            if world
-                .components
-                .get_component::<TextComponent>(update.entity_id)
-                .is_some()
-            {
-                log::warn!(
-                    "TextComponent does not have a render data component, skipping animation update"
-                );
-                continue;
-            }
-
             updated_render_datas.push((
                 update.entity_id,
                 create_entity_buffer_data(&world.components, update.entity_id),
@@ -338,8 +311,8 @@ impl EcsSystem for AnimationSystem {
                 .get_component_mut::<AnimationComponent>(entity_id)
             {
                 if animation_index < anim_comp.animations.len() {
-                    anim_comp.animations[animation_index].is_going_forward =
-                        !anim_comp.animations[animation_index].is_going_forward;
+                    anim_comp.animations[animation_index].is_forever_going_forward =
+                        !anim_comp.animations[animation_index].is_forever_going_forward;
                 }
             }
         }

@@ -1,8 +1,8 @@
 use crate::{
     app::AppEvent,
     ui::{
-        ecs::NamedRef,
-        layout::{ComponentOffset, FlexDirection, FlexValue},
+        ecs::{NamedRef, builders::modal::ModalBuilder},
+        layout::{FlexDirection, FlexValue},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -459,7 +459,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     })
     .with_debug_name("Library Background")
     .with_border_radius(BorderRadius::all(5.0))
-    .with_border(1.0, Color::DarkGray.darken(0.05))
+    .with_border(1.0, Color::Black)
     .with_z_index(-1)
     .with_fixed_position(Anchor::Center)
     .build(
@@ -537,7 +537,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     })
     .with_debug_name("Main Area Background")
     .with_border_radius(BorderRadius::all(5.0))
-    .with_border(1.0, Color::DarkGray.darken(0.05))
+    .with_border(1.0, Color::Black)
     .with_fixed_position(Anchor::Center)
     .build(
         &mut layout_context.world,
@@ -564,7 +564,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
     })
     .with_debug_name("Now Playing Background")
     .with_border_radius(BorderRadius::all(5.0))
-    .with_border(1.0, Color::DarkGray.darken(0.05))
+    .with_border(1.0, Color::Black)
     .with_fixed_position(Anchor::Center)
     .build(
         &mut layout_context.world,
@@ -591,94 +591,51 @@ fn create_settings_modal(
     wgpu_ctx: &mut WgpuCtx,
     layout_context: &mut layout::LayoutContext,
 ) -> EntityId {
-    let modal_parent_container_id = ContainerBuilder::new()
-        .with_debug_name("Settings Modal Parent Container")
-        .with_direction(FlexDirection::Column)
-        .with_align_items(AlignItems::Center)
-        .with_justify_content(JustifyContent::Center)
-        .with_named_ref(NamedRef::SettingsModal)
-        .with_absolute_position(Anchor::Center)
-        .with_spawn_as_inactive()
-        .build(
-            &mut layout_context.world,
-            &mut layout_context.z_index_manager,
-        );
-
-    // Register the modal with the z-index manager
-    layout_context
-        .z_index_manager
-        .register_modal(modal_parent_container_id);
-
-    let modal_backdrop = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
-        tint_color: Color::Black,
-        blur_radius: 10.0,
-        tint_intensity: 0.5,
-    })
-    .with_debug_name("Settings Modal Backdrop")
-    .with_fixed_position(Anchor::Center)
-    .with_z_index(-1)
-    .with_click_event(AppEvent::CloseModal(NamedRef::SettingsModal))
-    .build(
-        &mut layout_context.world,
-        wgpu_ctx,
-        &mut layout_context.z_index_manager,
-    );
-
-    let modal_container_id = ContainerBuilder::new()
-        .with_debug_name("Settings Modal Container")
-        .with_size(FlexValue::Fixed(400.0), FlexValue::Fixed(300.0))
-        .with_direction(FlexDirection::Column)
-        .with_padding(Edges::all(20.0))
-        .build(
-            &mut layout_context.world,
-            &mut layout_context.z_index_manager,
-        );
-
-    let modal_background_id = BackgroundBuilder::with_color(BackgroundColorConfig {
-        color: Color::DarkGray.darken(0.1),
-    })
-    .with_debug_name("Settings Modal Background")
-    .with_fixed_position(Anchor::Center)
-    .with_border_radius(BorderRadius::all(5.0))
-    .with_border(2.0, Color::White)
-    .with_shadow(Color::White, (0.0, 0.0), 20.0, 0.2)
-    .with_z_index(-1)
-    .build(
-        &mut layout_context.world,
-        wgpu_ctx,
-        &mut layout_context.z_index_manager,
-    );
-
-    let close_modal_button_id = ButtonBuilder::new()
-        .with_debug_name("Close Modal Button")
-        .with_content_padding(Edges::all(5.0))
-        .with_size(FlexValue::Fixed(30.0), FlexValue::Fixed(30.0))
-        .with_border_radius(BorderRadius::all(4.0))
-        .with_click_event(AppEvent::CloseModal(NamedRef::SettingsModal))
-        .with_background_color(BackgroundColorConfig {
-            color: Color::Transparent,
+    ModalBuilder::new(NamedRef::SettingsModal)
+        .with_debug_name("Settings Modal")
+        .with_backdrop_frosted_glass(FrostedGlassConfig {
+            tint_color: Color::Black,
+            blur_radius: 10.0,
+            tint_intensity: 0.5,
         })
-        .with_foreground_image("close.png")
-        .with_animation(AnimationConfig {
-            duration: Duration::from_millis(200),
-            easing: EasingFunction::EaseOutExpo,
-            direction: AnimationDirection::Alternate,
-            animation_type: AnimationType::Color {
-                range: AnimationRange::new(Color::Transparent, Color::DarkGray),
+        .with_background_color(BackgroundColorConfig { color: Color::Red })
+        .with_backdrop_animation(AnimationConfig {
+            duration: Duration::from_millis(300),
+            direction: AnimationDirection::Forward,
+            easing: EasingFunction::EaseOutCubic,
+            animation_type: AnimationType::Opacity {
+                range: AnimationRange::new(0.0, 1.0),
             },
-            when: AnimationWhen::Hover,
+            when: AnimationWhen::Entry,
         })
-        .with_fixed_position(Anchor::TopRight)
-        .with_offset(ComponentOffset::new(-10.0, 10.0))
-        .build(layout_context, wgpu_ctx);
-
-    layout_context.add_child_to_parent(modal_container_id, modal_background_id);
-    layout_context.add_child_to_parent(modal_container_id, close_modal_button_id);
-
-    layout_context.add_child_to_parent(modal_parent_container_id, modal_backdrop);
-    layout_context.add_child_to_parent(modal_parent_container_id, modal_container_id);
-
-    modal_parent_container_id
+        .with_modal_animation(AnimationConfig {
+            duration: Duration::from_millis(300),
+            direction: AnimationDirection::Forward,
+            easing: EasingFunction::EaseOutCubic,
+            animation_type: AnimationType::Opacity {
+                range: AnimationRange::new(0.0, 1.0),
+            },
+            when: AnimationWhen::Entry,
+        })
+        .with_backdrop_animation(AnimationConfig {
+            duration: Duration::from_millis(1000),
+            direction: AnimationDirection::Forward,
+            easing: EasingFunction::EaseOutCubic,
+            animation_type: AnimationType::Opacity {
+                range: AnimationRange::new(1.0, 1.0),
+            },
+            when: AnimationWhen::Exit,
+        })
+        .with_modal_animation(AnimationConfig {
+            duration: Duration::from_millis(1000),
+            direction: AnimationDirection::Forward,
+            easing: EasingFunction::EaseOutCubic,
+            animation_type: AnimationType::Opacity {
+                range: AnimationRange::new(1.0, 1.0),
+            },
+            when: AnimationWhen::Exit,
+        })
+        .build(layout_context, wgpu_ctx)
 }
 
 fn create_nav_bar(
@@ -706,7 +663,7 @@ fn create_nav_bar(
             tint_intensity: 0.5,
         })
         .with_debug_name("Nav Bar Background")
-        .with_border(1.0, Color::DarkGray.darken(0.05))
+        .with_border(1.0, Color::Black)
         .with_border_radius(BorderRadius::all(5.0))
         .with_fixed_position(Anchor::Center)
         .build(
@@ -856,7 +813,7 @@ fn create_player_bar(
         })
         .with_debug_name("Player Container Background")
         .with_border_radius(BorderRadius::all(5.0))
-        .with_border(1.0, Color::DarkGray.darken(0.05))
+        .with_border(1.0, Color::Black)
         .with_fixed_position(Anchor::Center)
         .build(
             &mut layout_context.world,
