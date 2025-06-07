@@ -622,7 +622,7 @@ fn create_settings_modal(
             direction: AnimationDirection::Forward,
             easing: EasingFunction::EaseOutCubic,
             animation_type: AnimationType::Opacity {
-                range: AnimationRange::new(1.0, 1.0),
+                range: AnimationRange::new(1.0, 0.0),
             },
             when: AnimationWhen::Exit,
         })
@@ -631,7 +631,7 @@ fn create_settings_modal(
             direction: AnimationDirection::Forward,
             easing: EasingFunction::EaseOutCubic,
             animation_type: AnimationType::Opacity {
-                range: AnimationRange::new(1.0, 1.0),
+                range: AnimationRange::new(1.0, 0.0),
             },
             when: AnimationWhen::Exit,
         })
