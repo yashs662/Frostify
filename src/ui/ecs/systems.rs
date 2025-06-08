@@ -1,4 +1,5 @@
 use crate::{
+    app::AppEvent,
     constants::SCROLL_MULTIPLIER,
     ui::{
         animation::{AnimationDirection, AnimationType, AnimationWhen},
@@ -537,17 +538,22 @@ impl EcsSystem for MouseInputSystem {
             .get_resource::<MouseResource>()
             .expect("Expected MouseResource to be present");
 
+        if !mouse_resource.is_released {
+            return; // Only process on mouse release
+        }
+
         let render_order_resource = world
             .resources
             .get_resource::<RenderOrderResource>()
             .expect("Expected RenderOrderResource to be present, while trying to get render order");
 
-        let interactive_entities =
+        // First, find the topmost entity that is hit by the mouse (interactive or not)
+        let mut topmost_hit_entity = None;
+        let mut topmost_hit_index = None;
+        let all_entities_with_bounds =
             world.query_combined_2::<BoundsComponent, InteractionComponent>();
 
-        let mut entities_interacted_with = Vec::new();
-
-        for (entity_id, bounds_comp, interaction_comp) in interactive_entities {
+        for (entity_id, bounds_comp, interaction_comp) in all_entities_with_bounds {
             if interaction_comp.is_active
                 && is_hit(
                     bounds_comp.computed_bounds,
@@ -555,33 +561,64 @@ impl EcsSystem for MouseInputSystem {
                     mouse_resource.position,
                 )
             {
-                // get index of the entity in the render order
-                let index = render_order_resource
+                if let Some(index) = render_order_resource
                     .render_order
                     .iter()
                     .position(|id| *id == entity_id)
-                    .expect("Expected clicked entity to be in the render order");
-
-                // Handle click events
-                if interaction_comp.is_clickable && mouse_resource.is_released {
-                    entities_interacted_with.push((
-                        entity_id,
-                        interaction_comp
-                            .click_event
-                            .expect("expected clickable entity to have click event"),
-                        index,
-                    ));
+                {
+                    match topmost_hit_index {
+                        None => {
+                            topmost_hit_index = Some(index);
+                            topmost_hit_entity = Some(entity_id);
+                        }
+                        Some(current_max) => {
+                            if index > current_max {
+                                topmost_hit_index = Some(index);
+                                topmost_hit_entity = Some(entity_id);
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // send the event for the entity that has the highest z index
-        if let Some((entity_id, app_event, _)) = entities_interacted_with
-            .iter()
-            .max_by_key(|(_, _, index)| *index)
-        {
-            log::debug!("Sending event: {:?} from entity: {}", app_event, entity_id);
-            world.queue_event(*app_event);
+        // If we found a topmost hit entity, try to find a clickable entity in its hierarchy
+        if let Some(topmost_entity) = topmost_hit_entity {
+            // First check if the topmost entity itself is clickable
+            if let Some(interaction_comp) = world
+                .components
+                .get_component::<InteractionComponent>(topmost_entity)
+            {
+                if interaction_comp.is_active && interaction_comp.is_clickable {
+                    if let Some(click_event) = interaction_comp.click_event {
+                        log::debug!(
+                            "Sending event: {:?} from topmost entity: {}",
+                            click_event,
+                            topmost_entity
+                        );
+                        world.queue_event(click_event);
+                        return;
+                    }
+                }
+            }
+
+            // If the topmost entity is not clickable, look for a clickable ancestor
+            if let Some((clickable_entity, click_event)) =
+                find_clickable_ancestor(world, topmost_entity)
+            {
+                log::debug!(
+                    "Sending event: {:?} from clickable ancestor: {} (topmost hit: {})",
+                    click_event,
+                    clickable_entity,
+                    topmost_entity
+                );
+                world.queue_event(click_event);
+            } else {
+                log::debug!(
+                    "No clickable entity found in hierarchy for topmost hit entity: {}",
+                    topmost_entity
+                );
+            }
         }
     }
 }
@@ -793,6 +830,35 @@ fn gather_all_children(world: &World, root_entity_id: EntityId) -> Vec<EntityId>
     }
 
     all_children
+}
+
+/// function to find the closest clickable ancestor of an entity
+fn find_clickable_ancestor(world: &World, entity_id: EntityId) -> Option<(EntityId, AppEvent)> {
+    let mut current_entity = Some(entity_id);
+
+    while let Some(current_id) = current_entity {
+        if let Some(interaction_comp) = world
+            .components
+            .get_component::<InteractionComponent>(current_id)
+        {
+            if interaction_comp.is_active && interaction_comp.is_clickable {
+                return Some((
+                    current_id,
+                    interaction_comp
+                        .click_event
+                        .expect("Expected clickable entity to have click event"),
+                ));
+            }
+        }
+
+        // Move to parent
+        current_entity = world
+            .components
+            .get_component::<HierarchyComponent>(current_id)
+            .and_then(|hierarchy| hierarchy.parent);
+    }
+
+    None
 }
 
 fn is_hit(
