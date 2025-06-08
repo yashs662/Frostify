@@ -1,12 +1,13 @@
 use crate::{
     app::AppEvent,
     ui::{
-        ecs::{EcsResource, EntityId, systems::RenderGroup},
+        ecs::{EcsResource, EntityId, NamedRef, systems::RenderGroup},
         layout::ComponentPosition,
     },
 };
 use cosmic_text::{FontSystem, SwashCache};
 use frostify_derive::EcsResource;
+use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 
 // New resource to store the render order from layout context
@@ -46,6 +47,41 @@ pub struct EventSenderResource {
 #[derive(EcsResource, Default)]
 pub struct RequestReLayoutResource {
     pub request_relayout: bool,
+}
+
+#[derive(EcsResource, Default)]
+pub struct NamedRefsResource {
+    pub named_refs_map: HashMap<NamedRef, EntityId>,
+}
+
+impl NamedRefsResource {
+    pub fn get_entity_id(&self, named_ref: &NamedRef) -> Option<EntityId> {
+        self.named_refs_map.get(named_ref).cloned()
+    }
+
+    pub fn get_named_ref(&self, entity_id: EntityId) -> Option<NamedRef> {
+        self.named_refs_map.iter().find_map(|(named_ref, id)| {
+            if *id == entity_id {
+                Some(*named_ref)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn set_entity_id(&mut self, named_ref: NamedRef, entity_id: EntityId) {
+        if let Some(existing_id) = self.named_refs_map.get(&named_ref) {
+            if *existing_id != entity_id {
+                log::warn!(
+                    "Overwriting existing entity ID for named reference '{}': {} -> {}",
+                    named_ref,
+                    existing_id,
+                    entity_id
+                );
+            }
+        }
+        self.named_refs_map.insert(named_ref, entity_id);
+    }
 }
 
 #[derive(EcsResource)]

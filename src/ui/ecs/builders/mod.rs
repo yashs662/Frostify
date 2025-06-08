@@ -1,5 +1,3 @@
-use core::panic;
-
 use crate::{
     app::AppEvent,
     ui::{
@@ -11,6 +9,7 @@ use crate::{
                 AnimationComponent, BoundsComponent, HierarchyComponent, InteractionComponent,
                 PreFitSizeComponent, TransformComponent, VisualComponent,
             },
+            resources::NamedRefsResource,
         },
         layout::{
             Anchor, BorderRadius, ComponentOffset, Edges, FlexValue, LayoutSize, Position, Size,
@@ -51,7 +50,7 @@ pub struct EntityBuilderProps {
     pub shadow_opacity: Option<f32>,
     pub clip_self: Option<bool>, // Whether component should be clipped by its parent
     pub as_inactive: bool,       // Whether component should be inactive on creation
-    pub named_reference: Option<NamedRef>,
+    pub named_ref: Option<NamedRef>,
 }
 
 /// Trait for component builders that share common properties
@@ -186,8 +185,8 @@ pub trait EntityBuilder: Sized {
         self
     }
 
-    fn with_named_ref(mut self, named_entity: NamedRef) -> Self {
-        self.common_props().named_reference = Some(named_entity);
+    fn with_named_ref(mut self, named_ref: NamedRef) -> Self {
+        self.common_props().named_ref = Some(named_ref);
         self
     }
 }
@@ -200,15 +199,13 @@ pub fn add_common_components(
     props: &EntityBuilderProps,
 ) {
     // Ensure NamedEntity if set is not already in the world
-    if let Some(named_entity) = &props.named_reference {
-        if world.named_entities.contains_key(named_entity) {
-            panic!(
-                "Named entity '{}' already exists in the world. Entity IDs must be unique.",
-                named_entity
-            );
-        } else {
-            world.named_entities.insert(*named_entity, entity_id);
-        }
+    if let Some(named_ref) = props.named_ref {
+        let named_refs_resource = world
+            .resources
+            .get_resource_mut::<NamedRefsResource>()
+            .expect("NamedRefsResource should be initialized before adding components");
+
+        named_refs_resource.set_entity_id(named_ref, entity_id);
     }
 
     // Add animation component if configured

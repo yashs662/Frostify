@@ -1,4 +1,7 @@
-use crate::{app::AppEvent, ui::color::Color};
+use crate::{
+    app::AppEvent,
+    ui::{color::Color, ecs::resources::NamedRefsResource},
+};
 use components::IdentityComponent;
 use frostify_derive::EntityCategories;
 use resources::{
@@ -230,7 +233,6 @@ pub struct World {
     entities: Vec<EntityId>,
     pub components: EcsComponents,
     pub resources: EcsResources,
-    pub named_entities: HashMap<NamedRef, EntityId>,
 }
 
 impl Default for World {
@@ -245,7 +247,6 @@ impl World {
             entities: Vec::new(),
             components: EcsComponents::new(),
             resources: EcsResources::new(),
-            named_entities: HashMap::new(),
         }
     }
 
@@ -269,7 +270,18 @@ impl World {
         self.entities.is_empty()
     }
 
+    /// Initialize all world resources including persistent and resettable ones
     pub fn initialize_resources(
+        &mut self,
+        queue: &wgpu::Queue,
+        event_sender: &UnboundedSender<AppEvent>,
+    ) {
+        self.initialize_persistent_resources(queue, event_sender);
+        self.initialize_resettable_resources();
+    }
+
+    /// Initialize persistent resources that should not be reset
+    fn initialize_persistent_resources(
         &mut self,
         queue: &wgpu::Queue,
         event_sender: &UnboundedSender<AppEvent>,
@@ -280,36 +292,14 @@ impl World {
         self.add_resource(EventSenderResource {
             event_sender: event_sender.clone(),
         });
-        self.initialize_resetable_resources();
-    }
-
-    fn initialize_resetable_resources(&mut self) {
-        self.add_resource(RenderOrderResource::default());
-        self.add_resource(RenderGroupsResource::default());
-        self.add_resource(MouseResource::default());
-        self.add_resource(RequestReLayoutResource::default());
-        self.add_resource(TextRenderingResource::default());
-    }
-
-    fn reset_resources(&mut self) {
-        self.resources.remove_resource::<RenderOrderResource>();
-        self.resources.remove_resource::<RenderGroupsResource>();
-        self.resources.remove_resource::<MouseResource>();
-        self.resources.remove_resource::<TextRenderingResource>();
-        self.initialize_resetable_resources();
     }
 
     pub fn create_entity(&mut self, debug_name: String, component_type: ComponentType) -> EntityId {
+        // Validate that the debug name is unique
+        self.validate_unique_debug_name(&debug_name);
+
         let entity_id = Uuid::new_v4();
         self.entities.push(entity_id);
-
-        // check if any other entity has the same debug name
-        // TODO: I know this is not the best way to do it, but it works for now
-        self.for_each_component::<IdentityComponent, _>(|_, component| {
-            if component.debug_name == debug_name {
-                panic!("Entity with debug name {} already exists", debug_name);
-            }
-        });
 
         // Add IdentityComponent by default
         self.add_component(
@@ -320,21 +310,32 @@ impl World {
             },
         );
 
+        self.log_entity_creation(&debug_name, entity_id);
+        entity_id
+    }
+
+    fn validate_unique_debug_name(&self, debug_name: &str) {
+        self.for_each_component::<IdentityComponent, _>(|_, component| {
+            if component.debug_name == debug_name {
+                panic!("Entity with debug name {} already exists", debug_name);
+            }
+        });
+    }
+
+    fn log_entity_creation(&self, debug_name: &str, entity_id: EntityId) {
         let truncated_name = if debug_name.len() > 40 {
             format!("{}...", &debug_name[..37])
         } else {
-            debug_name.clone()
+            debug_name.to_string()
         };
 
-        log::trace!("New Entity | {:<40} | ID: {}", truncated_name, entity_id,);
-        entity_id
+        log::trace!("New Entity | {:<40} | ID: {}", truncated_name, entity_id);
     }
 
     pub fn reset(&mut self) {
         self.entities.clear();
         self.components.clear();
-        self.named_entities.clear();
-        self.reset_resources();
+        self.reset_resettable_resources();
         log::trace!("World reset");
     }
 
@@ -457,4 +458,40 @@ impl World {
 
         result
     }
+}
+
+/// Trait for managing resettable resources in the ECS world
+pub trait ResourceManager {
+    fn initialize_resettable_resources(&mut self);
+    fn reset_resettable_resources(&mut self);
+}
+
+/// Helper macro to define resettable resources in one place
+macro_rules! resettable_resources {
+    ($($resource_type:ty),* $(,)?) => {
+        impl ResourceManager for World {
+            fn initialize_resettable_resources(&mut self) {
+                $(
+                    self.add_resource(<$resource_type>::default());
+                )*
+            }
+
+            fn reset_resettable_resources(&mut self) {
+                $(
+                    self.resources.remove_resource::<$resource_type>();
+                )*
+                self.initialize_resettable_resources();
+            }
+        }
+    };
+}
+
+// Define all resettable resources in one place
+resettable_resources! {
+    RenderOrderResource,
+    RenderGroupsResource,
+    MouseResource,
+    RequestReLayoutResource,
+    TextRenderingResource,
+    NamedRefsResource,
 }

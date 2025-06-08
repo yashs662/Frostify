@@ -320,6 +320,7 @@ impl ZIndexManager {
 
     /// Close a specific modal
     pub fn close_modal(&mut self, modal_id: EntityId) {
+        log::debug!("Closing modal: {}", modal_id);
         self.modal_manager.close_modal(modal_id);
     }
 }

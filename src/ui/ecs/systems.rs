@@ -290,6 +290,7 @@ impl EcsSystem for AnimationSystem {
                 .components
                 .get_component_mut::<InteractionComponent>(entity_id)
             {
+                log::debug!("Entry animation completed for entity: {}", entity_id);
                 interaction_comp.is_just_activated = false;
             }
         }
@@ -299,6 +300,7 @@ impl EcsSystem for AnimationSystem {
                 .components
                 .get_component_mut::<InteractionComponent>(entity_id)
             {
+                log::debug!("Exit animation completed for entity: {}", entity_id);
                 interaction_comp.is_just_deactivated = false;
                 interaction_comp.is_active = false;
             }
@@ -578,7 +580,7 @@ impl EcsSystem for MouseInputSystem {
             .iter()
             .max_by_key(|(_, _, index)| *index)
         {
-            log::debug!("Sending event: {:?} for entity: {}", app_event, entity_id);
+            log::debug!("Sending event: {:?} from entity: {}", app_event, entity_id);
             world.queue_event(*app_event);
         }
     }

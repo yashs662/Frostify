@@ -6,7 +6,7 @@ use crate::{
         self, UiView,
         ecs::{
             ModalEntity, NamedRef,
-            resources::{MouseResource, RequestReLayoutResource},
+            resources::{MouseResource, NamedRefsResource, RequestReLayoutResource},
             systems::{
                 AnimationSystem, ComponentActivationSystem, ComponentHoverResetSystem,
                 ComponentHoverSystem, MouseInputSystem, MouseScrollSystem,
@@ -143,7 +143,7 @@ impl App<'_> {
 
     fn update(&mut self) {
         if let Some(wgpu_ctx) = &mut self.wgpu_ctx {
-            // check if re-layout is requested
+            // Check if re-layout is requested
             let request_relayout_resource = self
                 .layout_context
                 .world
@@ -159,11 +159,9 @@ impl App<'_> {
             }
 
             // Run animation system
-            self.layout_context
-                .world
-                .run_system::<AnimationSystem>(AnimationSystem {
-                    frame_time: self.frame_counter.get_frame_time(),
-                });
+            self.layout_context.world.run_system(AnimationSystem {
+                frame_time: self.frame_counter.get_frame_time(),
+            });
         }
     }
 
@@ -223,27 +221,20 @@ impl App<'_> {
                         return true;
                     }
                     AppEvent::OpenModal(modal_entity) => {
+                        if !modal_entity.is_modal() {
+                            panic!(
+                                "Received OpenModal event for non-modal entity: {}",
+                                modal_entity
+                            );
+                        }
+
                         if let Some(entity_id) = self
                             .layout_context
                             .world
-                            .named_entities
-                            .iter()
-                            .find_map(|(named_entity, id)| {
-                                // check if the named entity is of some AppNamedModals type
-                                if *named_entity == modal_entity {
-                                    if named_entity.is_modal() {
-                                        debug!("Received OpenModal event for: {}", named_entity);
-                                        Some(*id)
-                                    } else {
-                                        panic!(
-                                            "Received OpenModal event for non-modal entity: {}",
-                                            named_entity
-                                        );
-                                    }
-                                } else {
-                                    None
-                                }
-                            })
+                            .resources
+                            .get_resource::<NamedRefsResource>()
+                            .expect("Expected NamedRefsResource to exist")
+                            .get_entity_id(&modal_entity)
                         {
                             // Open the modal through the modal management system
                             self.layout_context.z_index_manager.open_modal(entity_id);
@@ -265,31 +256,21 @@ impl App<'_> {
                         return true;
                     }
                     AppEvent::CloseModal(modal_entity) => {
+                        if !modal_entity.is_modal() {
+                            panic!(
+                                "Received CloseModal event for non-modal entity: {}",
+                                modal_entity
+                            );
+                        }
+
                         if let Some(entity_id) = self
                             .layout_context
                             .world
-                            .named_entities
-                            .iter()
-                            .find_map(|(named_entity, id)| {
-                                // check if the named entity is of some AppNamedModals type
-                                if *named_entity == modal_entity {
-                                    if named_entity.is_modal() {
-                                        debug!("Received CloseModal event for: {}", named_entity);
-                                        Some(*id)
-                                    } else {
-                                        panic!(
-                                            "Received CloseModal event for non-modal entity: {}",
-                                            named_entity
-                                        );
-                                    }
-                                } else {
-                                    None
-                                }
-                            })
+                            .resources
+                            .get_resource::<NamedRefsResource>()
+                            .expect("Expected NamedRefsResource to exist")
+                            .get_entity_id(&modal_entity)
                         {
-                            // Close the modal through the modal management system
-                            self.layout_context.z_index_manager.close_modal(entity_id);
-
                             // Deactivate the modal component
                             self.layout_context
                                 .world
@@ -298,6 +279,9 @@ impl App<'_> {
                                     activate: false,
                                     affect_children: true,
                                 });
+
+                            // Close the modal through the modal management system
+                            self.layout_context.z_index_manager.close_modal(entity_id);
                         } else {
                             panic!(
                                 "Received CloseModal event for non-existent modal entity: {}. Did you forget to use with_named_ref() on the modal entity?",
