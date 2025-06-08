@@ -3,9 +3,8 @@ use crate::{
     ui::{
         animation::Animation,
         color::Color,
-        ecs::ComponentType,
         ecs::{
-            BorderPosition, EcsComponent, EntityId, GradientColorStop, GradientType,
+            BorderPosition, ComponentType, EcsComponent, EntityId, GradientColorStop, GradientType,
             builders::image::ScaleMode,
         },
         layout::{
@@ -120,6 +119,17 @@ pub struct FrostedGlassComponent {
     pub tint_color: Color,
     pub blur_radius: f32,
     pub tint_intensity: f32,
+}
+
+#[derive(Debug, Clone, EcsComponent)]
+pub struct ModalComponent {
+    pub renderable_children: Vec<EntityId>,
+    pub non_renderable_children: Vec<EntityId>,
+    pub is_open: bool,
+    pub is_opening: bool,
+    pub is_closing: bool,
+    pub has_entry_animation: bool,
+    pub has_exit_animation: bool,
 }
 
 const TEXT_ATTRS: Attrs = Attrs {

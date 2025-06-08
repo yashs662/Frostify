@@ -208,8 +208,14 @@ pub fn add_common_components(
         named_refs_resource.set_entity_id(named_ref, entity_id);
     }
 
+    let mut has_entry_anim = false;
+
     // Add animation component if configured
     for animation_config in &props.animations {
+        if animation_config.when == AnimationWhen::Entry {
+            has_entry_anim = true;
+        }
+
         let animation = Animation::new(animation_config.clone());
         // check if animation component already exists
         if let Some(animation_comp) = world
@@ -287,6 +293,12 @@ pub fn add_common_components(
         },
     );
 
+    let is_just_activated = if props.as_inactive {
+        false
+    } else {
+        has_entry_anim
+    };
+
     // Add interaction component
     world.add_component(
         entity_id,
@@ -301,7 +313,7 @@ pub fn add_common_components(
             click_event: props.click_event,
             drag_event: props.drag_event,
             is_active: !props.as_inactive,
-            is_just_activated: !props.as_inactive,
+            is_just_activated,
             is_just_deactivated: false,
         },
     );

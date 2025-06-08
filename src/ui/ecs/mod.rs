@@ -1,6 +1,9 @@
 use crate::{
     app::AppEvent,
-    ui::{color::Color, ecs::resources::NamedRefsResource},
+    ui::{
+        color::Color,
+        ecs::resources::{EntryExitAnimationStateResource, NamedRefsResource},
+    },
 };
 use components::IdentityComponent;
 use frostify_derive::EntityCategories;
@@ -32,6 +35,12 @@ pub enum ComponentType {
     BackgroundColor,
     BackgroundGradient,
     FrostedGlass,
+}
+
+impl ComponentType {
+    pub fn is_renderable(&self) -> bool {
+        !matches!(self, ComponentType::Container)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -194,6 +203,68 @@ impl EcsComponents {
 
     pub fn get(&self, type_id: &TypeId) -> Option<&HashMap<EntityId, Box<dyn EcsComponent>>> {
         self.inner.get(type_id)
+    }
+
+    pub fn query_combined_2<T: EcsComponent + 'static, U: EcsComponent + 'static>(
+        &self,
+    ) -> Vec<(EntityId, &T, &U)> {
+        let type_id_t = TypeId::of::<T>();
+        let type_id_u = TypeId::of::<U>();
+
+        let mut result = Vec::new();
+
+        if let (Some(t_map), Some(u_map)) = (self.get(&type_id_t), self.get(&type_id_u)) {
+            // Find entities that have both component types
+            for (entity_id, t_component) in t_map {
+                if let Some(u_component) = u_map.get(entity_id) {
+                    if let (Some(t), Some(u)) = (
+                        t_component.as_any().downcast_ref::<T>(),
+                        u_component.as_any().downcast_ref::<U>(),
+                    ) {
+                        result.push((*entity_id, t, u));
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    pub fn query_combined_3<
+        T: EcsComponent + 'static,
+        U: EcsComponent + 'static,
+        V: EcsComponent + 'static,
+    >(
+        &self,
+    ) -> Vec<(EntityId, &T, &U, &V)> {
+        let type_id_t = TypeId::of::<T>();
+        let type_id_u = TypeId::of::<U>();
+        let type_id_v = TypeId::of::<V>();
+
+        let mut result = Vec::new();
+
+        if let (Some(t_map), Some(u_map), Some(v_map)) = (
+            self.get(&type_id_t),
+            self.get(&type_id_u),
+            self.get(&type_id_v),
+        ) {
+            // Find entities that have all three component types
+            for (entity_id, t_component) in t_map {
+                if let Some(u_component) = u_map.get(entity_id) {
+                    if let Some(v_component) = v_map.get(entity_id) {
+                        if let (Some(t), Some(u), Some(v)) = (
+                            t_component.as_any().downcast_ref::<T>(),
+                            u_component.as_any().downcast_ref::<U>(),
+                            v_component.as_any().downcast_ref::<V>(),
+                        ) {
+                            result.push((*entity_id, t, u, v));
+                        }
+                    }
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -393,71 +464,6 @@ impl World {
             }
         }
     }
-
-    pub fn query_combined_2<T: EcsComponent + 'static, U: EcsComponent + 'static>(
-        &self,
-    ) -> Vec<(EntityId, &T, &U)> {
-        let type_id_t = TypeId::of::<T>();
-        let type_id_u = TypeId::of::<U>();
-
-        let mut result = Vec::new();
-
-        if let (Some(t_map), Some(u_map)) = (
-            self.components.get(&type_id_t),
-            self.components.get(&type_id_u),
-        ) {
-            // Find entities that have both component types
-            for (entity_id, t_component) in t_map {
-                if let Some(u_component) = u_map.get(entity_id) {
-                    if let (Some(t), Some(u)) = (
-                        t_component.as_any().downcast_ref::<T>(),
-                        u_component.as_any().downcast_ref::<U>(),
-                    ) {
-                        result.push((*entity_id, t, u));
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-    pub fn query_combined_3<
-        T: EcsComponent + 'static,
-        U: EcsComponent + 'static,
-        V: EcsComponent + 'static,
-    >(
-        &self,
-    ) -> Vec<(EntityId, &T, &U, &V)> {
-        let type_id_t = TypeId::of::<T>();
-        let type_id_u = TypeId::of::<U>();
-        let type_id_v = TypeId::of::<V>();
-
-        let mut result = Vec::new();
-
-        if let (Some(t_map), Some(u_map), Some(v_map)) = (
-            self.components.get(&type_id_t),
-            self.components.get(&type_id_u),
-            self.components.get(&type_id_v),
-        ) {
-            // Find entities that have all three component types
-            for (entity_id, t_component) in t_map {
-                if let Some(u_component) = u_map.get(entity_id) {
-                    if let Some(v_component) = v_map.get(entity_id) {
-                        if let (Some(t), Some(u), Some(v)) = (
-                            t_component.as_any().downcast_ref::<T>(),
-                            u_component.as_any().downcast_ref::<U>(),
-                            v_component.as_any().downcast_ref::<V>(),
-                        ) {
-                            result.push((*entity_id, t, u, v));
-                        }
-                    }
-                }
-            }
-        }
-
-        result
-    }
 }
 
 /// Trait for managing resettable resources in the ECS world
@@ -494,4 +500,5 @@ resettable_resources! {
     RequestReLayoutResource,
     TextRenderingResource,
     NamedRefsResource,
+    EntryExitAnimationStateResource
 }

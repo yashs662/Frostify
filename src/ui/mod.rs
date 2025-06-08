@@ -608,15 +608,6 @@ fn create_settings_modal(
             },
             when: AnimationWhen::Entry,
         })
-        .with_modal_animation(AnimationConfig {
-            duration: Duration::from_millis(300),
-            direction: AnimationDirection::Forward,
-            easing: EasingFunction::EaseOutCubic,
-            animation_type: AnimationType::Opacity {
-                range: AnimationRange::new(0.0, 1.0),
-            },
-            when: AnimationWhen::Entry,
-        })
         .with_backdrop_animation(AnimationConfig {
             duration: Duration::from_millis(1000),
             direction: AnimationDirection::Forward,
@@ -626,7 +617,16 @@ fn create_settings_modal(
             },
             when: AnimationWhen::Exit,
         })
-        .with_modal_animation(AnimationConfig {
+        .with_animation(AnimationConfig {
+            duration: Duration::from_millis(300),
+            direction: AnimationDirection::Forward,
+            easing: EasingFunction::EaseOutCubic,
+            animation_type: AnimationType::Opacity {
+                range: AnimationRange::new(0.0, 1.0),
+            },
+            when: AnimationWhen::Entry,
+        })
+        .with_animation(AnimationConfig {
             duration: Duration::from_millis(1000),
             direction: AnimationDirection::Forward,
             easing: EasingFunction::EaseOutCubic,

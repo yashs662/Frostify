@@ -6,10 +6,10 @@ use crate::{
         self, UiView,
         ecs::{
             ModalEntity, NamedRef,
-            resources::{MouseResource, NamedRefsResource, RequestReLayoutResource},
+            resources::{MouseResource, RequestReLayoutResource},
             systems::{
-                AnimationSystem, ComponentActivationSystem, ComponentHoverResetSystem,
-                ComponentHoverSystem, MouseInputSystem, MouseScrollSystem,
+                AnimationSystem, ComponentHoverResetSystem, ComponentHoverSystem,
+                ModalObserverSystem, MouseInputSystem, MouseScrollSystem,
             },
         },
         layout::{self, ComponentPosition, Size},
@@ -158,6 +158,9 @@ impl App<'_> {
                 self.layout_context.compute_layout_and_sync(wgpu_ctx);
             }
 
+            // Run Modal Observer System
+            self.layout_context.world.run_system(ModalObserverSystem);
+
             // Run animation system
             self.layout_context.world.run_system(AnimationSystem {
                 frame_time: self.frame_counter.get_frame_time(),
@@ -228,31 +231,9 @@ impl App<'_> {
                             );
                         }
 
-                        if let Some(entity_id) = self
-                            .layout_context
-                            .world
-                            .resources
-                            .get_resource::<NamedRefsResource>()
-                            .expect("Expected NamedRefsResource to exist")
-                            .get_entity_id(&modal_entity)
-                        {
-                            // Open the modal through the modal management system
-                            self.layout_context.z_index_manager.open_modal(entity_id);
+                        // Open the modal through the modal management system
+                        self.layout_context.open_modal(modal_entity);
 
-                            // Activate the modal component
-                            self.layout_context
-                                .world
-                                .run_system(ComponentActivationSystem {
-                                    entity_id,
-                                    activate: true,
-                                    affect_children: true,
-                                });
-                        } else {
-                            panic!(
-                                "Received OpenModal event for non-existent modal entity: {}. Did you forget to use with_named_ref() on the modal entity?",
-                                modal_entity
-                            );
-                        }
                         return true;
                     }
                     AppEvent::CloseModal(modal_entity) => {
@@ -263,31 +244,9 @@ impl App<'_> {
                             );
                         }
 
-                        if let Some(entity_id) = self
-                            .layout_context
-                            .world
-                            .resources
-                            .get_resource::<NamedRefsResource>()
-                            .expect("Expected NamedRefsResource to exist")
-                            .get_entity_id(&modal_entity)
-                        {
-                            // Deactivate the modal component
-                            self.layout_context
-                                .world
-                                .run_system(ComponentActivationSystem {
-                                    entity_id,
-                                    activate: false,
-                                    affect_children: true,
-                                });
+                        // Close the modal through the modal management system
+                        self.layout_context.close_modal(modal_entity);
 
-                            // Close the modal through the modal management system
-                            self.layout_context.z_index_manager.close_modal(entity_id);
-                        } else {
-                            panic!(
-                                "Received CloseModal event for non-existent modal entity: {}. Did you forget to use with_named_ref() on the modal entity?",
-                                modal_entity
-                            );
-                        }
                         return true;
                     }
                     AppEvent::Shuffle => {

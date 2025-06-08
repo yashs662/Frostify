@@ -1,11 +1,11 @@
-use crate::ui::ecs::EntityId;
+use crate::ui::ecs::{EntityId, ModalEntity, NamedRef, resources::NamedRefsResource};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Modal management system for tracking active modals and their ordering
 #[derive(Debug, Default)]
 pub struct ModalManager {
     /// Stack of currently active modals (most recent at the back)
-    active_modals: VecDeque<EntityId>,
+    active_modals: VecDeque<NamedRef>,
     /// Base z-index for modal layer (well above normal components)
     modal_base_z_index: i32,
     /// Z-index increment between stacked modals
@@ -22,28 +22,30 @@ impl ModalManager {
     }
 
     /// Register a new modal as active
-    pub fn open_modal(&mut self, modal_id: EntityId) {
+    pub fn open_modal(&mut self, modal_named_ref: NamedRef) {
         // Remove modal if it already exists in the stack (bring to front)
-        self.active_modals.retain(|&id| id != modal_id);
+        self.active_modals
+            .retain(|&named_ref| named_ref != modal_named_ref);
         // Add to the back (top of stack)
-        self.active_modals.push_back(modal_id);
+        self.active_modals.push_back(modal_named_ref);
     }
 
     /// Remove a modal from the active stack
-    pub fn close_modal(&mut self, modal_id: EntityId) {
-        self.active_modals.retain(|&id| id != modal_id);
+    pub fn close_modal(&mut self, modal_named_ref: NamedRef) {
+        self.active_modals
+            .retain(|&named_ref| named_ref != modal_named_ref);
     }
 
     /// Get the z-index for a specific modal
-    pub fn get_modal_z_index(&self, modal_id: EntityId) -> Option<i32> {
+    pub fn get_modal_z_index(&self, modal_named_ref: NamedRef) -> Option<i32> {
         self.active_modals
             .iter()
-            .position(|&id| id == modal_id)
+            .position(|&named_ref| named_ref == modal_named_ref)
             .map(|position| self.modal_base_z_index + (position as i32 * self.modal_z_increment))
     }
 
     /// Get all active modals in order (bottom to top)
-    pub fn get_active_modals(&self) -> impl Iterator<Item = &EntityId> {
+    pub fn get_active_modals(&self) -> impl Iterator<Item = &NamedRef> {
         self.active_modals.iter()
     }
 
@@ -73,9 +75,7 @@ pub struct ZIndexManager {
     /// Counter for registration order
     registration_counter: usize,
     /// Modal management system
-    modal_manager: ModalManager,
-    /// Track which entities are modals for special handling
-    modal_entities: HashSet<EntityId>,
+    pub modal_manager: ModalManager,
 }
 
 impl Default for ZIndexManager {
@@ -97,7 +97,6 @@ impl ZIndexManager {
             registration_order: HashMap::new(),
             registration_counter: 0,
             modal_manager: ModalManager::new(),
-            modal_entities: HashSet::new(),
         }
     }
 
@@ -111,7 +110,6 @@ impl ZIndexManager {
         self.registration_order.clear();
         self.registration_counter = 0;
         self.modal_manager.clear();
-        self.modal_entities.clear();
     }
 
     pub fn set_root_id(&mut self, root_id: EntityId) {
@@ -168,22 +166,31 @@ impl ZIndexManager {
     }
 
     /// Compute z-indices for all registered components
-    fn compute_all_z_indices(&mut self) {
+    fn compute_all_z_indices(&mut self, named_refs_resource: &NamedRefsResource) {
         self.computed_indices.clear();
         self.compute_component_z_index(
             self.root_id
                 .expect("Expected Root ID to be set before computing z indices"),
             0,
+            named_refs_resource,
         );
         self.dirty = false;
     }
 
     /// Recursively compute z-index for a component and its descendants
-    fn compute_component_z_index(&mut self, component_id: EntityId, depth: i32) {
-        let absolute_z_index = if self.modal_entities.contains(&component_id) {
+    fn compute_component_z_index(
+        &mut self,
+        component_id: EntityId,
+        depth: i32,
+        named_refs_resource: &NamedRefsResource,
+    ) {
+        let component_named_ref = named_refs_resource
+            .get_named_ref(component_id)
+            .take_if(|named_ref| named_ref.is_modal());
+        let absolute_z_index = if let Some(named_ref) = component_named_ref {
             // If this is a modal, use the modal z-index if it's active
             self.modal_manager
-                .get_modal_z_index(component_id)
+                .get_modal_z_index(named_ref)
                 .unwrap_or(-10000)
         } else {
             // Calculate absolute z-index for non-modal components:
@@ -219,15 +226,38 @@ impl ZIndexManager {
 
         // Process children with the next depth level
         for child_id in children {
-            self.compute_component_z_index(child_id, depth + 1);
+            self.compute_component_z_index(child_id, depth + 1, named_refs_resource);
         }
     }
 
     /// Update rendering order based on z-indices
-    pub fn generate_render_order(&mut self) -> Vec<EntityId> {
+    pub fn generate_render_order(
+        &mut self,
+        named_refs_resource: &NamedRefsResource,
+    ) -> Vec<EntityId> {
         if self.dirty {
-            self.compute_all_z_indices();
+            self.compute_all_z_indices(named_refs_resource);
         }
+
+        // Add active modals on top, ordered by their modal z-index
+        let mut active_modals: Vec<(EntityId, i32)> = self
+            .modal_manager
+            .get_active_modals()
+            .filter_map(|&modal_named_ref| {
+                self.modal_manager
+                    .get_modal_z_index(modal_named_ref)
+                    .map(|z| {
+                        let modal_entity_id = named_refs_resource
+                            .get_entity_id(&modal_named_ref)
+                            .expect("Modal named ref should have a valid EntityId");
+                        (modal_entity_id, z)
+                    })
+            })
+            .collect();
+
+        // Sort modals by their z-index to ensure proper rendering order
+        active_modals.sort_by_key(|(_, z_index)| *z_index);
+        let sorted_active_modal_ids = active_modals.iter().map(|(id, _)| *id).collect::<Vec<_>>();
 
         // We'll build the render order in a hierarchical way
         let mut render_order = Vec::new();
@@ -237,46 +267,40 @@ impl ZIndexManager {
             render_order.push(root_id);
 
             // Then add all elements in hierarchical order (excluding modals)
-            self.add_children_to_render_order(root_id, &mut render_order);
+            self.add_children_to_render_order(
+                root_id,
+                &mut render_order,
+                sorted_active_modal_ids.as_slice(),
+            );
         }
 
-        // Add active modals on top, ordered by their modal z-index
-        let mut active_modals: Vec<(EntityId, i32)> = self
-            .modal_manager
-            .get_active_modals()
-            .filter_map(|&modal_id| {
-                self.modal_manager
-                    .get_modal_z_index(modal_id)
-                    .map(|z_index| (modal_id, z_index))
-            })
-            .collect();
-
-        // Sort modals by their z-index to ensure proper rendering order
-        active_modals.sort_by_key(|(_, z_index)| *z_index);
-
         // Add modals and their children to render order
-        for (modal_id, _) in active_modals {
-            render_order.push(modal_id);
-            self.add_children_to_render_order(modal_id, &mut render_order);
+        for (modal_entity_id, _) in active_modals {
+            render_order.push(modal_entity_id);
+            self.add_children_to_render_order(modal_entity_id, &mut render_order, &[]);
         }
 
         render_order
     }
 
     /// Helper function to recursively add children to render order
-    fn add_children_to_render_order(&self, parent_id: EntityId, render_order: &mut Vec<EntityId>) {
+    fn add_children_to_render_order(
+        &self,
+        parent_id: EntityId,
+        render_order: &mut Vec<EntityId>,
+        active_modal_ids: &[EntityId],
+    ) {
+        if active_modal_ids.contains(&parent_id) {
+            // If this is a modal, skip adding its children to avoid hierarchy issues
+            return;
+        }
+
         // Find all direct children of this parent (excluding modals when traversing normal hierarchy)
         let mut children: Vec<(EntityId, i32, usize)> = self
             .hierarchy
             .iter()
             .filter_map(|(id, parent)| {
                 if *parent == Some(parent_id) {
-                    // Skip modals if we're not currently processing a modal hierarchy
-                    if !self.modal_entities.contains(&parent_id) && self.modal_entities.contains(id)
-                    {
-                        return None;
-                    }
-
                     let z_index = *self.computed_indices.get(id).unwrap_or(&0);
                     let registration_order =
                         *self.registration_order.get(id).unwrap_or(&usize::MAX);
@@ -298,29 +322,7 @@ impl ZIndexManager {
         // Add each child to the render order and then recursively add its children
         for (child_id, _, _) in children {
             render_order.push(child_id);
-            self.add_children_to_render_order(child_id, render_order);
+            self.add_children_to_render_order(child_id, render_order, active_modal_ids);
         }
-    }
-
-    /// Register a component as a modal entity
-    pub fn register_modal(&mut self, modal_id: EntityId) {
-        self.modal_entities.insert(modal_id);
-    }
-
-    /// Open a modal (activates it and places it on top)
-    pub fn open_modal(&mut self, modal_id: EntityId) {
-        if !self.modal_entities.contains(&modal_id) {
-            panic!(
-                "Attempted to open entity {} as modal, but it's not registered as a modal",
-                modal_id
-            );
-        }
-        self.modal_manager.open_modal(modal_id);
-    }
-
-    /// Close a specific modal
-    pub fn close_modal(&mut self, modal_id: EntityId) {
-        log::debug!("Closing modal: {}", modal_id);
-        self.modal_manager.close_modal(modal_id);
     }
 }

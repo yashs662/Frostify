@@ -2,13 +2,16 @@ use crate::{
     app::AppEvent,
     ui::{
         ecs::{
-            ComponentType, EntityId, World,
+            ComponentType, EntityId, NamedRef, World,
             components::{
                 BoundsComponent, HierarchyComponent, IdentityComponent, ImageComponent,
-                InteractionComponent, LayoutComponent, PreFitSizeComponent, RenderDataComponent,
-                TextComponent, TransformComponent, VisualComponent,
+                InteractionComponent, LayoutComponent, ModalComponent, PreFitSizeComponent,
+                RenderDataComponent, TextComponent, TransformComponent, VisualComponent,
             },
-            resources::{RenderOrderResource, TextRenderingResource, WgpuQueueResource},
+            resources::{
+                NamedRefsResource, RenderOrderResource, TextRenderingResource, WgpuQueueResource,
+            },
+            systems::ModalActivationSystem,
         },
         geometry::QuadGeometry,
         z_index_manager::ZIndexManager,
@@ -951,12 +954,90 @@ impl LayoutContext {
         }
 
         // Use the z-index manager to determine render order
+        let named_ref_resource = self
+            .world
+            .resources
+            .get_resource::<NamedRefsResource>()
+            .expect("expected NamedRefsResource to exist");
+
+        let render_order = self
+            .z_index_manager
+            .generate_render_order(named_ref_resource);
+
         let render_order_resource = self
             .world
             .resources
             .get_resource_mut::<RenderOrderResource>()
             .expect("expected RenderOrderResource to exist");
-        render_order_resource.render_order = self.z_index_manager.generate_render_order();
+        render_order_resource.render_order = render_order;
+    }
+
+    pub fn open_modal(&mut self, modal_named_ref: NamedRef) {
+        // Check if the modal is already open/opening/closing
+        let modal_entity_id = self
+            .world
+            .resources
+            .get_resource::<NamedRefsResource>()
+            .expect("Expected NamedRefsResource to exist")
+            .get_entity_id(&modal_named_ref)
+            .expect("Expected modal named reference to have an entity ID");
+
+        let modal_component = self
+            .world
+            .components
+            .get_component::<ModalComponent>(modal_entity_id)
+            .expect("Expected ModalComponent to exist for modal");
+
+        if modal_component.is_open || modal_component.is_opening || modal_component.is_closing {
+            log::warn!(
+                "Modal {} is already open, opening, or closing. Skipping open request.",
+                modal_named_ref
+            );
+            return;
+        }
+
+        self.z_index_manager
+            .modal_manager
+            .open_modal(modal_named_ref);
+
+        self.world.run_system(ModalActivationSystem {
+            activate: true,
+            named_ref: modal_named_ref,
+        });
+    }
+
+    pub fn close_modal(&mut self, modal_named_ref: NamedRef) {
+        // Check if the modal is already closed/closing
+        let modal_entity_id = self
+            .world
+            .resources
+            .get_resource::<NamedRefsResource>()
+            .expect("Expected NamedRefsResource to exist")
+            .get_entity_id(&modal_named_ref)
+            .expect("Expected modal named reference to have an entity ID");
+
+        let modal_component = self
+            .world
+            .components
+            .get_component::<ModalComponent>(modal_entity_id)
+            .expect("Expected ModalComponent to exist for modal");
+
+        if !modal_component.is_open || modal_component.is_closing {
+            log::warn!(
+                "Modal {} is already closed or closing. Skipping close request.",
+                modal_named_ref
+            );
+            return;
+        }
+
+        self.z_index_manager
+            .modal_manager
+            .close_modal(modal_named_ref);
+
+        self.world.run_system(ModalActivationSystem {
+            activate: false,
+            named_ref: modal_named_ref,
+        });
     }
 
     fn compute_component_layout(&mut self, component_id: &EntityId, parent_bounds: Option<Bounds>) {

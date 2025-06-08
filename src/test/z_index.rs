@@ -1,11 +1,26 @@
+use crate::{
+    test::test_utils::get_event_sender,
+    ui::{
+        ecs::resources::NamedRefsResource,
+        layout::{LayoutContext, Size},
+        z_index_manager::ZIndexManager,
+    },
+    wgpu_ctx::WgpuCtx,
+};
 use std::cmp::Ordering;
-
-use crate::ui::z_index_manager::ZIndexManager;
 use uuid::Uuid;
 
 #[test]
 fn child_ordering() {
     let mut z_index_manager = ZIndexManager::new();
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000,
+        height: 800,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
     let parent_id = Uuid::new_v4();
 
     z_index_manager.set_root_id(parent_id);
@@ -18,7 +33,12 @@ fn child_ordering() {
         z_index_manager.register_component(child_id, Some(parent_id));
     }
 
-    let render_order = z_index_manager.generate_render_order();
+    let named_refs_resource = ctx
+        .world
+        .resources
+        .get_resource::<NamedRefsResource>()
+        .unwrap();
+    let render_order = z_index_manager.generate_render_order(named_refs_resource);
     assert_eq!(render_order.len(), 11);
     assert_eq!(render_order[0], parent_id);
     for (i, child_id) in child_ids.iter().enumerate() {
@@ -29,6 +49,14 @@ fn child_ordering() {
 #[test]
 fn custom_z_index() {
     let mut z_index_manager = ZIndexManager::new();
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000,
+        height: 800,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
     let parent_id = Uuid::new_v4();
 
     z_index_manager.set_root_id(parent_id);
@@ -44,7 +72,12 @@ fn custom_z_index() {
         }
     }
 
-    let render_order = z_index_manager.generate_render_order();
+    let named_refs_resource = ctx
+        .world
+        .resources
+        .get_resource::<NamedRefsResource>()
+        .unwrap();
+    let render_order = z_index_manager.generate_render_order(named_refs_resource);
     assert_eq!(render_order.len(), 11);
     assert_eq!(render_order[0], parent_id);
 
@@ -61,6 +94,14 @@ fn custom_z_index() {
 #[test]
 fn hierarchical_z_index_ordering() {
     let mut z_index_manager = ZIndexManager::new();
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000,
+        height: 800,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
     let parent_id = Uuid::new_v4();
 
     // Set up root parent
@@ -92,7 +133,12 @@ fn hierarchical_z_index_ordering() {
     }
 
     // Get render order
-    let render_order = z_index_manager.generate_render_order();
+    let named_refs_resource = ctx
+        .world
+        .resources
+        .get_resource::<NamedRefsResource>()
+        .unwrap();
+    let render_order = z_index_manager.generate_render_order(named_refs_resource);
     assert_eq!(render_order.len(), 13);
     assert_eq!(render_order[0], parent_id);
     assert_eq!(render_order[1], child1_id);
@@ -108,6 +154,14 @@ fn hierarchical_z_index_ordering() {
 #[test]
 fn inverted_hierarchical_z_index_ordering() {
     let mut z_index_manager = ZIndexManager::new();
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000,
+        height: 800,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
     let parent_id = Uuid::new_v4();
 
     // Set up root parent
@@ -143,7 +197,12 @@ fn inverted_hierarchical_z_index_ordering() {
     z_index_manager.set_adjustment(child2_id, -1);
 
     // Get render order
-    let render_order = z_index_manager.generate_render_order();
+    let named_refs_resource = ctx
+        .world
+        .resources
+        .get_resource::<NamedRefsResource>()
+        .unwrap();
+    let render_order = z_index_manager.generate_render_order(named_refs_resource);
     assert_eq!(render_order.len(), 13);
     assert_eq!(render_order[0], parent_id);
     assert_eq!(render_order[1], child2_id);
@@ -159,6 +218,14 @@ fn inverted_hierarchical_z_index_ordering() {
 #[test]
 fn multiple_adjustments() {
     let mut z_index_manager = ZIndexManager::new();
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000,
+        height: 800,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
     let parent_id = Uuid::new_v4();
 
     // Set up root parent
@@ -190,7 +257,12 @@ fn multiple_adjustments() {
     z_index_manager.set_adjustment(child6_id, -2);
 
     // Get render order
-    let render_order = z_index_manager.generate_render_order();
+    let named_refs_resource = ctx
+        .world
+        .resources
+        .get_resource::<NamedRefsResource>()
+        .unwrap();
+    let render_order = z_index_manager.generate_render_order(named_refs_resource);
     assert_eq!(render_order.len(), 7);
     assert_eq!(render_order[0], parent_id);
     assert_eq!(render_order[1], child6_id);
@@ -204,6 +276,14 @@ fn multiple_adjustments() {
 #[test]
 fn multiple_adjustments_in_hierarchy() {
     let mut z_index_manager = ZIndexManager::new();
+    let mut ctx = LayoutContext::default();
+    let mut wgpu_ctx = pollster::block_on(WgpuCtx::new_noop());
+    let viewport_size = Size {
+        width: 1000,
+        height: 800,
+    };
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
+
     let parent_id = Uuid::new_v4();
 
     // Set up root parent
@@ -265,7 +345,12 @@ fn multiple_adjustments_in_hierarchy() {
     z_index_manager.set_adjustment(child2_subchild_5, -1);
 
     // Get render order
-    let render_order = z_index_manager.generate_render_order();
+    let named_refs_resource = ctx
+        .world
+        .resources
+        .get_resource::<NamedRefsResource>()
+        .unwrap();
+    let render_order = z_index_manager.generate_render_order(named_refs_resource);
     assert_eq!(render_order.len(), 13);
     assert_eq!(render_order[0], parent_id);
     assert_eq!(render_order[1], child2_id);

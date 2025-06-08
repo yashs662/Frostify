@@ -20,12 +20,14 @@ use crate::{
                 container::ContainerBuilder,
                 image::{ImageBuilder, ScaleMode},
             },
+            components::{InteractionComponent, ModalComponent},
         },
         layout::{
             AlignItems, Anchor, BorderRadius, ComponentOffset, Edges, FlexValue, JustifyContent,
             LayoutContext, Overflow,
         },
     },
+    utils::{deactivate_component_and_children, gather_all_children_with_types},
     wgpu_ctx::WgpuCtx,
 };
 
@@ -42,7 +44,6 @@ pub struct ModalBuilder {
     close_button_size: (FlexValue, FlexValue),
     close_button_visible: bool,
     custom_close_button: Option<EntityId>,
-    modal_animations: Vec<AnimationConfig>,
     background_color: Option<BackgroundColorConfig>,
     background_gradient: Option<BackgroundGradientConfig>,
     background_frosted_glass: Option<FrostedGlassConfig>,
@@ -76,7 +77,6 @@ impl ModalBuilder {
             close_button_size: (FlexValue::Fixed(30.0), FlexValue::Fixed(30.0)),
             close_button_visible: true,
             custom_close_button: None,
-            modal_animations: Vec::new(),
             background_color: None,
             background_gradient: None,
             background_frosted_glass: None,
@@ -208,11 +208,6 @@ impl ModalBuilder {
         self
     }
 
-    pub fn with_modal_animation(mut self, animation: AnimationConfig) -> Self {
-        self.modal_animations.push(animation);
-        self
-    }
-
     pub fn with_close_button_anchor(mut self, anchor: Anchor) -> Self {
         self.close_button_anchor = anchor;
         self
@@ -261,9 +256,38 @@ impl ModalBuilder {
                 &mut layout_context.z_index_manager,
             );
 
-        layout_context
-            .z_index_manager
-            .register_modal(modal_parent_container_id);
+        // Analyze all animations to determine entry/exit properties
+        let mut has_entry_animation = false;
+        let mut has_exit_animation = false;
+
+        let all_animations = self
+            .common
+            .animations
+            .iter()
+            .chain(self.backdrop_animations.iter());
+
+        // Check backdrop animations
+        for animation in all_animations {
+            match animation.when {
+                AnimationWhen::Entry => {
+                    has_entry_animation = true;
+                }
+                AnimationWhen::Exit => {
+                    has_exit_animation = true;
+                }
+                _ => {}
+            }
+        }
+
+        let mut modal_component = ModalComponent {
+            renderable_children: vec![],
+            non_renderable_children: vec![],
+            is_open: false,
+            is_opening: false,
+            is_closing: false,
+            has_entry_animation,
+            has_exit_animation,
+        };
 
         let mut current_child_z_index = 0;
 
@@ -275,7 +299,8 @@ impl ModalBuilder {
             .collect::<Vec<_>>();
 
         let generic_modal_animations = self
-            .modal_animations
+            .common
+            .animations
             .iter()
             .filter(|a| a.animation_type.is_generic())
             .cloned()
@@ -315,6 +340,7 @@ impl ModalBuilder {
             );
 
             layout_context.add_child_to_parent(modal_parent_container_id, backdrop_id);
+            modal_component.renderable_children.push(backdrop_id);
             current_child_z_index += 1;
         }
 
@@ -341,6 +367,7 @@ impl ModalBuilder {
             );
 
             layout_context.add_child_to_parent(modal_parent_container_id, backdrop_id);
+            modal_component.renderable_children.push(backdrop_id);
             current_child_z_index += 1;
         }
 
@@ -371,6 +398,7 @@ impl ModalBuilder {
             );
 
             layout_context.add_child_to_parent(modal_parent_container_id, backdrop_id);
+            modal_component.renderable_children.push(backdrop_id);
             current_child_z_index += 1;
         }
 
@@ -407,6 +435,7 @@ impl ModalBuilder {
             );
 
             layout_context.add_child_to_parent(modal_parent_container_id, backdrop_id);
+            modal_component.renderable_children.push(backdrop_id);
             current_child_z_index += 1;
         }
 
@@ -432,6 +461,9 @@ impl ModalBuilder {
         );
 
         layout_context.add_child_to_parent(modal_parent_container_id, modal_container_id);
+        modal_component
+            .non_renderable_children
+            .push(modal_container_id);
 
         if let Some(modal_background_color_config) = self.background_color {
             let mut modal_background_builder =
@@ -442,7 +474,8 @@ impl ModalBuilder {
                     .with_z_index(current_child_z_index);
 
             let background_color_animation = self
-                .modal_animations
+                .common
+                .animations
                 .iter()
                 .find(|a| matches!(a.animation_type, AnimationType::Color { .. }));
 
@@ -463,6 +496,9 @@ impl ModalBuilder {
             );
 
             layout_context.add_child_to_parent(modal_container_id, modal_background_id);
+            modal_component
+                .renderable_children
+                .push(modal_background_id);
             current_child_z_index += 1;
         }
 
@@ -489,6 +525,9 @@ impl ModalBuilder {
             );
 
             layout_context.add_child_to_parent(modal_container_id, modal_background_id);
+            modal_component
+                .renderable_children
+                .push(modal_background_id);
             current_child_z_index += 1;
         }
 
@@ -504,7 +543,8 @@ impl ModalBuilder {
                     .with_z_index(current_child_z_index);
 
             let frosted_glass_animation = self
-                .modal_animations
+                .common
+                .animations
                 .iter()
                 .find(|a| matches!(a.animation_type, AnimationType::FrostedGlassTint { .. }));
 
@@ -525,6 +565,9 @@ impl ModalBuilder {
             );
 
             layout_context.add_child_to_parent(modal_container_id, modal_background_id);
+            modal_component
+                .renderable_children
+                .push(modal_background_id);
             current_child_z_index += 1;
         }
 
@@ -551,11 +594,26 @@ impl ModalBuilder {
             );
 
             layout_context.add_child_to_parent(modal_container_id, modal_background_id);
+            modal_component
+                .renderable_children
+                .push(modal_background_id);
             current_child_z_index += 1;
         }
 
         // Close Button
         let close_button_id = if let Some(custom_close_button) = self.custom_close_button {
+            let custom_close_button_interaction_comp = layout_context
+                .world
+                .components
+                .get_component::<InteractionComponent>(custom_close_button)
+                .expect(
+                    "Custom close button must have an InteractionComponent to handle close events.",
+                );
+
+            if custom_close_button_interaction_comp.is_active {
+                deactivate_component_and_children(&mut layout_context.world, custom_close_button);
+            }
+
             custom_close_button
         } else {
             let mut close_button_builder = ButtonBuilder::new()
@@ -579,7 +637,15 @@ impl ModalBuilder {
                     when: AnimationWhen::Hover,
                 })
                 .with_click_event(AppEvent::CloseModal(self.named_ref))
-                .with_z_index(current_child_z_index);
+                .with_z_index(current_child_z_index)
+                .with_spawn_as_inactive();
+
+            // if we have any entry or exit animations, apply them
+            for animation in self.common.animations {
+                if matches!(animation.when, AnimationWhen::Entry | AnimationWhen::Exit) {
+                    close_button_builder = close_button_builder.with_animation(animation.clone());
+                }
+            }
 
             if !self.close_button_visible {
                 close_button_builder = close_button_builder.with_spawn_as_inactive();
@@ -589,6 +655,24 @@ impl ModalBuilder {
         };
 
         layout_context.add_child_to_parent(modal_container_id, close_button_id);
+        modal_component
+            .non_renderable_children
+            .push(close_button_id);
+
+        // Go through all the children of the close button and add them to the modal component
+        let close_button_children =
+            gather_all_children_with_types(&layout_context.world, close_button_id);
+
+        for (child_id, component_type) in close_button_children {
+            if component_type.is_renderable() {
+                modal_component.renderable_children.push(child_id);
+            } else {
+                modal_component.non_renderable_children.push(child_id);
+            }
+        }
+        layout_context
+            .world
+            .add_component(modal_parent_container_id, modal_component);
 
         modal_parent_container_id
     }

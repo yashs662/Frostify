@@ -1,9 +1,9 @@
 use crate::ui::{
     ecs::{
-        BorderPosition, ComponentType, EcsComponents, EntityId, RenderBufferData,
+        BorderPosition, ComponentType, EcsComponents, EntityId, RenderBufferData, World,
         components::{
-            BoundsComponent, ColorComponent, FrostedGlassComponent, IdentityComponent,
-            VisualComponent,
+            BoundsComponent, ColorComponent, FrostedGlassComponent, HierarchyComponent,
+            IdentityComponent, InteractionComponent, VisualComponent,
         },
     },
     geometry::QuadVertex,
@@ -325,4 +325,79 @@ pub fn create_entity_buffer_data(
         clip_enabled,
         _padding3: [0.0; 8],
     }
+}
+
+/// function to iteratively collect all children entities
+pub fn gather_all_children(world: &World, root_entity_id: EntityId) -> Vec<EntityId> {
+    let mut all_children = Vec::new();
+    let mut to_process = vec![root_entity_id];
+
+    while let Some(entity_id) = to_process.pop() {
+        let hierarchy_comp = world
+            .components
+            .get_component::<HierarchyComponent>(entity_id)
+            .expect("Expected HierarchyComponent to be present");
+
+        for &child_id in &hierarchy_comp.children {
+            all_children.push(child_id);
+            to_process.push(child_id);
+        }
+    }
+
+    all_children
+}
+
+/// function to deactivate a component and all its children
+pub fn deactivate_component_and_children(world: &mut World, entity_id: EntityId) {
+    // Deactivate the modal parent
+    let interaction_comp = world
+        .components
+        .get_component_mut::<InteractionComponent>(entity_id)
+        .expect("Expected InteractionComponent to be present for modal parent entity");
+
+    interaction_comp.is_active = false;
+    interaction_comp.is_just_activated = false;
+    interaction_comp.is_just_deactivated = false;
+
+    // Deactivate all children
+    for child_id in gather_all_children(world, entity_id) {
+        let interaction_comp = world
+            .components
+            .get_component_mut::<InteractionComponent>(child_id)
+            .expect("Expected InteractionComponent to be present for modal child entity");
+
+        interaction_comp.is_active = false;
+        interaction_comp.is_just_activated = false;
+        interaction_comp.is_just_deactivated = false;
+    }
+}
+
+/// function to iteratively collect all children entities with their component types
+pub fn gather_all_children_with_types(
+    world: &World,
+    root_entity_id: EntityId,
+) -> Vec<(EntityId, ComponentType)> {
+    let mut all_children = Vec::new();
+    let mut to_process = vec![root_entity_id];
+
+    while let Some(entity_id) = to_process.pop() {
+        let hierarchy_comp = world
+            .components
+            .get_component::<HierarchyComponent>(entity_id)
+            .expect("Expected HierarchyComponent to be present");
+
+        for &child_id in &hierarchy_comp.children {
+            // Get the component type of the child entity
+            let component_type = world
+                .components
+                .get_component::<IdentityComponent>(child_id)
+                .expect("Expected IdentityComponent to be present")
+                .component_type;
+
+            all_children.push((child_id, component_type));
+            to_process.push(child_id);
+        }
+    }
+
+    all_children
 }

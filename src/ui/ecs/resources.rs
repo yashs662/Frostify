@@ -49,6 +49,12 @@ pub struct RequestReLayoutResource {
     pub request_relayout: bool,
 }
 
+#[derive(EcsResource, Default, Debug)]
+pub struct EntryExitAnimationStateResource {
+    pub entry_animation_state: HashMap<EntityId, bool>,
+    pub exit_animation_state: HashMap<EntityId, bool>,
+}
+
 #[derive(EcsResource, Default)]
 pub struct NamedRefsResource {
     pub named_refs_map: HashMap<NamedRef, EntityId>,

@@ -1,14 +1,14 @@
 use crate::{
-    app::AppEvent,
     constants::SCROLL_MULTIPLIER,
     ui::{
         animation::{AnimationDirection, AnimationType, AnimationWhen},
         color::Color,
         ecs::{
-            ComponentType, EcsSystem, EntityId, World,
+            ComponentType, EcsSystem, EntityId, NamedRef, World,
             components::*,
             resources::{
-                MouseResource, RenderGroupsResource, RenderOrderResource, RequestReLayoutResource,
+                EntryExitAnimationStateResource, MouseResource, NamedRefsResource,
+                RenderGroupsResource, RenderOrderResource, RequestReLayoutResource,
                 WgpuQueueResource,
             },
         },
@@ -16,7 +16,7 @@ use crate::{
     },
     utils::create_entity_buffer_data,
 };
-use frostify_derive::{time_function, time_system};
+use frostify_derive::time_system;
 
 pub struct AnimationSystem {
     pub frame_time: f32,
@@ -47,10 +47,16 @@ impl EcsSystem for AnimationSystem {
         let mut entities_with_entry_anim_completed = Vec::new();
         let mut any_update_requires_relayout = false;
 
+        let entry_exit_anim_state_resource = world
+            .resources
+            .get_resource_mut::<EntryExitAnimationStateResource>()
+            .expect("Expected EntryExitAnimationStateResource to be present");
+
         // Get relevant entities and build update list
         {
-            let entities_with_animation =
-                world.query_combined_2::<AnimationComponent, InteractionComponent>();
+            let entities_with_animation = world
+                .components
+                .query_combined_2::<AnimationComponent, InteractionComponent>();
 
             for (entity_id, anim_comp, interaction_comp) in entities_with_animation {
                 if !interaction_comp.is_active {
@@ -213,18 +219,22 @@ impl EcsSystem for AnimationSystem {
                     }
 
                     // Check if we need to stop playing entry and exit animations
-                    if animation.config.when == AnimationWhen::Entry
-                        && raw_progress >= 1.0
-                        && interaction_comp.is_just_activated
-                    {
-                        entities_with_entry_anim_completed.push(entity_id);
+                    if animation.config.when == AnimationWhen::Entry {
+                        if raw_progress >= 1.0 && interaction_comp.is_just_activated {
+                            entities_with_entry_anim_completed.push(entity_id);
+                        }
+                        entry_exit_anim_state_resource
+                            .entry_animation_state
+                            .insert(entity_id, true);
                     }
 
-                    if animation.config.when == AnimationWhen::Exit
-                        && raw_progress >= 1.0
-                        && interaction_comp.is_just_deactivated
-                    {
-                        entities_with_exit_anim_completed.push(entity_id);
+                    if animation.config.when == AnimationWhen::Exit {
+                        if raw_progress >= 1.0 && interaction_comp.is_just_deactivated {
+                            entities_with_exit_anim_completed.push(entity_id);
+                        }
+                        entry_exit_anim_state_resource
+                            .exit_animation_state
+                            .insert(entity_id, true);
                     }
                 }
             }
@@ -286,25 +296,23 @@ impl EcsSystem for AnimationSystem {
         }
 
         // Handle completed entry and exit animations
-        for entity_id in entities_with_entry_anim_completed {
-            if let Some(interaction_comp) = world
+        for entity_id in &entities_with_entry_anim_completed {
+            let interaction_comp = world
                 .components
-                .get_component_mut::<InteractionComponent>(entity_id)
-            {
-                log::debug!("Entry animation completed for entity: {}", entity_id);
-                interaction_comp.is_just_activated = false;
-            }
+                .get_component_mut::<InteractionComponent>(*entity_id)
+                .expect("Expected InteractionComponent to be present for modal child entity");
+            log::debug!("Entry animation completed for entity: {}", entity_id);
+            interaction_comp.is_just_activated = false;
         }
 
-        for entity_id in entities_with_exit_anim_completed {
-            if let Some(interaction_comp) = world
+        for entity_id in &entities_with_exit_anim_completed {
+            let interaction_comp = world
                 .components
-                .get_component_mut::<InteractionComponent>(entity_id)
-            {
-                log::debug!("Exit animation completed for entity: {}", entity_id);
-                interaction_comp.is_just_deactivated = false;
-                interaction_comp.is_active = false;
-            }
+                .get_component_mut::<InteractionComponent>(*entity_id)
+                .expect("Expected InteractionComponent to be present for modal child entity");
+            log::debug!("Exit animation completed for entity: {}", entity_id);
+            interaction_comp.is_just_deactivated = false;
+            interaction_comp.is_active = false;
         }
 
         // Flip the animation direction for forever animations
@@ -350,6 +358,77 @@ impl EcsSystem for AnimationSystem {
 
         // TODO: Handle special case where scale animation causes the parent's
         // max_scroll to change if so check if we need to scroll the parent to avoid over scrolling
+    }
+}
+
+pub struct ModalObserverSystem;
+
+impl EcsSystem for ModalObserverSystem {
+    fn run(&mut self, world: &mut World) {
+        let mut active_modals = Vec::new();
+        world.for_each_component::<ModalComponent, _>(|entity_id, modal_comp| {
+            if modal_comp.is_open {
+                active_modals.push(entity_id);
+            }
+        });
+
+        if active_modals.is_empty() {
+            return; // No active modals to process
+        }
+
+        let entry_exit_anim_state_resource = world
+            .resources
+            .get_resource_mut::<EntryExitAnimationStateResource>()
+            .expect("Expected EntryExitAnimationStateResource to be present");
+
+        for modal_parent_id in active_modals {
+            let modal_comp = world
+                .components
+                .get_component_mut::<ModalComponent>(modal_parent_id)
+                .expect("Expected ModalComponent to be present for modal parent entity");
+
+            if modal_comp.is_opening {
+                // check if all children has entry as true
+                log::debug!("renderable_children: {:#?}", modal_comp.renderable_children);
+                if modal_comp.renderable_children.iter().all(|child_id| {
+                    *entry_exit_anim_state_resource
+                        .entry_animation_state
+                        .get(child_id)
+                        .unwrap_or(&false)
+                }) {
+                    // All children have completed entry animation
+                    modal_comp.is_opening = false;
+                    modal_comp.is_open = true; // Ensure modal is marked as open
+                    modal_comp.is_closing = false; // Reset closing state
+                    for child_id in &modal_comp.renderable_children {
+                        entry_exit_anim_state_resource
+                            .entry_animation_state
+                            .remove(child_id);
+                    }
+
+                    log::debug!("Modal {} is now open", modal_parent_id);
+                }
+            } else if modal_comp.is_closing {
+                // Check if all children have completed exit animation
+                if modal_comp.renderable_children.iter().all(|child_id| {
+                    *entry_exit_anim_state_resource
+                        .exit_animation_state
+                        .get(child_id)
+                        .unwrap_or(&false)
+                }) {
+                    // All children have completed exit animation
+                    modal_comp.is_closing = false;
+                    modal_comp.is_open = false; // Ensure modal is marked as closed
+                    for child_id in &modal_comp.renderable_children {
+                        entry_exit_anim_state_resource
+                            .exit_animation_state
+                            .remove(child_id);
+                    }
+
+                    log::debug!("Modal {} is now closed", modal_parent_id);
+                }
+            }
+        }
     }
 }
 
@@ -451,8 +530,9 @@ impl EcsSystem for ComponentHoverSystem {
             .get_resource::<MouseResource>()
             .expect("Expected MouseResource to be present");
 
-        let interactive_entities =
-            world.query_combined_2::<BoundsComponent, InteractionComponent>();
+        let interactive_entities = world
+            .components
+            .query_combined_2::<BoundsComponent, InteractionComponent>();
 
         let mut hovered_entities = Vec::new();
         let mut dragged_entities = Vec::new();
@@ -538,22 +618,18 @@ impl EcsSystem for MouseInputSystem {
             .get_resource::<MouseResource>()
             .expect("Expected MouseResource to be present");
 
-        if !mouse_resource.is_released {
-            return; // Only process on mouse release
-        }
-
         let render_order_resource = world
             .resources
             .get_resource::<RenderOrderResource>()
             .expect("Expected RenderOrderResource to be present, while trying to get render order");
 
-        // First, find the topmost entity that is hit by the mouse (interactive or not)
-        let mut topmost_hit_entity = None;
-        let mut topmost_hit_index = None;
-        let all_entities_with_bounds =
-            world.query_combined_2::<BoundsComponent, InteractionComponent>();
+        let interactive_entities = world
+            .components
+            .query_combined_2::<BoundsComponent, InteractionComponent>();
 
-        for (entity_id, bounds_comp, interaction_comp) in all_entities_with_bounds {
+        let mut entities_interacted_with = Vec::new();
+
+        for (entity_id, bounds_comp, interaction_comp) in interactive_entities {
             if interaction_comp.is_active
                 && is_hit(
                     bounds_comp.computed_bounds,
@@ -561,64 +637,33 @@ impl EcsSystem for MouseInputSystem {
                     mouse_resource.position,
                 )
             {
-                if let Some(index) = render_order_resource
+                // get index of the entity in the render order
+                let index = render_order_resource
                     .render_order
                     .iter()
                     .position(|id| *id == entity_id)
-                {
-                    match topmost_hit_index {
-                        None => {
-                            topmost_hit_index = Some(index);
-                            topmost_hit_entity = Some(entity_id);
-                        }
-                        Some(current_max) => {
-                            if index > current_max {
-                                topmost_hit_index = Some(index);
-                                topmost_hit_entity = Some(entity_id);
-                            }
-                        }
-                    }
+                    .expect("Expected clicked entity to be in the render order");
+
+                // Handle click events
+                if interaction_comp.is_clickable && mouse_resource.is_released {
+                    entities_interacted_with.push((
+                        entity_id,
+                        interaction_comp
+                            .click_event
+                            .expect("expected clickable entity to have click event"),
+                        index,
+                    ));
                 }
             }
         }
 
-        // If we found a topmost hit entity, try to find a clickable entity in its hierarchy
-        if let Some(topmost_entity) = topmost_hit_entity {
-            // First check if the topmost entity itself is clickable
-            if let Some(interaction_comp) = world
-                .components
-                .get_component::<InteractionComponent>(topmost_entity)
-            {
-                if interaction_comp.is_active && interaction_comp.is_clickable {
-                    if let Some(click_event) = interaction_comp.click_event {
-                        log::debug!(
-                            "Sending event: {:?} from topmost entity: {}",
-                            click_event,
-                            topmost_entity
-                        );
-                        world.queue_event(click_event);
-                        return;
-                    }
-                }
-            }
-
-            // If the topmost entity is not clickable, look for a clickable ancestor
-            if let Some((clickable_entity, click_event)) =
-                find_clickable_ancestor(world, topmost_entity)
-            {
-                log::debug!(
-                    "Sending event: {:?} from clickable ancestor: {} (topmost hit: {})",
-                    click_event,
-                    clickable_entity,
-                    topmost_entity
-                );
-                world.queue_event(click_event);
-            } else {
-                log::debug!(
-                    "No clickable entity found in hierarchy for topmost hit entity: {}",
-                    topmost_entity
-                );
-            }
+        // send the event for the entity that has the highest z index
+        if let Some((entity_id, app_event, _)) = entities_interacted_with
+            .iter()
+            .max_by_key(|(_, _, index)| *index)
+        {
+            log::debug!("Sending event: {:?} from entity: {}", app_event, entity_id);
+            world.queue_event(*app_event);
         }
     }
 }
@@ -638,8 +683,9 @@ impl EcsSystem for MouseScrollSystem {
             .get_resource::<RenderOrderResource>()
             .expect("Expected RenderOrderResource to be present, while trying to get render order");
 
-        let scrollable_entities =
-            world.query_combined_3::<LayoutComponent, InteractionComponent, BoundsComponent>();
+        let scrollable_entities = world
+            .components
+            .query_combined_3::<LayoutComponent, InteractionComponent, BoundsComponent>();
 
         let mut entities_scrolled = Vec::new();
 
@@ -685,121 +731,77 @@ impl EcsSystem for MouseScrollSystem {
     }
 }
 
-pub struct ComponentActivationSystem {
+pub struct ModalActivationSystem {
     pub activate: bool,
-    pub entity_id: EntityId,
-    pub affect_children: bool,
+    pub named_ref: NamedRef,
 }
 
 #[time_system]
-impl EcsSystem for ComponentActivationSystem {
+impl EcsSystem for ModalActivationSystem {
     fn run(&mut self, world: &mut World) {
-        // Parent
-        let (parent_has_entry_anim, parent_has_exit_anim) = if let Some(parent_anim_comp) = world
-            .components
-            .get_component::<AnimationComponent>(self.entity_id)
-        {
-            let parent_has_entry_anim = parent_anim_comp
-                .animations
-                .iter()
-                .any(|anim| anim.config.when == AnimationWhen::Entry);
-            let parent_has_exit_anim = parent_anim_comp
-                .animations
-                .iter()
-                .any(|anim| anim.config.when == AnimationWhen::Exit);
-            (parent_has_entry_anim, parent_has_exit_anim)
-        } else {
-            (false, false)
+        let named_ref_resource = world
+            .resources
+            .get_resource::<NamedRefsResource>()
+            .expect("Expected NamedRefsResource to be present");
+        let modal_parent_id = named_ref_resource
+            .get_entity_id(&self.named_ref)
+            .expect("Expected named reference to be present in NamedRefsResource");
+
+        // First, get the modal component data we need without holding a mutable reference
+        let (has_entry_animation, has_exit_animation, children) = {
+            let modal_component = world
+                .components
+                .get_component::<ModalComponent>(modal_parent_id)
+                .expect("Expected ModalComponent to be present for modal parent entity");
+
+            let mut all_children = modal_component.renderable_children.clone();
+            all_children.extend(modal_component.non_renderable_children.clone());
+            (
+                modal_component.has_entry_animation,
+                modal_component.has_exit_animation,
+                all_children,
+            )
         };
 
-        let parent_interaction_comp = world
+        // Now update the modal component state
+        let modal_component = world
             .components
-            .get_component_mut::<InteractionComponent>(self.entity_id)
-            .expect("Expected InteractionComponent to be present for parent entity");
-
-        // reset both just activated and deactivated flags
-        parent_interaction_comp.is_just_activated = false;
-        parent_interaction_comp.is_just_deactivated = false;
+            .get_component_mut::<ModalComponent>(modal_parent_id)
+            .expect("Expected ModalComponent to be present for modal parent entity");
 
         if self.activate {
-            if parent_interaction_comp.is_active {
-                log::warn!(
-                    "Trying to activate an already active component: {}",
-                    self.entity_id
-                );
-                return; // Already active, no need to activate again
-            }
-
-            parent_interaction_comp.is_active = true;
-
-            if parent_has_entry_anim {
-                parent_interaction_comp.is_just_activated = true;
-            }
+            // Opening the modal
+            modal_component.is_open = true;
+            modal_component.is_closing = false; // Reset closing state
+            modal_component.is_opening = has_entry_animation;
         } else {
-            if !parent_interaction_comp.is_active {
-                log::warn!(
-                    "Trying to deactivate an already inactive component: {}",
-                    self.entity_id
-                );
-                return; // Already inactive, no need to deactivate again
-            }
-
-            // Instant deactivation by default
-            parent_interaction_comp.is_active = false;
-
-            // The animation system will handle the deactivation - This is to handle exit animations
-            if parent_has_exit_anim {
-                parent_interaction_comp.is_active = true;
-                parent_interaction_comp.is_just_deactivated = true;
-            }
-        }
-
-        if !self.affect_children {
-            return;
-        }
-
-        let children = gather_all_children(world, self.entity_id);
-        for child_id in children {
-            let (child_has_entry_anim, child_has_exit_anim) = if let Some(child_anim_comp) = world
-                .components
-                .get_component::<AnimationComponent>(child_id)
-            {
-                let child_has_entry_anim = child_anim_comp
-                    .animations
-                    .iter()
-                    .any(|anim| anim.config.when == AnimationWhen::Entry);
-                let child_has_exit_anim = child_anim_comp
-                    .animations
-                    .iter()
-                    .any(|anim| anim.config.when == AnimationWhen::Exit);
-                (child_has_entry_anim, child_has_exit_anim)
+            // Closing the modal
+            if has_exit_animation {
+                modal_component.is_closing = true;
+                modal_component.is_opening = false; // Reset opening state
             } else {
-                (false, false)
-            };
-
-            if let Some(interaction_comp) = world
-                .components
-                .get_component_mut::<InteractionComponent>(child_id)
-            {
-                // Reset both just activated and deactivated flags
-                interaction_comp.is_just_activated = false;
-                interaction_comp.is_just_deactivated = false;
-
-                if self.activate {
-                    interaction_comp.is_active = true;
-                    if child_has_entry_anim {
-                        interaction_comp.is_just_activated = true;
-                    }
-                } else {
-                    interaction_comp.is_active = false;
-
-                    // The animation system will handle the deactivation - This is to handle exit animations
-                    if child_has_exit_anim {
-                        interaction_comp.is_active = true;
-                        interaction_comp.is_just_deactivated = true;
-                    }
-                }
+                // No exit animation, deactivate immediately
+                modal_component.is_open = false;
+                modal_component.is_closing = false;
+                modal_component.is_opening = false;
             }
+        }
+
+        // Now handle the entity activation/deactivation
+        if self.activate {
+            if has_entry_animation {
+                // Don't activate interaction components yet - let animation system handle it
+                Self::prepare_entities_for_entry_animation(world, modal_parent_id, &children);
+            } else {
+                // No entry animation, activate immediately
+                Self::activate_modal_entities(world, modal_parent_id, &children);
+            }
+        } else if has_exit_animation {
+            // Don't deactivate interaction components yet - let animation system handle it
+            Self::prepare_entities_for_exit_animation(world, modal_parent_id, &children);
+        } else {
+            // No exit animation, deactivate immediately
+            Self::deactivate_modal_entities(world, modal_parent_id, &children);
         }
 
         // Request a relayout after activating/deactivating components
@@ -811,54 +813,122 @@ impl EcsSystem for ComponentActivationSystem {
     }
 }
 
-/// function to iteratively collect all children entities
-#[time_function]
-fn gather_all_children(world: &World, root_entity_id: EntityId) -> Vec<EntityId> {
-    let mut all_children = Vec::new();
-    let mut to_process = vec![root_entity_id];
-
-    while let Some(entity_id) = to_process.pop() {
-        if let Some(hierarchy_comp) = world
-            .components
-            .get_component::<HierarchyComponent>(entity_id)
-        {
-            for &child_id in &hierarchy_comp.children {
-                all_children.push(child_id);
-                to_process.push(child_id);
-            }
-        }
-    }
-
-    all_children
-}
-
-/// function to find the closest clickable ancestor of an entity
-fn find_clickable_ancestor(world: &World, entity_id: EntityId) -> Option<(EntityId, AppEvent)> {
-    let mut current_entity = Some(entity_id);
-
-    while let Some(current_id) = current_entity {
+impl ModalActivationSystem {
+    /// Prepare entities for entry animation - activate them and mark for entry animation
+    fn prepare_entities_for_entry_animation(
+        world: &mut World,
+        modal_parent_id: EntityId,
+        children: &[EntityId],
+    ) {
+        // Activate the modal parent first
         if let Some(interaction_comp) = world
             .components
-            .get_component::<InteractionComponent>(current_id)
+            .get_component_mut::<InteractionComponent>(modal_parent_id)
         {
-            if interaction_comp.is_active && interaction_comp.is_clickable {
-                return Some((
-                    current_id,
-                    interaction_comp
-                        .click_event
-                        .expect("Expected clickable entity to have click event"),
-                ));
-            }
+            interaction_comp.is_active = true;
+            interaction_comp.is_just_activated = true;
+            interaction_comp.is_just_deactivated = false;
         }
 
-        // Move to parent
-        current_entity = world
-            .components
-            .get_component::<HierarchyComponent>(current_id)
-            .and_then(|hierarchy| hierarchy.parent);
+        // Activate all children
+        for &child_id in children {
+            if let Some(interaction_comp) = world
+                .components
+                .get_component_mut::<InteractionComponent>(child_id)
+            {
+                interaction_comp.is_active = true;
+                interaction_comp.is_just_activated = true;
+                interaction_comp.is_just_deactivated = false;
+            }
+        }
     }
 
-    None
+    /// Prepare entities for exit animation - mark for exit animation but keep them active
+    fn prepare_entities_for_exit_animation(
+        world: &mut World,
+        modal_parent_id: EntityId,
+        children: &[EntityId],
+    ) {
+        // Mark the modal parent for exit animation
+        if let Some(interaction_comp) = world
+            .components
+            .get_component_mut::<InteractionComponent>(modal_parent_id)
+        {
+            interaction_comp.is_just_deactivated = true;
+            interaction_comp.is_just_activated = false;
+            // Keep is_active = true so the entity stays visible during exit animation
+        }
+
+        // Mark all children for exit animation
+        for &child_id in children {
+            if let Some(interaction_comp) = world
+                .components
+                .get_component_mut::<InteractionComponent>(child_id)
+            {
+                interaction_comp.is_just_deactivated = true;
+                interaction_comp.is_just_activated = false;
+                // Keep is_active = true so the entity stays visible during exit animation
+            }
+        }
+    }
+
+    /// Activate modal entities immediately (no animation)
+    fn activate_modal_entities(
+        world: &mut World,
+        modal_parent_id: EntityId,
+        children: &[EntityId],
+    ) {
+        // Activate the modal parent
+        if let Some(interaction_comp) = world
+            .components
+            .get_component_mut::<InteractionComponent>(modal_parent_id)
+        {
+            interaction_comp.is_active = true;
+            interaction_comp.is_just_activated = false;
+            interaction_comp.is_just_deactivated = false;
+        }
+
+        // Activate all children
+        for &child_id in children {
+            if let Some(interaction_comp) = world
+                .components
+                .get_component_mut::<InteractionComponent>(child_id)
+            {
+                interaction_comp.is_active = true;
+                interaction_comp.is_just_activated = false;
+                interaction_comp.is_just_deactivated = false;
+            }
+        }
+    }
+
+    /// Deactivate modal entities immediately (no animation)
+    fn deactivate_modal_entities(
+        world: &mut World,
+        modal_parent_id: EntityId,
+        children: &[EntityId],
+    ) {
+        // Deactivate the modal parent
+        let interaction_comp = world
+            .components
+            .get_component_mut::<InteractionComponent>(modal_parent_id)
+            .expect("Expected InteractionComponent to be present for modal parent entity");
+
+        interaction_comp.is_active = false;
+        interaction_comp.is_just_activated = false;
+        interaction_comp.is_just_deactivated = false;
+
+        // Deactivate all children
+        for &child_id in children {
+            let interaction_comp = world
+                .components
+                .get_component_mut::<InteractionComponent>(child_id)
+                .expect("Expected InteractionComponent to be present for modal child entity");
+
+            interaction_comp.is_active = false;
+            interaction_comp.is_just_activated = false;
+            interaction_comp.is_just_deactivated = false;
+        }
+    }
 }
 
 fn is_hit(
