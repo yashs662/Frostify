@@ -15,7 +15,7 @@ use crate::{
                 text::{TextBuilder, TextConfig},
             },
         },
-        layout::{AlignItems, Anchor, Edges, JustifyContent, LayoutContext, Overflow},
+        layout::{AlignItems, Anchor, Edges, JustifyContent, LayoutContext},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -197,7 +197,7 @@ impl ButtonBuilder {
             .with_debug_name(format!("Button Container for {}", button_debug_name))
             .with_align_items(AlignItems::Center)
             .with_justify_content(JustifyContent::Center)
-            .with_overflow_both(Overflow::Hidden)
+            .with_hidden_overflow()
             .build(
                 &mut layout_context.world,
                 &mut layout_context.z_index_manager,

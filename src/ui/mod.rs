@@ -1,8 +1,8 @@
 use crate::{
     app::AppEvent,
     ui::{
-        ecs::{builders::modal::ModalBuilder, NamedRef},
-        layout::{FlexDirection, FlexValue, Overflow},
+        ecs::{NamedRef, builders::modal::ModalBuilder},
+        layout::{FlexDirection, FlexValue},
     },
     wgpu_ctx::WgpuCtx,
 };

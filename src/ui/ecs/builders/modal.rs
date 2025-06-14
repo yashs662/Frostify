@@ -24,7 +24,7 @@ use crate::{
         },
         layout::{
             AlignItems, Anchor, BorderRadius, ComponentOffset, Edges, FlexValue, JustifyContent,
-            LayoutContext, Overflow,
+            LayoutContext,
         },
     },
     utils::{deactivate_component_and_children, gather_all_children_with_types},
@@ -247,7 +247,7 @@ impl ModalBuilder {
             .with_debug_name(format!("Modal Parent Container for {}", modal_debug_name))
             .with_align_items(AlignItems::Center)
             .with_justify_content(JustifyContent::Center)
-            .with_overflow_both(Overflow::Hidden)
+            .with_hidden_overflow()
             .with_spawn_as_inactive()
             .with_absolute_position(Anchor::Center)
             .with_named_ref(self.named_ref)
@@ -445,6 +445,7 @@ impl ModalBuilder {
             .with_external_common_props(self.common.clone())
             .with_debug_name(format!("Modal Container for {}", modal_debug_name))
             .with_clipping(true)
+            .with_hidden_overflow()
             .with_z_index(current_child_z_index);
 
         if self.common.position.is_none() {
