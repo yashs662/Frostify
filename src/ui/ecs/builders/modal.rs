@@ -438,9 +438,7 @@ impl ModalBuilder {
         // Modal Background
 
         let mut modal_container_builder = ContainerBuilder::new()
-            .with_external_common_props(self.common.clone())
             .with_debug_name(format!("Modal Container for {}", modal_debug_name))
-            .with_hidden_overflow()
             .with_z_index(current_child_z_index);
 
         if self.common.position.is_none() {
@@ -464,6 +462,7 @@ impl ModalBuilder {
         if let Some(modal_background_color_config) = self.background_color {
             let mut modal_background_builder =
                 BackgroundBuilder::with_color(modal_background_color_config)
+                    .with_external_common_props(self.common.clone())
                     .with_debug_name(format!("Modal Background Color for {}", modal_debug_name))
                     .with_fixed_position(Anchor::Center)
                     .with_z_index(current_child_z_index);
@@ -500,6 +499,7 @@ impl ModalBuilder {
         if let Some(modal_background_gradient_config) = self.background_gradient {
             let mut modal_background_builder =
                 BackgroundBuilder::with_gradient(modal_background_gradient_config)
+                    .with_external_common_props(self.common.clone())
                     .with_debug_name(format!(
                         "Modal Background Gradient for {}",
                         modal_debug_name
@@ -528,6 +528,7 @@ impl ModalBuilder {
         if let Some(modal_background_frosted_glass_config) = self.background_frosted_glass {
             let mut modal_background_builder =
                 BackgroundBuilder::with_frosted_glass(modal_background_frosted_glass_config)
+                    .with_external_common_props(self.common.clone())
                     .with_debug_name(format!(
                         "Modal Background Frosted Glass for {}",
                         modal_debug_name
@@ -566,6 +567,7 @@ impl ModalBuilder {
 
         if let Some(modal_background_image) = self.background_image {
             let mut modal_background_builder = ImageBuilder::new(&modal_background_image)
+                .with_external_common_props(self.common.clone())
                 .with_debug_name(format!("Modal Background Image for {}", modal_debug_name))
                 .with_fixed_position(Anchor::Center)
                 .with_z_index(current_child_z_index);

@@ -42,10 +42,10 @@ impl QuadGeometry {
         let shadow_expansion_x = render_data.shadow_offset[0].abs() + render_data.shadow_blur * 2.0;
         let shadow_expansion_y = render_data.shadow_offset[1].abs() + render_data.shadow_blur * 2.0;
 
-        let expanded_min_x = render_data.outer_bounds[0] - shadow_expansion_x;
-        let expanded_min_y = render_data.outer_bounds[1] - shadow_expansion_y;
-        let expanded_max_x = render_data.outer_bounds[2] + shadow_expansion_x;
-        let expanded_max_y = render_data.outer_bounds[3] + shadow_expansion_y;
+        let expanded_min_x = render_data.bounds_with_border[0] - shadow_expansion_x;
+        let expanded_min_y = render_data.bounds_with_border[1] - shadow_expansion_y;
+        let expanded_max_x = render_data.bounds_with_border[2] + shadow_expansion_x;
+        let expanded_max_y = render_data.bounds_with_border[3] + shadow_expansion_y;
 
         // Convert to clip space coordinates (-1 to 1)
         let clip_min_x = (expanded_min_x / screen_size.width) * 2.0 - 1.0;

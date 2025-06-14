@@ -59,6 +59,12 @@ pub struct EntityBuilderProps {
 pub trait EntityBuilder: Sized {
     fn common_props(&mut self) -> &mut EntityBuilderProps;
 
+    fn with_external_common_props(mut self, external_common: EntityBuilderProps) -> Self {
+        let curr_common = self.common_props();
+        *curr_common = external_common;
+        self
+    }
+
     fn with_size(mut self, width: impl Into<FlexValue>, height: impl Into<FlexValue>) -> Self {
         self.common_props().width = Some(width.into());
         self.common_props().height = Some(height.into());

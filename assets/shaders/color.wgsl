@@ -16,12 +16,7 @@ struct ComponentUniform {
     border_width: f32,              // Border thickness in pixels
     border_position: u32,           // Border position: 0=inside, 1=center, 2=outside
     border_color: vec4<f32>,        // Border color
-    inner_bounds: vec4<f32>,        // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
-    outer_bounds: vec4<f32>,        // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
-    corner_centers: vec4<f32>,      // (tl_center.x, tl_center.y, tr_center.x, tr_center.y)
-    corner_centers2: vec4<f32>,     // (bl_center.x, bl_center.y, br_center.x, br_center.y)
-    corner_radii: vec4<f32>,        // (inner_tl_radius, inner_tr_radius, inner_bl_radius, inner_br_radius)
-    corner_radii2: vec4<f32>,       // (outer_tl_radius, outer_tr_radius, outer_bl_radius, outer_br_radius)
+    bounds_with_border: vec4<f32>,        // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
     shadow_color: vec4<f32>,        // Shadow color
     shadow_offset: vec2<f32>,       // Shadow offset
     shadow_blur: f32,               // Shadow blur intensity
@@ -62,12 +57,12 @@ fn vs_main(vertex: VertexInput) -> VertexOutput {
     );
     
     let expanded_min = vec2<f32>(
-        component.outer_bounds.x - shadow_expansion.x,
-        component.outer_bounds.y - shadow_expansion.y
+        component.bounds_with_border.x - shadow_expansion.x,
+        component.bounds_with_border.y - shadow_expansion.y
     );
     let expanded_max = vec2<f32>(
-        component.outer_bounds.z + shadow_expansion.x,
-        component.outer_bounds.w + shadow_expansion.y
+        component.bounds_with_border.z + shadow_expansion.x,
+        component.bounds_with_border.w + shadow_expansion.y
     );
     
     out.world_pos = mix(expanded_min, expanded_max, vertex.uv);
@@ -249,9 +244,18 @@ fn get_component_sdf(pixel_coords: vec2<f32>) -> f32 {
     
     // Adjust component size based on border position
     var outer_half_size = component.size * 0.5;
-    if (component.border_width > 0.0 && component.border_position == 2u) {
-        // Outside border: component grows outward
-        outer_half_size = outer_half_size + vec2<f32>(component.border_width);
+    if (component.border_width > 0.0) {
+        switch component.border_position {
+            case 1u: { // Center border: grows outward by half border width
+                outer_half_size = outer_half_size + vec2<f32>(component.border_width * 0.5);
+            }
+            case 2u: { // Outside border: component grows outward by full border width
+                outer_half_size = outer_half_size + vec2<f32>(component.border_width);
+            }
+            default: { // Inside border: no change to outer bounds
+                // outer_half_size remains unchanged
+            }
+        }
     }
     
     return sd_rounded_rectangle(p, outer_half_size, component.border_radius);
@@ -389,7 +393,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             let mixed_color = mix(content_color, border_color_with_alpha, border_mix_factor * border_color_with_alpha.a);
             let final_color = mix(shadow_color, mixed_color, mixed_color.a);
-            return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
+                return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
         } else {
             // In border area (between outer and inner boundaries)
             let border_color_with_alpha = vec4<f32>(
@@ -398,7 +402,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
             
             let final_color = mix(shadow_color, border_color_with_alpha, border_color_with_alpha.a);
-            return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
+                return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
         }
     } else {
         // No border - render content directly
@@ -413,6 +417,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         
         let final_color = mix(shadow_color, content_color, content_color.a);
-        return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
+            return vec4<f32>(final_color.rgb, final_color.a * component.opacity);
     }
 }

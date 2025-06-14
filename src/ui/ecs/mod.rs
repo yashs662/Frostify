@@ -71,13 +71,7 @@ pub struct RenderBufferData {
     pub border_width: f32,      // Border thickness in pixels
     pub border_position: u32,   // Border position: 0=inside, 1=center, 2=outside
     pub border_color: [f32; 4], // Border color
-    // Pre-computed values for optimization
-    pub inner_bounds: [f32; 4], // (inner_min.x, inner_min.y, inner_max.x, inner_max.y)
-    pub outer_bounds: [f32; 4], // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
-    pub corner_centers: [f32; 4], // (tl_center.x, tl_center.y, tr_center.x, tr_center.y)
-    pub corner_centers2: [f32; 4], // (bl_center.x, bl_center.y, br_center.x, br_center.y)
-    pub corner_radii: [f32; 4], // (inner_tl_radius, inner_tr_radius, inner_bl_radius, inner_br_radius)
-    pub corner_radii2: [f32; 4], // (outer_tl_radius, outer_tr_radius, outer_bl_radius, outer_br_radius)
+    pub bounds_with_border: [f32; 4], // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
     // Shadow properties
     pub shadow_color: [f32; 4],  // Shadow color with alpha
     pub shadow_offset: [f32; 2], // Shadow offset (x, y)

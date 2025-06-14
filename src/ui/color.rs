@@ -124,7 +124,6 @@ impl Color {
     }
 
     pub fn lerp(&self, other: &Color, t: f32) -> Color {
-        //use colorgrad::Gradient;
         let gradient = colorgrad::GradientBuilder::new()
             .colors(&[self.to_colorgrad_color(), other.to_colorgrad_color()])
             .domain(&[0.0, 1.0])
