@@ -7,7 +7,7 @@ use crate::{
                 BoundsComponent, InteractionComponent, RenderDataComponent, VisualComponent,
             },
             resources::RenderGroupsResource,
-            systems::RenderPrepareSystem,
+            systems::render::RenderPrepareSystem,
         },
         layout::Size,
     },

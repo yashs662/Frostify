@@ -8,8 +8,9 @@ use crate::{
             ModalEntity, NamedRef,
             resources::{MouseResource, RequestReLayoutResource},
             systems::{
-                AnimationSystem, ComponentHoverResetSystem, ComponentHoverSystem,
-                ModalObserverSystem, MouseInputSystem, MouseScrollSystem,
+                animation::AnimationSystem, modal::ModalAnimationObserverSystem,
+                mouse::HoverStateResetSystem, mouse::MouseHoverSystem,
+                mouse::MouseInputSystem, mouse::MouseScrollSystem,
             },
         },
         layout::{self, ComponentPosition, Size},
@@ -159,7 +160,7 @@ impl App<'_> {
             }
 
             // Run Modal Observer System
-            self.layout_context.world.run_system(ModalObserverSystem);
+            self.layout_context.world.run_system(ModalAnimationObserverSystem);
 
             // Run animation system
             self.layout_context.world.run_system(AnimationSystem {
@@ -182,7 +183,7 @@ impl App<'_> {
                             window.set_maximized(!window.is_maximized());
                             self.layout_context
                                 .world
-                                .run_system(ComponentHoverResetSystem);
+                                .run_system(HoverStateResetSystem);
                             return true;
                         }
                     }
@@ -191,7 +192,7 @@ impl App<'_> {
                             window.set_minimized(true);
                             self.layout_context
                                 .world
-                                .run_system(ComponentHoverResetSystem);
+                                .run_system(HoverStateResetSystem);
                             return true;
                         }
                     }
@@ -604,7 +605,7 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 mouse_resource.position = curr_pos;
-                self.layout_context.world.run_system(ComponentHoverSystem);
+                self.layout_context.world.run_system(MouseHoverSystem);
             }
             WindowEvent::MouseInput { state, .. } => {
                 if let Some((x, y)) = self.app_state.cursor_position {
@@ -663,7 +664,7 @@ impl ApplicationHandler for App<'_> {
                             y: y as f32,
                         };
                         self.layout_context.world.run_system(MouseScrollSystem);
-                        self.layout_context.world.run_system(ComponentHoverSystem);
+                        self.layout_context.world.run_system(MouseHoverSystem);
                     }
                 }
             }
@@ -695,7 +696,7 @@ impl ApplicationHandler for App<'_> {
                 // reset hover state
                 self.layout_context
                     .world
-                    .run_system(ComponentHoverResetSystem);
+                    .run_system(HoverStateResetSystem);
             }
             _ => (),
         }

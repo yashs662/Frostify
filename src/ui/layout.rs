@@ -11,7 +11,7 @@ use crate::{
             resources::{
                 NamedRefsResource, RenderOrderResource, TextRenderingResource, WgpuQueueResource,
             },
-            systems::ModalActivationSystem,
+            systems::modal::ModalToggleSystem,
         },
         geometry::QuadGeometry,
         z_index_manager::ZIndexManager,
@@ -983,7 +983,7 @@ impl LayoutContext {
             .modal_manager
             .open_modal(modal_named_ref);
 
-        self.world.run_system(ModalActivationSystem {
+        self.world.run_system(ModalToggleSystem {
             activate: true,
             named_ref: modal_named_ref,
         });
@@ -1017,7 +1017,7 @@ impl LayoutContext {
             .modal_manager
             .close_modal(modal_named_ref);
 
-        self.world.run_system(ModalActivationSystem {
+        self.world.run_system(ModalToggleSystem {
             activate: false,
             named_ref: modal_named_ref,
         });

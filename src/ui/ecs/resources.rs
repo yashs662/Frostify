@@ -2,7 +2,7 @@ use crate::{
     app::AppEvent,
     ui::{
         asset::get_asset,
-        ecs::{EcsResource, EntityId, NamedRef, systems::RenderGroup},
+        ecs::{EcsResource, EntityId, NamedRef, systems::render::RenderGroup},
         layout::ComponentPosition,
     },
 };

@@ -598,7 +598,9 @@ fn create_settings_modal(
             tint_intensity: 0.9,
         })
         .with_border_radius(BorderRadius::all(10.0))
-        .with_background_color(BackgroundColorConfig { color: Color::Black.lighten(0.001) })
+        .with_background_color(BackgroundColorConfig {
+            color: Color::Black.lighten(0.001),
+        })
         .with_shadow(Color::White, (0.0, 0.0), 10.0, 0.05)
         .with_backdrop_animation(AnimationConfig {
             duration: Duration::from_millis(300),

@@ -68,9 +68,9 @@ pub struct RenderBufferData {
     pub blur_radius: f32,        // Blur amount for frosted glass (0-10)
     pub opacity: f32,            // Overall opacity for frosted glass (0.0-1.0)
     pub tint_intensity: f32,
-    pub border_width: f32,      // Border thickness in pixels
-    pub border_position: u32,   // Border position: 0=inside, 1=center, 2=outside
-    pub border_color: [f32; 4], // Border color
+    pub border_width: f32,            // Border thickness in pixels
+    pub border_position: u32,         // Border position: 0=inside, 1=center, 2=outside
+    pub border_color: [f32; 4],       // Border color
     pub bounds_with_border: [f32; 4], // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
     // Shadow properties
     pub shadow_color: [f32; 4],  // Shadow color with alpha
