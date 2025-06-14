@@ -1,6 +1,7 @@
 use crate::{
     app::AppEvent,
     ui::{
+        asset::get_asset,
         ecs::{EcsResource, EntityId, NamedRef, systems::RenderGroup},
         layout::ComponentPosition,
     },
@@ -96,10 +97,30 @@ pub struct TextRenderingResource {
     pub swash_cache: SwashCache,
 }
 
-impl Default for TextRenderingResource {
-    fn default() -> Self {
+impl TextRenderingResource {
+    pub fn with_custom_font_assets(font_assets: Vec<&str>) -> Self {
+        let mut font_system = FontSystem::new();
+        let font_db = font_system.db_mut();
+
+        for font_asset in font_assets {
+            let font_file_bytes = get_asset(font_asset)
+                .unwrap_or_else(|| panic!("Failed to load custom font asset: {}", font_asset));
+            font_db.load_font_data(font_file_bytes.to_vec());
+        }
+
+        // Uncomment this block to print loaded font information for debugging
+        // for face in font_db.faces() {
+        //     println!("Font family: {:?}", face.families);
+        //     println!("PostScript name: {}", face.post_script_name);
+        //     println!("Weight: {:?}", face.weight);
+        //     println!("Style: {:?}", face.style);
+        //     println!("Stretch: {:?}", face.stretch);
+        //     println!("Monospaced: {}", face.monospaced);
+        //     println!("---");
+        // }
+
         Self {
-            font_system: FontSystem::new(),
+            font_system,
             swash_cache: SwashCache::new(),
         }
     }

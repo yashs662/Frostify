@@ -286,6 +286,7 @@ impl App<'_> {
         app_state: &mut AppState,
         view: UiView,
     ) {
+        log::trace!("Changing view to: {:?}", view);
         if let Some(wgpu_ctx) = wgpu_ctx {
             layout_context.clear();
             match view {

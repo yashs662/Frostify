@@ -51,6 +51,7 @@ pub struct EntityBuilderProps {
     pub clip_self: Option<bool>, // Whether component should be clipped by its parent
     pub as_inactive: bool,       // Whether component should be inactive on creation
     pub named_ref: Option<NamedRef>,
+    pub event_bubble_boundary: bool,
 }
 
 /// Trait for component builders that share common properties
@@ -189,6 +190,11 @@ pub trait EntityBuilder: Sized {
         self.common_props().named_ref = Some(named_ref);
         self
     }
+
+    fn with_event_bubble_boundary(mut self, is_blocking: bool) -> Self {
+        self.common_props().event_bubble_boundary = is_blocking;
+        self
+    }
 }
 
 /// Adds Animation, Transform, Hierarchy, and Visual components to the entity
@@ -315,6 +321,7 @@ pub fn add_common_components(
             is_active: !props.as_inactive,
             is_just_activated,
             is_just_deactivated: false,
+            is_event_bubble_boundary: props.event_bubble_boundary,
         },
     );
 

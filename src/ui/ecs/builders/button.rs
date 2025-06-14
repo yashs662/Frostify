@@ -197,7 +197,7 @@ impl ButtonBuilder {
             .with_debug_name(format!("Button Container for {}", button_debug_name))
             .with_align_items(AlignItems::Center)
             .with_justify_content(JustifyContent::Center)
-            .with_overflow(Overflow::Hidden)
+            .with_overflow_both(Overflow::Hidden)
             .build(
                 &mut layout_context.world,
                 &mut layout_context.z_index_manager,

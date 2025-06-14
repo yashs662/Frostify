@@ -1,5 +1,5 @@
 use crate::{
-    test::test_utils::get_event_sender,
+    test::test_utils::{get_event_sender, setup_asset_store_for_testing},
     ui::{
         ecs::resources::NamedRefsResource,
         layout::{LayoutContext, Size},
@@ -19,6 +19,10 @@ fn child_ordering() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     let parent_id = Uuid::new_v4();
@@ -55,6 +59,10 @@ fn custom_z_index() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     let parent_id = Uuid::new_v4();
@@ -100,6 +108,10 @@ fn hierarchical_z_index_ordering() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     let parent_id = Uuid::new_v4();
@@ -160,6 +172,10 @@ fn inverted_hierarchical_z_index_ordering() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     let parent_id = Uuid::new_v4();
@@ -224,6 +240,10 @@ fn multiple_adjustments() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     let parent_id = Uuid::new_v4();
@@ -282,6 +302,10 @@ fn multiple_adjustments_in_hierarchy() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     let parent_id = Uuid::new_v4();

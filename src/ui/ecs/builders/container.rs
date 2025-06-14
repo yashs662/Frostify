@@ -72,12 +72,6 @@ impl ContainerBuilder {
         self
     }
 
-    pub fn with_scroll(mut self, orientation: ScrollOrientation) -> Self {
-        self.is_scrollable = true;
-        self.scroll_orientation = orientation;
-        self
-    }
-
     pub fn with_vertical_scroll(mut self) -> Self {
         self.is_scrollable = true;
         self.scroll_orientation = ScrollOrientation::Vertical;
@@ -96,7 +90,7 @@ impl ContainerBuilder {
         self
     }
 
-    pub fn with_overflow(mut self, overflow: Overflow) -> Self {
+    pub fn with_overflow_both(mut self, overflow: Overflow) -> Self {
         self.overflow_x = overflow;
         self.overflow_y = overflow;
         self

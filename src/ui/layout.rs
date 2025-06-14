@@ -467,23 +467,6 @@ impl Layout {
         container_y + self.padding.top
     }
 
-    // Scrollable container helpers
-    pub fn scrollable_vertical() -> Self {
-        let mut layout = Self::flex_column();
-        layout.is_scrollable = true;
-        layout.scroll_orientation = ScrollOrientation::Vertical;
-        layout.overflow_y = Overflow::Scroll;
-        layout
-    }
-
-    pub fn scrollable_horizontal() -> Self {
-        let mut layout = Self::flex_row();
-        layout.is_scrollable = true;
-        layout.scroll_orientation = ScrollOrientation::Horizontal;
-        layout.overflow_x = Overflow::Scroll;
-        layout
-    }
-
     pub fn update_scroll_position(&mut self, delta: f32) -> bool {
         let old_position = self.scroll_position;
         self.scroll_position = (self.scroll_position + delta).clamp(0.0, self.max_scroll);
@@ -649,11 +632,11 @@ impl LayoutContext {
         self.world
             .initialize_resources(&wgpu_ctx.queue, event_sender);
         self.initialized = true;
-        log::debug!("Layout context initialized");
+        log::trace!("Layout context initialized");
     }
 
     pub fn clear(&mut self) {
-        log::debug!("Clearing layout context");
+        log::trace!("Clearing layout context");
         self.world.reset();
         self.computed_bounds.clear();
         self.z_index_manager.clear();

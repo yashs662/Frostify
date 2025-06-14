@@ -1,8 +1,8 @@
 use crate::{
     app::AppEvent,
     ui::{
-        ecs::{NamedRef, builders::modal::ModalBuilder},
-        layout::{FlexDirection, FlexValue},
+        ecs::{builders::modal::ModalBuilder, NamedRef},
+        layout::{FlexDirection, FlexValue, Overflow},
     },
     wgpu_ctx::WgpuCtx,
 };
@@ -596,8 +596,9 @@ fn create_settings_modal(
         .with_backdrop_frosted_glass(FrostedGlassConfig {
             tint_color: Color::Black,
             blur_radius: 10.0,
-            tint_intensity: 0.5,
+            tint_intensity: 0.9,
         })
+        .with_border_radius(BorderRadius::all(10.0))
         .with_background_color(BackgroundColorConfig { color: Color::Red })
         .with_backdrop_animation(AnimationConfig {
             duration: Duration::from_millis(300),
@@ -609,7 +610,7 @@ fn create_settings_modal(
             when: AnimationWhen::Entry,
         })
         .with_backdrop_animation(AnimationConfig {
-            duration: Duration::from_millis(1000),
+            duration: Duration::from_millis(300),
             direction: AnimationDirection::Forward,
             easing: EasingFunction::EaseOutCubic,
             animation_type: AnimationType::Opacity {
@@ -627,7 +628,7 @@ fn create_settings_modal(
             when: AnimationWhen::Entry,
         })
         .with_animation(AnimationConfig {
-            duration: Duration::from_millis(1000),
+            duration: Duration::from_millis(300),
             direction: AnimationDirection::Forward,
             easing: EasingFunction::EaseOutCubic,
             animation_type: AnimationType::Opacity {

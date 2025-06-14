@@ -401,3 +401,26 @@ pub fn gather_all_children_with_types(
 
     all_children
 }
+
+#[derive(Default)]
+pub enum AppFonts {
+    #[default]
+    CenturyGothic,
+    CenturyGothicBold,
+}
+
+impl AppFonts {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            AppFonts::CenturyGothic => "CenturyGothic",
+            AppFonts::CenturyGothicBold => "CenturyGothicBold",
+        }
+    }
+
+    pub const fn as_family_name(&self) -> &'static str {
+        match self {
+            AppFonts::CenturyGothic => "Century Gothic",
+            AppFonts::CenturyGothicBold => "Century Gothic",
+        }
+    }
+}

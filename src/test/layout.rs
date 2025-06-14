@@ -1,5 +1,5 @@
 use crate::{
-    test::test_utils::get_event_sender,
+    test::test_utils::{get_event_sender, setup_asset_store_for_testing},
     ui::{
         ecs::builders::{EntityBuilder, container::ContainerBuilder},
         layout::*,
@@ -15,6 +15,10 @@ fn basic_fixed_flex_row_layout() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -80,6 +84,10 @@ fn basic_fixed_flex_column_layout() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -146,6 +154,10 @@ fn basic_fill_flex_row_layout() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -212,6 +224,10 @@ fn basic_fill_flex_column_layout() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -278,6 +294,10 @@ fn basic_fill_flex_row_layout_with_padding() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -345,6 +365,10 @@ fn basic_fill_flex_column_layout_with_padding() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -412,6 +436,10 @@ fn nested_containers_with_flex_layout_fixed_nested_container() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -507,6 +535,10 @@ fn nested_containers_with_flex_layout_fill_nested_container() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -603,6 +635,10 @@ fn navbar_app_layout() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Parent container
@@ -770,6 +806,10 @@ fn margin_and_padding_layout() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -838,6 +878,10 @@ fn fractional_sizing_in_a_container() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -903,6 +947,10 @@ fn offset_in_nested_container() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -955,6 +1003,10 @@ fn offset_in_nested_container_with_flex_value() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -1007,6 +1059,10 @@ fn multiple_fill_containers_with_fraction_width_container() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
@@ -1084,6 +1140,10 @@ fn multiple_containers_with_different_directions_and_fractional_sizing() {
         width: 1000,
         height: 800,
     };
+
+    // Initialize asset store
+    setup_asset_store_for_testing();
+
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size

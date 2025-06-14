@@ -4,6 +4,7 @@ use crate::{
         color::Color,
         ecs::resources::{EntryExitAnimationStateResource, NamedRefsResource},
     },
+    utils::AppFonts,
 };
 use components::IdentityComponent;
 use frostify_derive::EntityCategories;
@@ -363,6 +364,10 @@ impl World {
         self.add_resource(EventSenderResource {
             event_sender: event_sender.clone(),
         });
+        self.add_resource(TextRenderingResource::with_custom_font_assets(vec![
+            AppFonts::CenturyGothic.as_str(),
+            AppFonts::CenturyGothicBold.as_str(),
+        ]));
     }
 
     pub fn create_entity(&mut self, debug_name: String, component_type: ComponentType) -> EntityId {
@@ -498,7 +503,6 @@ resettable_resources! {
     RenderGroupsResource,
     MouseResource,
     RequestReLayoutResource,
-    TextRenderingResource,
     NamedRefsResource,
     EntryExitAnimationStateResource
 }

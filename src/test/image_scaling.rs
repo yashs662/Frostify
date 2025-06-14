@@ -19,10 +19,11 @@ fn stretch_scaling_in_flex_layout() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -70,10 +71,11 @@ fn contain_scaling_in_flex_layout() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -123,10 +125,11 @@ fn cover_scaling_in_flex_layout() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -175,10 +178,11 @@ fn original_scaling_in_flex_layout() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -228,10 +232,11 @@ fn stretch_scaling_in_fixed_layout_center_anchor() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -280,10 +285,11 @@ fn contain_scaling_in_fixed_layout_center_anchor() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -334,10 +340,11 @@ fn contain_scaling_in_fixed_layout_top_left_anchor() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -388,10 +395,11 @@ fn cover_scaling_in_fixed_layout_center_anchor() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -441,10 +449,11 @@ fn cover_scaling_in_fixed_layout_top_left_anchor() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -494,10 +503,11 @@ fn original_scaling_in_fixed_layout_center_anchor() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()
@@ -548,10 +558,11 @@ fn original_scaling_in_fixed_layout_top_left_anchor() {
         width: 1000,
         height: 800,
     };
-    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Initialize asset store
     setup_asset_store_for_testing();
+
+    ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
     // Create parent container with fixed size
     let parent_id = ContainerBuilder::new()

@@ -12,6 +12,7 @@ use crate::{
             Position, Size,
         },
     },
+    utils::AppFonts,
 };
 use cosmic_text::{
     Attrs, Buffer, CacheKeyFlags, Family, FontFeatures, FontSystem, Metrics, Shaping, Stretch,
@@ -77,6 +78,7 @@ pub struct InteractionComponent {
     pub is_active: bool,
     pub is_just_activated: bool,
     pub is_just_deactivated: bool,
+    pub is_event_bubble_boundary: bool,
 }
 
 // Animation Component
@@ -132,25 +134,13 @@ pub struct ModalComponent {
     pub has_exit_animation: bool,
 }
 
-const TEXT_ATTRS: Attrs = Attrs {
-    color_opt: None,
-    family: Family::SansSerif,
-    stretch: Stretch::Normal,
-    style: Style::Normal,
-    weight: Weight::BOLD,
-    metadata: 0,
-    cache_key_flags: CacheKeyFlags::empty(),
-    metrics_opt: None,
-    letter_spacing_opt: None,
-    font_features: FontFeatures { features: vec![] },
-};
-
 #[derive(Debug, Clone, EcsComponent)]
 pub struct TextComponent {
     pub text: String,
     pub font_size: f32,
     pub line_height_multiplier: f32,
     pub color: Color,
+    pub font_family: Option<String>, // Add this field
     buffer: Option<Buffer>,
     metrics: Option<Metrics>,
     texture: Option<wgpu::Texture>,
@@ -167,33 +157,64 @@ impl TextComponent {
             font_size,
             line_height_multiplier,
             color,
+            font_family: None, // Default to system font
             buffer: None,
             metrics: None,
             texture: None,
             texture_view: None,
             needs_update: true,
             cached_bounds: None,
-            bind_group_update_required: false, // Initially false
+            bind_group_update_required: false,
+        }
+    }
+
+    pub fn with_font_family(mut self, font_family: impl Into<String>) -> Self {
+        self.font_family = Some(font_family.into());
+        self
+    }
+
+    fn get_text_attrs(font_family: Option<&str>) -> Attrs {
+        Attrs {
+            color_opt: None,
+            family: match font_family {
+                Some(family) => Family::Name(family),
+                None => Family::Monospace,
+            },
+            stretch: Stretch::Normal,
+            style: Style::Normal,
+            weight: Weight::BOLD,
+            metadata: 0,
+            cache_key_flags: CacheKeyFlags::empty(),
+            metrics_opt: None,
+            letter_spacing_opt: None,
+            font_features: FontFeatures { features: vec![] },
         }
     }
 
     pub fn initialize_rendering(&mut self, font_system: &mut FontSystem) {
-        if self.buffer.is_none() {
-            let metrics =
-                Metrics::new(self.font_size, self.font_size * self.line_height_multiplier);
-            let mut buffer = Buffer::new(font_system, metrics);
-            buffer.set_text(font_system, &self.text, &TEXT_ATTRS, Shaping::Advanced);
-            self.buffer = Some(buffer);
-            self.metrics = Some(metrics);
-            self.needs_update = true;
+        if self.buffer.is_some() {
+            panic!("TextComponent buffer already initialized");
         }
+        let metrics = Metrics::new(self.font_size, self.font_size * self.line_height_multiplier);
+        let mut buffer = Buffer::new(font_system, metrics);
+        if self.font_family.is_none() {
+            self.font_family = Some(AppFonts::default().as_family_name().to_string());
+        }
+
+        let attrs = TextComponent::get_text_attrs(self.font_family.as_deref());
+        buffer.set_text(font_system, &self.text, &attrs, Shaping::Advanced);
+        self.buffer = Some(buffer);
+        self.metrics = Some(metrics);
+        self.needs_update = true;
     }
 
     pub fn update_text(&mut self, new_text: String, font_system: &mut FontSystem) {
         if self.text != new_text {
             self.text = new_text;
             if let Some(ref mut buffer) = self.buffer {
-                buffer.set_text(font_system, &self.text, &TEXT_ATTRS, Shaping::Advanced);
+                let attrs = TextComponent::get_text_attrs(self.font_family.as_deref());
+                buffer.set_text(font_system, &self.text, &attrs, Shaping::Advanced);
+                self.metrics = Some(buffer.metrics());
                 self.needs_update = true;
             }
         }
@@ -286,7 +307,7 @@ impl TextComponent {
         // Shape the buffer
         buffer.shape_until_scroll(font_system, false);
 
-        // Calculate dimensions - need to do this before taking mutable reference to buffer
+        // Calculate dimensions
         let (text_width, text_height) = {
             let mut max_width = 0.0f32;
             let mut total_height = 0.0f32;
@@ -364,23 +385,35 @@ impl TextComponent {
                                 let dst_alpha = image_data[index + 3] as f32 / 255.0;
 
                                 if src_alpha > 0.0 {
-                                    let inv_alpha = 1.0 - src_alpha;
-                                    image_data[index] = ((color.r() as f32 * src_alpha
-                                        + image_data[index] as f32 * inv_alpha)
-                                        .min(255.0))
-                                        as u8;
-                                    image_data[index + 1] = ((color.g() as f32 * src_alpha
-                                        + image_data[index + 1] as f32 * inv_alpha)
-                                        .min(255.0))
-                                        as u8;
-                                    image_data[index + 2] = ((color.b() as f32 * src_alpha
-                                        + image_data[index + 2] as f32 * inv_alpha)
-                                        .min(255.0))
-                                        as u8;
-                                    image_data[index + 3] =
-                                        ((src_alpha + dst_alpha * (1.0 - src_alpha)) * 255.0)
-                                            .min(255.0)
+                                    // Pre-multiply alpha for better blending
+                                    let src_r = (color.r() as f32 / 255.0) * src_alpha;
+                                    let src_g = (color.g() as f32 / 255.0) * src_alpha;
+                                    let src_b = (color.b() as f32 / 255.0) * src_alpha;
+
+                                    let dst_r = (image_data[index] as f32 / 255.0) * dst_alpha;
+                                    let dst_g = (image_data[index + 1] as f32 / 255.0) * dst_alpha;
+                                    let dst_b = (image_data[index + 2] as f32 / 255.0) * dst_alpha;
+
+                                    let out_alpha = src_alpha + dst_alpha * (1.0 - src_alpha);
+
+                                    if out_alpha > 0.0 {
+                                        let inv_out_alpha = 1.0 / out_alpha;
+                                        image_data[index] = ((src_r + dst_r * (1.0 - src_alpha))
+                                            * inv_out_alpha
+                                            * 255.0)
                                             as u8;
+                                        image_data[index + 1] = ((src_g
+                                            + dst_g * (1.0 - src_alpha))
+                                            * inv_out_alpha
+                                            * 255.0)
+                                            as u8;
+                                        image_data[index + 2] = ((src_b
+                                            + dst_b * (1.0 - src_alpha))
+                                            * inv_out_alpha
+                                            * 255.0)
+                                            as u8;
+                                        image_data[index + 3] = (out_alpha * 255.0) as u8;
+                                    }
                                 }
                             }
                         }

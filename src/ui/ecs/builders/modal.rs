@@ -247,7 +247,7 @@ impl ModalBuilder {
             .with_debug_name(format!("Modal Parent Container for {}", modal_debug_name))
             .with_align_items(AlignItems::Center)
             .with_justify_content(JustifyContent::Center)
-            .with_overflow(Overflow::Hidden)
+            .with_overflow_both(Overflow::Hidden)
             .with_spawn_as_inactive()
             .with_absolute_position(Anchor::Center)
             .with_named_ref(self.named_ref)

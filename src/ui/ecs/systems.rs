@@ -301,7 +301,6 @@ impl EcsSystem for AnimationSystem {
                 .components
                 .get_component_mut::<InteractionComponent>(*entity_id)
                 .expect("Expected InteractionComponent to be present for modal child entity");
-            log::debug!("Entry animation completed for entity: {}", entity_id);
             interaction_comp.is_just_activated = false;
         }
 
@@ -310,7 +309,6 @@ impl EcsSystem for AnimationSystem {
                 .components
                 .get_component_mut::<InteractionComponent>(*entity_id)
                 .expect("Expected InteractionComponent to be present for modal child entity");
-            log::debug!("Exit animation completed for entity: {}", entity_id);
             interaction_comp.is_just_deactivated = false;
             interaction_comp.is_active = false;
         }
@@ -389,7 +387,6 @@ impl EcsSystem for ModalObserverSystem {
 
             if modal_comp.is_opening {
                 // check if all children has entry as true
-                log::debug!("renderable_children: {:#?}", modal_comp.renderable_children);
                 if modal_comp.renderable_children.iter().all(|child_id| {
                     *entry_exit_anim_state_resource
                         .entry_animation_state
