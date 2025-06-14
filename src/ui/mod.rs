@@ -500,8 +500,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
                     anchor: Anchor::Left,
                 },
                 when: AnimationWhen::Hover,
-            })
-            .with_clipping(true);
+            });
 
         if i == 0 {
             image_builder = image_builder.with_margin(Edges::bottom(5.0))

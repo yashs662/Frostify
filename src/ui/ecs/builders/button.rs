@@ -244,7 +244,6 @@ impl ButtonBuilder {
                 BackgroundBuilder::with_color(background_color_config)
                     .with_fixed_position(Anchor::Center)
                     .with_debug_name(format!("Button Background Color for {}", button_debug_name))
-                    .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
             if let Some(animation) = background_color_animation {
@@ -274,7 +273,6 @@ impl ButtonBuilder {
                         "Button Background Gradient for {}",
                         button_debug_name
                     ))
-                    .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
             for animation in &generic_animations {
@@ -297,7 +295,6 @@ impl ButtonBuilder {
                 .with_fixed_position(Anchor::Center)
                 .with_scale_mode(self.background_image_scale_mode.unwrap_or_default())
                 .with_debug_name(format!("Button Background Image for {}", button_debug_name))
-                .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
             for animation in &generic_animations {
@@ -323,7 +320,6 @@ impl ButtonBuilder {
                         button_debug_name
                     ))
                     .with_fixed_position(Anchor::Center)
-                    .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
             for animation in &generic_animations {
@@ -346,7 +342,6 @@ impl ButtonBuilder {
                 .with_debug_name(format!("Button Foreground Image for {}", button_debug_name))
                 .with_fixed_position(Anchor::Center)
                 .with_scale_mode(self.foreground_image_scale_mode.unwrap_or_default())
-                .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
             for animation in &generic_animations {
@@ -377,7 +372,6 @@ impl ButtonBuilder {
                 .with_line_height(text_config.line_height_multiplier)
                 .with_color(text_config.color)
                 .set_fit_to_size()
-                .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
             for animation in &generic_animations {

@@ -312,7 +312,6 @@ impl ModalBuilder {
             let mut backdrop_builder = BackgroundBuilder::with_color(backdrop_color_config)
                 .with_debug_name(format!("Backdrop Color for {}", modal_debug_name))
                 .with_fixed_position(Anchor::Center)
-                .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
             for animation in &generic_backdrop_animations {
@@ -348,7 +347,6 @@ impl ModalBuilder {
             let mut backdrop_builder = BackgroundBuilder::with_gradient(backdrop_gradient_config)
                 .with_debug_name(format!("Backdrop Gradient for {}", modal_debug_name))
                 .with_fixed_position(Anchor::Center)
-                .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
             for animation in &generic_backdrop_animations {
@@ -375,7 +373,6 @@ impl ModalBuilder {
             let mut backdrop_builder = ImageBuilder::new(&backdrop_image)
                 .with_debug_name(format!("Backdrop Image for {}", modal_debug_name))
                 .with_fixed_position(Anchor::Center)
-                .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
             if let Some(scale_mode) = self.backdrop_image_scale_mode {
@@ -407,7 +404,6 @@ impl ModalBuilder {
                 BackgroundBuilder::with_frosted_glass(backdrop_frosted_glass_config)
                     .with_debug_name(format!("Backdrop Frosted Glass for {}", modal_debug_name))
                     .with_fixed_position(Anchor::Center)
-                    .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
             for animation in &generic_backdrop_animations {
@@ -444,7 +440,6 @@ impl ModalBuilder {
         let mut modal_container_builder = ContainerBuilder::new()
             .with_external_common_props(self.common.clone())
             .with_debug_name(format!("Modal Container for {}", modal_debug_name))
-            .with_clipping(true)
             .with_hidden_overflow()
             .with_z_index(current_child_z_index);
 
@@ -471,7 +466,6 @@ impl ModalBuilder {
                 BackgroundBuilder::with_color(modal_background_color_config)
                     .with_debug_name(format!("Modal Background Color for {}", modal_debug_name))
                     .with_fixed_position(Anchor::Center)
-                    .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
             let background_color_animation = self
@@ -511,7 +505,6 @@ impl ModalBuilder {
                         modal_debug_name
                     ))
                     .with_fixed_position(Anchor::Center)
-                    .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
             for animation in &generic_modal_animations {
@@ -540,7 +533,6 @@ impl ModalBuilder {
                         modal_debug_name
                     ))
                     .with_fixed_position(Anchor::Center)
-                    .with_clipping(true)
                     .with_z_index(current_child_z_index);
 
             let frosted_glass_animation = self
@@ -576,7 +568,6 @@ impl ModalBuilder {
             let mut modal_background_builder = ImageBuilder::new(&modal_background_image)
                 .with_debug_name(format!("Modal Background Image for {}", modal_debug_name))
                 .with_fixed_position(Anchor::Center)
-                .with_clipping(true)
                 .with_z_index(current_child_z_index);
 
             if let Some(scale_mode) = self.background_image_scale_mode {
