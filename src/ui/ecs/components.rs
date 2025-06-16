@@ -50,11 +50,59 @@ pub struct VisualComponent {
     pub shadow_blur: f32,
     pub shadow_opacity: f32,
     pub opacity: f32,
+    pub notch: NotchType,
+    pub notch_depth: f32,
+    pub notch_flat_width: f32,
+    pub notch_total_width: f32,
+    pub notch_offset: f32,
+    pub notch_position: NotchPosition,
 }
 
 impl VisualComponent {
     pub fn is_visible(&self) -> bool {
         self.opacity > 0.0
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, Default)]
+pub enum NotchType {
+    #[default]
+    None,
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+impl NotchType {
+    pub fn to_u32(self) -> u32 {
+        match self {
+            NotchType::None => 0,
+            NotchType::Top => 1,
+            NotchType::Right => 2,
+            NotchType::Bottom => 3,
+            NotchType::Left => 4,
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, Default)]
+pub enum NotchPosition {
+    #[default]
+    Center,
+    Start,
+    End,
+}
+
+impl NotchPosition {
+    pub fn to_u32(self) -> u32 {
+        match self {
+            NotchPosition::Start => 0,
+            NotchPosition::Center => 1,
+            NotchPosition::End => 2,
+        }
     }
 }
 

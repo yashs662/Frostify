@@ -1,7 +1,11 @@
 use crate::{
     app::AppEvent,
     ui::{
-        ecs::{NamedRef, builders::modal::ModalBuilder},
+        ecs::{
+            NamedRef,
+            builders::modal::ModalBuilder,
+            components::{NotchPosition, NotchType},
+        },
         layout::{FlexDirection, FlexValue},
     },
     wgpu_ctx::WgpuCtx,
@@ -263,13 +267,21 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
             &mut layout_context.z_index_manager,
         );
 
-    let frosted_glass_id = BackgroundBuilder::with_frosted_glass(FrostedGlassConfig {
-        tint_color: Color::White,
-        blur_radius: 5.0,
-        tint_intensity: 0.5,
+    let notch_test_id = BackgroundBuilder::with_color(BackgroundColorConfig {
+        color: Color::Crimson,
     })
-    .with_debug_name("Frosted Glass")
-    .with_size(100, 100)
+    .with_debug_name("Notch Test Background")
+    .with_size(500, 300)
+    .with_border_radius(BorderRadius::all(10.0))
+    .with_border(2.0, Color::White)
+    .with_notch(
+        NotchType::Bottom,
+        NotchPosition::Center,
+        20.0,
+        100.0,
+        150.0,
+        0.0,
+    )
     .build(
         &mut layout_context.world,
         wgpu_ctx,
@@ -290,7 +302,7 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
         );
 
     layout_context.add_child_to_parent(sub_container_id, sample_text);
-    layout_context.add_child_to_parent(sub_container_id, frosted_glass_id);
+    layout_context.add_child_to_parent(sub_container_id, notch_test_id);
     layout_context.add_child_to_parent(sub_container_id, sample_text_2);
 }
 

@@ -7,7 +7,7 @@ use crate::{
             BorderPosition, EntityId, NamedRef, World,
             components::{
                 AnimationComponent, BoundsComponent, HierarchyComponent, InteractionComponent,
-                PreFitSizeComponent, TransformComponent, VisualComponent,
+                NotchPosition, NotchType, PreFitSizeComponent, TransformComponent, VisualComponent,
             },
             resources::NamedRefsResource,
         },
@@ -52,6 +52,12 @@ pub struct EntityBuilderProps {
     pub as_inactive: bool,       // Whether component should be inactive on creation
     pub named_ref: Option<NamedRef>,
     pub event_bubble_boundary: bool,
+    pub notch: NotchType,
+    pub notch_depth: f32,
+    pub notch_flat_width: f32,
+    pub notch_total_width: f32,
+    pub notch_offset: f32,
+    pub notch_position: NotchPosition,
 }
 
 /// Trait for component builders that share common properties
@@ -201,6 +207,24 @@ pub trait EntityBuilder: Sized {
         self.common_props().event_bubble_boundary = is_blocking;
         self
     }
+
+    fn with_notch(
+        mut self,
+        notch: NotchType,
+        notch_position: NotchPosition,
+        depth: f32,
+        flat_width: f32,
+        total_width: f32,
+        offset: f32,
+    ) -> Self {
+        self.common_props().notch = notch;
+        self.common_props().notch_depth = depth;
+        self.common_props().notch_flat_width = flat_width;
+        self.common_props().notch_total_width = total_width;
+        self.common_props().notch_offset = offset;
+        self.common_props().notch_position = notch_position;
+        self
+    }
 }
 
 /// Adds Animation, Transform, Hierarchy, and Visual components to the entity
@@ -290,6 +314,12 @@ pub fn add_common_components(
             shadow_blur: props.shadow_blur.unwrap_or(0.0),
             shadow_opacity: props.shadow_opacity.unwrap_or(1.0),
             opacity: 1.0,
+            notch: props.notch,
+            notch_depth: props.notch_depth,
+            notch_flat_width: props.notch_flat_width,
+            notch_total_width: props.notch_total_width,
+            notch_offset: props.notch_offset,
+            notch_position: props.notch_position,
         },
     );
 

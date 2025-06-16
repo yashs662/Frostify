@@ -224,7 +224,13 @@ pub fn create_entity_buffer_data(
         clip_bounds,
         clip_border_radius,
         clip_enabled,
-        _padding3: [0.0; 8],
+        notch_edge: visual_comp.notch.to_u32(),
+        notch_depth: visual_comp.notch_depth,
+        notch_flat_width: visual_comp.notch_flat_width,
+        notch_total_width: visual_comp.notch_total_width,
+        notch_offset: visual_comp.notch_offset,
+        notch_position: visual_comp.notch_position.to_u32(),
+        _padding: [0.0; 2],
     }
 }
 

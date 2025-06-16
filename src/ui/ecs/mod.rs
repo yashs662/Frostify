@@ -59,7 +59,7 @@ pub enum BorderPosition {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RenderBufferData {
-    pub color: [f32; 4],
+    pub color: [f32; 4],         // Base Color (RGBA)
     pub position: [f32; 2],      // Position in pixels (top-left corner)
     pub size: [f32; 2],          // Size in pixels (width, height)
     pub border_radius: [f32; 4], // Corner radii in pixels (top-left, top-right, bottom-left, bottom-right)
@@ -81,7 +81,14 @@ pub struct RenderBufferData {
     pub clip_bounds: [f32; 4],        // (min_x, min_y, max_x, max_y)
     pub clip_border_radius: [f32; 4], // (top-left, top-right, bottom-left, bottom-right)
     pub clip_enabled: [f32; 2],       // (clip_x, clip_y) as 0.0 or 1.0
-    pub _padding3: [f32; 8],          // Padding for alignment
+    // Notch properties
+    pub notch_edge: u32,        // 0=disabled, 1=top, 2=right, 3=bottom, 4=left
+    pub notch_depth: f32,       // Depth of notch in pixels
+    pub notch_flat_width: f32,  // Flat width of notch in pixels
+    pub notch_total_width: f32, // Total width of notch in pixels
+    pub notch_offset: f32,      // Offset along edge in pixels (positive values move right/down)
+    pub notch_position: u32,    // 0=left, 1=center, 2=right
+    pub _padding: [f32; 2],     // Padding for alignment
 }
 
 #[allow(dead_code)]

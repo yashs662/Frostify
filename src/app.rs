@@ -9,8 +9,8 @@ use crate::{
             resources::{MouseResource, RequestReLayoutResource},
             systems::{
                 animation::AnimationSystem, modal::ModalAnimationObserverSystem,
-                mouse::HoverStateResetSystem, mouse::MouseHoverSystem,
-                mouse::MouseInputSystem, mouse::MouseScrollSystem,
+                mouse::HoverStateResetSystem, mouse::MouseHoverSystem, mouse::MouseInputSystem,
+                mouse::MouseScrollSystem,
             },
         },
         layout::{self, ComponentPosition, Size},
@@ -160,7 +160,9 @@ impl App<'_> {
             }
 
             // Run Modal Observer System
-            self.layout_context.world.run_system(ModalAnimationObserverSystem);
+            self.layout_context
+                .world
+                .run_system(ModalAnimationObserverSystem);
 
             // Run animation system
             self.layout_context.world.run_system(AnimationSystem {
@@ -181,18 +183,14 @@ impl App<'_> {
                     AppEvent::Maximize => {
                         if let Some(window) = &self.window {
                             window.set_maximized(!window.is_maximized());
-                            self.layout_context
-                                .world
-                                .run_system(HoverStateResetSystem);
+                            self.layout_context.world.run_system(HoverStateResetSystem);
                             return true;
                         }
                     }
                     AppEvent::Minimize => {
                         if let Some(window) = &self.window {
                             window.set_minimized(true);
-                            self.layout_context
-                                .world
-                                .run_system(HoverStateResetSystem);
+                            self.layout_context.world.run_system(HoverStateResetSystem);
                             return true;
                         }
                     }
@@ -694,9 +692,7 @@ impl ApplicationHandler for App<'_> {
                 *mouse_resource = MouseResource::default();
 
                 // reset hover state
-                self.layout_context
-                    .world
-                    .run_system(HoverStateResetSystem);
+                self.layout_context.world.run_system(HoverStateResetSystem);
             }
             _ => (),
         }

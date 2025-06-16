@@ -1,3 +1,77 @@
+// https://iquilezles.org/articles/distfunctions2d/
+// float sdRoundedBox(in vec2 p, in vec2 b, in vec4 r) {
+//     r.xy = (p.x > 0.0) ? r.xy : r.zw; 
+//     r.x = (p.y > 0.0) ? r.x : r.y; 
+//     vec2 q = abs(p) - b + r.x; 
+//     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r.x;
+// }
+// 
+// float notchProfile(float t, float flatWidth, float totalWidth, float offset) {
+//     t -= offset;
+//     float halfFlat = flatWidth * 0.5;
+//     float halfTotal = totalWidth * 0.5;
+//     float edgeDist = abs(t) - halfFlat;
+//     float transitionWidth = halfTotal - halfFlat;
+//     
+//     return 1.0 - smoothstep(0.0, transitionWidth, edgeDist);
+// }
+// 
+// float sdRoundedBoxWithNotch(in vec2 p, in vec2 b, in vec4 r, float depth, float flatWidth, float totalWidth, float offset, int edge) {
+//     float boxDist = sdRoundedBox(p, b, r);
+//     
+//     if (edge == 0) return boxDist;
+//     
+//     vec2 normP = p / b; // Normalized position
+//     float notchAmount, notchDist;
+//     bool isHorizontal = (edge == 1 || edge == 3);
+//     float coord = isHorizontal ? normP.x : normP.y;
+//     
+//     notchAmount = notchProfile(coord, flatWidth, totalWidth, offset);
+//     
+//     // Calculate notch boundary based on edge
+//     if (edge == 1) {
+//         // Top edge
+//         notchDist = p.y - (b.y - depth * notchAmount);
+//     } else if (edge == 2) {
+//         // Right edge  
+//         notchDist = p.x - (b.x - depth * notchAmount);
+//     } else if (edge == 3) {
+//         // Bottom edge
+//         notchDist = (-b.y + depth * notchAmount) - p.y;
+//     } else if (edge == 4) {
+//         // Left edge (edge == 4)
+//         notchDist = (-b.x + depth * notchAmount) - p.x;
+//     } else {
+//         return boxDist;
+//     }
+//     
+//     return max(boxDist, notchDist);
+// }
+// 
+// void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+//     vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;
+//     
+//     // Shape parameters
+//     vec2 boxSize = vec2(0.5, 0.3);
+//     vec4 cornerRadius = vec4(0.05, 0.02, 0.08, 0.03); // Independent corner radii: top-right, bottom-right, bottom-left, top-left
+//     
+//     // Notch parameters
+//     float notchDepth = 0.04;
+//     float flatWidth = 0.1;
+//     float totalWidth = 0.4;
+//     float notchOffset = 0.65;
+//     int notchEdge = 1;
+//     
+//     // Calculate distance once
+//     float d = sdRoundedBoxWithNotch(uv, boxSize, cornerRadius, notchDepth, flatWidth, totalWidth, notchOffset, notchEdge);
+//     
+//     // Optimized rendering - fewer function calls
+//     float absD = abs(d);
+//     vec3 col = mix(vec3(0.65, 0.85, 1.0), vec3(0.9, 0.6, 0.3), step(0.0, d));
+//     col = mix(col, vec3(1.0), 1.0 - smoothstep(0.0, 0.01, absD));
+//     
+//     fragColor = vec4(col, 1.0);
+// }
 struct VertexInput {
     @location(0) position: vec2<f32>,  // Vertex position in clip space
     @location(1) uv: vec2<f32>,        // UV coordinates (0-1 range)
@@ -16,7 +90,7 @@ struct ComponentUniform {
     border_width: f32,              // Border thickness in pixels
     border_position: u32,           // Border position: 0=inside, 1=center, 2=outside
     border_color: vec4<f32>,        // Border color
-    bounds_with_border: vec4<f32>,        // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
+    bounds_with_border: vec4<f32>,  // (outer_min.x, outer_min.y, outer_max.x, outer_max.y)
     shadow_color: vec4<f32>,        // Shadow color
     shadow_offset: vec2<f32>,       // Shadow offset
     shadow_blur: f32,               // Shadow blur intensity
@@ -24,6 +98,12 @@ struct ComponentUniform {
     clip_bounds: vec4<f32>,         // Clipping bounds (min_x, min_y, max_x, max_y)
     clip_border_radius: vec4<f32>,  // Clipping border radius (top-left, top-right, bottom-left, bottom-right)
     clip_enabled: vec2<f32>,        // Whether clipping is enabled (x, y)
+    notch_edge: u32,                // Which edge: 0=disabled, 1=top, 2=right, 3=bottom, 4=left
+    notch_depth: f32,               // Depth of notch in pixels
+    notch_flat_width: f32,          // Flat width of notch in pixels
+    notch_total_width: f32,         // Total width of notch in pixels
+    notch_offset: f32,              // Offset along edge in pixels from anchor position
+    notch_position: u32,            // Anchor position: 0=left/top, 1=center, 2=right/bottom
 }
 
 @group(0) @binding(0)
@@ -237,7 +317,91 @@ fn sd_rounded_rectangle(p: vec2<f32>, xy: vec2<f32>, r: vec4<f32>) -> f32 {
     return sd_rectangle(p, xy - vec2<f32>(s)) - s;
 }
 
-// Get SDF distance for component shape (handles border positioning)
+// Notch profile function with position anchor support
+fn notch_profile(t: f32, flat_width: f32, total_width: f32, offset: f32, position: u32, edge_length: f32) -> f32 {
+    // Calculate anchor position along the edge
+    var anchor_pos: f32;
+    switch position {
+        case 0u: { // Left/Top anchor
+            anchor_pos = -edge_length * 0.5;
+        }
+        case 1u: { // Center anchor
+            anchor_pos = 0.0;
+        }
+        case 2u: { // Right/Bottom anchor
+            anchor_pos = edge_length * 0.5;
+        }
+        default: { // Default to center
+            anchor_pos = 0.0;
+        }
+    }
+    
+    // Apply offset from the anchor position
+    let final_position = anchor_pos + offset;
+    let adjusted_t = t - final_position;
+    
+    let half_flat = flat_width * 0.5;
+    let half_total = total_width * 0.5;
+    let edge_dist = abs(adjusted_t) - half_flat;
+    let transition_width = half_total - half_flat;
+    
+    if (transition_width <= 0.0) {
+        return select(0.0, 1.0, abs(adjusted_t) <= half_flat);
+    }
+    
+    return 1.0 - smoothstep(0.0, transition_width, edge_dist);
+}
+
+// SDF for rounded rectangle with notch
+fn sd_rounded_rectangle_with_notch(p: vec2<f32>, xy: vec2<f32>, r: vec4<f32>, 
+                                   depth: f32, flat_width: f32, total_width: f32, 
+                                   offset: f32, position: u32, edge: u32) -> f32 {
+    let box_dist = sd_rounded_rectangle(p, xy, r);
+    
+    if (edge == 0u) {
+        return box_dist;
+    }
+    
+    // Calculate position along the appropriate edge in pixels
+    var coord: f32;
+    var edge_length: f32;
+    var notch_amount: f32;
+    var notch_dist: f32;
+    
+    switch edge {
+        case 1u: { // Top edge
+            coord = p.x; // Position along x-axis
+            edge_length = xy.x * 2.0; // Total width of the edge
+            notch_amount = notch_profile(coord, flat_width, total_width, offset, position, edge_length);
+            notch_dist = p.y - (xy.y - depth * notch_amount);
+        }
+        case 2u: { // Right edge
+            coord = p.y; // Position along y-axis
+            edge_length = xy.y * 2.0; // Total height of the edge
+            notch_amount = notch_profile(coord, flat_width, total_width, offset, position, edge_length);
+            notch_dist = p.x - (xy.x - depth * notch_amount);
+        }
+        case 3u: { // Bottom edge
+            coord = p.x; // Position along x-axis
+            edge_length = xy.x * 2.0; // Total width of the edge
+            notch_amount = notch_profile(coord, flat_width, total_width, offset, position, edge_length);
+            notch_dist = (-xy.y + depth * notch_amount) - p.y;
+        }
+        case 4u: { // Left edge
+            coord = p.y; // Position along y-axis
+            edge_length = xy.y * 2.0; // Total height of the edge
+            notch_amount = notch_profile(coord, flat_width, total_width, offset, position, edge_length);
+            notch_dist = (-xy.x + depth * notch_amount) - p.x;
+        }
+        default: {
+            return box_dist;
+        }
+    }
+    
+    return max(box_dist, notch_dist);
+}
+
+// Get SDF distance for component shape (handles border positioning and notches)
 fn get_component_sdf(pixel_coords: vec2<f32>) -> f32 {
     let component_center = component.position + component.size * 0.5;
     let p = pixel_coords - component_center;
@@ -258,17 +422,47 @@ fn get_component_sdf(pixel_coords: vec2<f32>) -> f32 {
         }
     }
     
-    return sd_rounded_rectangle(p, outer_half_size, component.border_radius);
+    // Use notch-enabled SDF if notch edge is specified
+    if (component.notch_edge != 0u) {
+        return sd_rounded_rectangle_with_notch(
+            p, 
+            outer_half_size, 
+            component.border_radius, 
+            component.notch_depth, 
+            component.notch_flat_width, 
+            component.notch_total_width, 
+            component.notch_offset,
+            component.notch_position,
+            component.notch_edge
+        );
+    } else {
+        return sd_rounded_rectangle(p, outer_half_size, component.border_radius);
+    }
 }
 
-// Get SDF distance for shadow
+// Get SDF distance for shadow (with notch support)
 fn get_shadow_sdf(pixel_coords: vec2<f32>) -> f32 {
     let shadow_position = component.position + component.shadow_offset;
     let shadow_center = shadow_position + component.size * 0.5;
     let p = pixel_coords - shadow_center;
     let half_size = component.size * 0.5;
     
-    return sd_rounded_rectangle(p, half_size, component.border_radius);
+    // Apply notch to shadow as well if enabled
+    if (component.notch_edge != 0u) {
+        return sd_rounded_rectangle_with_notch(
+            p, 
+            half_size, 
+            component.border_radius, 
+            component.notch_depth, 
+            component.notch_flat_width, 
+            component.notch_total_width, 
+            component.notch_offset,
+            component.notch_position,
+            component.notch_edge
+        );
+    } else {
+        return sd_rounded_rectangle(p, half_size, component.border_radius);
+    }
 }
 
 // Get SDF distance for clipping bounds
@@ -311,7 +505,22 @@ fn get_inner_sdf(pixel_coords: vec2<f32>) -> f32 {
     // Calculate inner radii (border reduces corner radius by the inset amount)
     let inner_radii = max(component.border_radius - vec4<f32>(border_inset), vec4<f32>(0.0));
     
-    return sd_rounded_rectangle(p, inner_half_size, inner_radii);
+    // Apply notch to inner area as well if enabled
+    if (component.notch_edge != 0u) {
+        return sd_rounded_rectangle_with_notch(
+            p, 
+            inner_half_size, 
+            inner_radii, 
+            max(0.0, component.notch_depth - border_inset), // Reduce notch depth by border inset
+            component.notch_flat_width, 
+            component.notch_total_width, 
+            component.notch_offset,
+            component.notch_position,
+            component.notch_edge
+        );
+    } else {
+        return sd_rounded_rectangle(p, inner_half_size, inner_radii);
+    }
 }
 
 // Simple shadow calculation using SDF
@@ -326,7 +535,6 @@ fn calculate_shadow_intensity(pixel_coords: vec2<f32>) -> f32 {
     let shadow_edge = component.shadow_blur;
     return smoothstep(shadow_edge, -shadow_edge, shadow_dist);
 }
-
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
