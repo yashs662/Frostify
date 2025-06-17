@@ -1,147 +1,215 @@
 use crate::ui::ecs::{GradientType, builders::background::BackgroundGradientConfig};
-use colorgrad::Gradient;
+use palette::{Alpha, Darken, Lighten, Mix, Srgb, Srgba, named};
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Color {
-    AliceBlue,
-    AntiqueWhite,
-    Aquamarine,
-    Azure,
-    Beige,
-    Bisque,
-    Black,
-    Blue,
-    Crimson,
-    Cyan,
-    DarkGray,
-    DarkGreen,
-    Fuchsia,
-    Gold,
-    Gray,
-    Green,
-    Indigo,
-    LimeGreen,
-    Maroon,
-    MidnightBlue,
-    Navy,
-    Olive,
-    Orange,
-    OrangeRed,
-    Pink,
-    Purple,
-    Red,
-    Salmon,
-    SeaGreen,
-    Silver,
-    Teal,
-    Tomato,
-    Turquoise,
-    Violet,
-    White,
-    Yellow,
-    YellowGreen,
-    Custom([f32; 4]),
-    Transparent,
+macro_rules! define_colors {
+    ($(($variant:ident, $named_variant:ident)),* $(,)?) => {
+        #[allow(dead_code)]
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub enum Color {
+            /// A custom color with RGBA values
+            Custom(Srgba<f32>),
+            /// Fully transparent color
+            Transparent,
+            $(
+                #[doc = concat!("<div style=\"display: inline-block; width: 3em; height: 1em; border: 1px solid black; background: ", stringify!($named_variant), ";\"></div>")]
+                $variant,
+            )*
+        }
+
+        impl Color {
+            pub fn to_srgba_f32(self) -> Srgba<f32> {
+                match self {
+                    $(Color::$variant => {
+                        let srgb = Srgb::<f32>::from_format(named::$named_variant).into_linear();
+                        Srgba::new(srgb.red, srgb.green, srgb.blue, 1.0)
+                    },)*
+                    Color::Custom(color) => color,
+                    Color::Transparent => Srgba::new(0.0, 0.0, 0.0, 0.0),
+                }
+            }
+        }
+    };
+}
+
+define_colors! {
+    (AliceBlue, ALICEBLUE),
+    (AntiqueWhite, ANTIQUEWHITE),
+    (Aqua, AQUA),
+    (Aquamarine, AQUAMARINE),
+    (Azure, AZURE),
+    (Beige, BEIGE),
+    (Bisque, BISQUE),
+    (Black, BLACK),
+    (BlanchedAlmond, BLANCHEDALMOND),
+    (Blue, BLUE),
+    (BlueViolet, BLUEVIOLET),
+    (Brown, BROWN),
+    (BurlyWood, BURLYWOOD),
+    (CadetBlue, CADETBLUE),
+    (Chartreuse, CHARTREUSE),
+    (Chocolate, CHOCOLATE),
+    (Coral, CORAL),
+    (CornflowerBlue, CORNFLOWERBLUE),
+    (Cornsilk, CORNSILK),
+    (Crimson, CRIMSON),
+    (Cyan, CYAN),
+    (DarkBlue, DARKBLUE),
+    (DarkCyan, DARKCYAN),
+    (DarkGoldenrod, DARKGOLDENROD),
+    (DarkGray, DARKGRAY),
+    (DarkGreen, DARKGREEN),
+    (DarkGrey, DARKGREY),
+    (DarkKhaki, DARKKHAKI),
+    (DarkMagenta, DARKMAGENTA),
+    (DarkOliveGreen, DARKOLIVEGREEN),
+    (DarkOrange, DARKORANGE),
+    (DarkOrchid, DARKORCHID),
+    (DarkRed, DARKRED),
+    (DarkSalmon, DARKSALMON),
+    (DarkSeaGreen, DARKSEAGREEN),
+    (DarkSlateBlue, DARKSLATEBLUE),
+    (DarkSlateGray, DARKSLATEGRAY),
+    (DarkSlateGrey, DARKSLATEGREY),
+    (DarkTurquoise, DARKTURQUOISE),
+    (DarkViolet, DARKVIOLET),
+    (DeepPink, DEEPPINK),
+    (DeepSkyBlue, DEEPSKYBLUE),
+    (DimGray, DIMGRAY),
+    (DimGrey, DIMGREY),
+    (DodgerBlue, DODGERBLUE),
+    (FireBrick, FIREBRICK),
+    (FloralWhite, FLORALWHITE),
+    (ForestGreen, FORESTGREEN),
+    (Fuchsia, FUCHSIA),
+    (Gainsboro, GAINSBORO),
+    (GhostWhite, GHOSTWHITE),
+    (Gold, GOLD),
+    (Goldenrod, GOLDENROD),
+    (Gray, GRAY),
+    (Grey, GREY),
+    (Green, GREEN),
+    (GreenYellow, GREENYELLOW),
+    (Honeydew, HONEYDEW),
+    (HotPink, HOTPINK),
+    (IndianRed, INDIANRED),
+    (Indigo, INDIGO),
+    (Ivory, IVORY),
+    (Khaki, KHAKI),
+    (Lavender, LAVENDER),
+    (LavenderBlush, LAVENDERBLUSH),
+    (LawnGreen, LAWNGREEN),
+    (LemonChiffon, LEMONCHIFFON),
+    (LightBlue, LIGHTBLUE),
+    (LightCoral, LIGHTCORAL),
+    (LightCyan, LIGHTCYAN),
+    (LightGoldenrodYellow, LIGHTGOLDENRODYELLOW),
+    (LightGray, LIGHTGRAY),
+    (LightGreen, LIGHTGREEN),
+    (LightGrey, LIGHTGREY),
+    (LightPink, LIGHTPINK),
+    (LightSalmon, LIGHTSALMON),
+    (LightSeaGreen, LIGHTSEAGREEN),
+    (LightSkyBlue, LIGHTSKYBLUE),
+    (LightSlateGray, LIGHTSLATEGRAY),
+    (LightSlateGrey, LIGHTSLATEGREY),
+    (LightSteelBlue, LIGHTSTEELBLUE),
+    (LightYellow, LIGHTYELLOW),
+    (Lime, LIME),
+    (LimeGreen, LIMEGREEN),
+    (Linen, LINEN),
+    (Magenta, MAGENTA),
+    (Maroon, MAROON),
+    (MediumAquamarine, MEDIUMAQUAMARINE),
+    (MediumBlue, MEDIUMBLUE),
+    (MediumOrchid, MEDIUMORCHID),
+    (MediumPurple, MEDIUMPURPLE),
+    (MediumSeaGreen, MEDIUMSEAGREEN),
+    (MediumSlateBlue, MEDIUMSLATEBLUE),
+    (MediumSpringGreen, MEDIUMSPRINGGREEN),
+    (MediumTurquoise, MEDIUMTURQUOISE),
+    (MediumVioletRed, MEDIUMVIOLETRED),
+    (MidnightBlue, MIDNIGHTBLUE),
+    (MintCream, MINTCREAM),
+    (MistyRose, MISTYROSE),
+    (Moccasin, MOCCASIN),
+    (NavajoWhite, NAVAJOWHITE),
+    (Navy, NAVY),
+    (OldLace, OLDLACE),
+    (Olive, OLIVE),
+    (OliveDrab, OLIVEDRAB),
+    (Orange, ORANGE),
+    (OrangeRed, ORANGERED),
+    (Orchid, ORCHID),
+    (PaleGoldenrod, PALEGOLDENROD),
+    (PaleGreen, PALEGREEN),
+    (PaleTurquoise, PALETURQUOISE),
+    (PaleVioletRed, PALEVIOLETRED),
+    (PapayaWhip, PAPAYAWHIP),
+    (PeachPuff, PEACHPUFF),
+    (Peru, PERU),
+    (Pink, PINK),
+    (Plum, PLUM),
+    (PowderBlue, POWDERBLUE),
+    (Purple, PURPLE),
+    (RebeccaPurple, REBECCAPURPLE),
+    (Red, RED),
+    (RosyBrown, ROSYBROWN),
+    (RoyalBlue, ROYALBLUE),
+    (SaddleBrown, SADDLEBROWN),
+    (Salmon, SALMON),
+    (SandyBrown, SANDYBROWN),
+    (SeaGreen, SEAGREEN),
+    (Seashell, SEASHELL),
+    (Sienna, SIENNA),
+    (Silver, SILVER),
+    (SkyBlue, SKYBLUE),
+    (SlateBlue, SLATEBLUE),
+    (SlateGray, SLATEGRAY),
+    (SlateGrey, SLATEGREY),
+    (Snow, SNOW),
+    (SpringGreen, SPRINGGREEN),
+    (SteelBlue, STEELBLUE),
+    (Tan, TAN),
+    (Teal, TEAL),
+    (Thistle, THISTLE),
+    (Tomato, TOMATO),
+    (Turquoise, TURQUOISE),
+    (Violet, VIOLET),
+    (Wheat, WHEAT),
+    (White, WHITE),
+    (WhiteSmoke, WHITESMOKE),
+    (Yellow, YELLOW),
+    (YellowGreen, YELLOWGREEN),
 }
 
 #[allow(dead_code)]
 impl Color {
-    pub fn value(&self) -> [f32; 4] {
-        match *self {
-            Color::AliceBlue => [0.94, 0.97, 1.0, 1.0],
-            Color::AntiqueWhite => [0.98, 0.92, 0.84, 1.0],
-            Color::Aquamarine => [0.49, 1.0, 0.83, 1.0],
-            Color::Azure => [0.94, 1.0, 1.0, 1.0],
-            Color::Beige => [0.96, 0.96, 0.86, 1.0],
-            Color::Bisque => [1.0, 0.89, 0.77, 1.0],
-            Color::Black => [0.0, 0.0, 0.0, 1.0],
-            Color::Blue => [0.0, 0.0, 1.0, 1.0],
-            Color::Crimson => [0.86, 0.08, 0.24, 1.0],
-            Color::Cyan => [0.0, 1.0, 1.0, 1.0],
-            Color::DarkGray => [0.25, 0.25, 0.25, 1.0],
-            Color::DarkGreen => [0.0, 0.5, 0.0, 1.0],
-            Color::Fuchsia => [1.0, 0.0, 1.0, 1.0],
-            Color::Gold => [1.0, 0.84, 0.0, 1.0],
-            Color::Gray => [0.5, 0.5, 0.5, 1.0],
-            Color::Green => [0.0, 1.0, 0.0, 1.0],
-            Color::Indigo => [0.29, 0.0, 0.51, 1.0],
-            Color::LimeGreen => [0.2, 0.8, 0.2, 1.0],
-            Color::Maroon => [0.5, 0.0, 0.0, 1.0],
-            Color::MidnightBlue => [0.1, 0.1, 0.44, 1.0],
-            Color::Navy => [0.0, 0.0, 0.5, 1.0],
-            Color::Olive => [0.5, 0.5, 0.0, 1.0],
-            Color::Orange => [1.0, 0.65, 0.0, 1.0],
-            Color::OrangeRed => [1.0, 0.27, 0.0, 1.0],
-            Color::Pink => [1.0, 0.08, 0.58, 1.0],
-            Color::Purple => [0.5, 0.0, 0.5, 1.0],
-            Color::Red => [1.0, 0.0, 0.0, 1.0],
-            Color::Salmon => [0.98, 0.5, 0.45, 1.0],
-            Color::SeaGreen => [0.18, 0.55, 0.34, 1.0],
-            Color::Silver => [0.75, 0.75, 0.75, 1.0],
-            Color::Teal => [0.0, 0.5, 0.5, 1.0],
-            Color::Tomato => [1.0, 0.39, 0.28, 1.0],
-            Color::Turquoise => [0.25, 0.88, 0.82, 1.0],
-            Color::Violet => [0.93, 0.51, 0.93, 1.0],
-            Color::White => [1.0, 1.0, 1.0, 1.0],
-            Color::Yellow => [1.0, 1.0, 0.0, 1.0],
-            Color::YellowGreen => [0.6, 0.8, 0.2, 1.0],
-            Color::Custom(color) => color,
-            Color::Transparent => [0.0, 0.0, 0.0, 0.0],
-        }
-    }
-
-    pub fn with_alpha(&self, alpha: f32) -> Color {
-        let [r, g, b, _] = self.value();
-        Color::Custom([r, g, b, alpha])
-    }
-
-    pub fn darken(&self, factor: f32) -> Color {
-        let factor = factor.clamp(0.0, 1.0);
-        let [r, g, b, a] = self.value();
-        Color::Custom([r * factor, g * factor, b * factor, a])
-    }
-
-    pub fn lighten(&self, factor: f32) -> Color {
-        let factor = factor.clamp(0.0, 1.0);
-        let [r, g, b, a] = self.value();
-        Color::Custom([
-            r + (1.0 - r) * factor,
-            g + (1.0 - g) * factor,
-            b + (1.0 - b) * factor,
-            a,
-        ])
-    }
-
-    pub fn to_rgb_0_255(self) -> [u8; 4] {
-        let [r, g, b, a] = self.value();
-        [
-            (r * 255.0) as u8,
-            (g * 255.0) as u8,
-            (b * 255.0) as u8,
-            (a * 255.0) as u8,
-        ]
-    }
-
     pub fn lerp(&self, other: &Color, t: f32) -> Color {
-        let gradient = colorgrad::GradientBuilder::new()
-            .colors(&[self.to_colorgrad_color(), other.to_colorgrad_color()])
-            .domain(&[0.0, 1.0])
-            .build::<colorgrad::LinearGradient>()
-            .unwrap();
-
-        let color = gradient.at(t);
-        Color::Custom([color.r, color.g, color.b, color.a])
+        let mixed = self.to_srgba_f32().mix(other.to_srgba_f32(), t);
+        Color::Custom(mixed)
     }
 
     pub fn to_cosmic_color(self) -> cosmic_text::Color {
-        let [r, g, b, a] = self.to_rgb_0_255();
+        let [r, g, b, a] = self.values_u8();
         cosmic_text::Color::rgba(r, g, b, a)
     }
 
-    pub fn to_colorgrad_color(self) -> colorgrad::Color {
-        let [r, g, b, a] = self.value();
-        colorgrad::Color::from_linear_rgba(r, g, b, a)
+    pub fn lighten(self, factor: f32) -> Color {
+        self.to_srgba_f32().lighten(factor).into()
+    }
+
+    pub fn darken(self, factor: f32) -> Color {
+        self.to_srgba_f32().darken(factor).into()
+    }
+
+    pub fn values_f32(&self) -> [f32; 4] {
+        let color = self.to_srgba_f32();
+        [color.red, color.green, color.blue, color.alpha]
+    }
+
+    pub fn values_u8(&self) -> [u8; 4] {
+        let color = self.to_srgba_f32().into_format();
+        [color.red, color.green, color.blue, color.alpha]
     }
 
     /// Method to create a 2D gradient texture
@@ -150,19 +218,33 @@ impl Color {
         width: u32,
         height: u32,
     ) -> image::RgbaImage {
-        let mut colors = vec![];
-        let mut positions = vec![];
+        let palette_colors: Vec<(f32, Srgba<f32>)> = gradient_config
+            .color_stops
+            .iter()
+            .map(|stop| (stop.position, stop.color.to_srgba_f32()))
+            .collect();
 
-        for stop in gradient_config.color_stops {
-            colors.push(stop.color.to_colorgrad_color());
-            positions.push(stop.position);
-        }
+        // Helper function to interpolate between colors in a gradient
+        let interpolate_gradient = |t: f32| -> Srgba<f32> {
+            let t = t.clamp(0.0, 1.0);
 
-        let g = colorgrad::GradientBuilder::new()
-            .colors(&colors)
-            .domain(&positions)
-            .build::<colorgrad::LinearGradient>()
-            .unwrap();
+            // Find the two colors to interpolate between
+            for i in 0..palette_colors.len() - 1 {
+                let (pos1, color1) = palette_colors[i];
+                let (pos2, color2) = palette_colors[i + 1];
+
+                if t <= pos2 {
+                    if pos1 == pos2 {
+                        return color1;
+                    }
+                    let local_t = (t - pos1) / (pos2 - pos1);
+                    return color1.mix(color2, local_t);
+                }
+            }
+
+            // If we're beyond the last position, return the last color
+            palette_colors.last().unwrap().1
+        };
 
         match gradient_config.gradient_type {
             GradientType::Linear => {
@@ -188,8 +270,13 @@ impl Color {
                     let clamped_proj = proj.clamp(0.0, 1.0);
 
                     // Sample the gradient at this position
-                    let color = g.at(clamped_proj);
-                    image::Rgba(color.to_rgba8())
+                    let color = interpolate_gradient(clamped_proj);
+                    image::Rgba([
+                        (color.red * 255.0) as u8,
+                        (color.green * 255.0) as u8,
+                        (color.blue * 255.0) as u8,
+                        (color.alpha * 255.0) as u8,
+                    ])
                 })
             }
             GradientType::Radial => {
@@ -225,30 +312,16 @@ impl Color {
                     let normalized_dist = (distance / gradient_radius).clamp(0.0, 1.0);
 
                     // Sample the gradient at this normalized distance
-                    let color = g.at(normalized_dist);
-                    image::Rgba(color.to_rgba8())
+                    let color = interpolate_gradient(normalized_dist);
+                    image::Rgba([
+                        (color.red * 255.0) as u8,
+                        (color.green * 255.0) as u8,
+                        (color.blue * 255.0) as u8,
+                        (color.alpha * 255.0) as u8,
+                    ])
                 })
             }
         }
-    }
-
-    pub fn from_hex(hex: &str) -> Color {
-        let hex = hex.trim_start_matches('#');
-        let r = u8::from_str_radix(&hex[0..2], 16).unwrap();
-        let g = u8::from_str_radix(&hex[2..4], 16).unwrap();
-        let b = u8::from_str_radix(&hex[4..6], 16).unwrap();
-        let a = if hex.len() == 8 {
-            u8::from_str_radix(&hex[6..8], 16).unwrap()
-        } else {
-            255
-        };
-
-        Color::Custom([
-            r as f32 / 255.0,
-            g as f32 / 255.0,
-            b as f32 / 255.0,
-            a as f32 / 255.0,
-        ])
     }
 
     /// Helper to convert a gradient to a WGPU texture
@@ -301,5 +374,11 @@ impl Color {
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         (texture, texture_view)
+    }
+}
+
+impl From<Alpha<palette::rgb::Rgb, f32>> for Color {
+    fn from(val: Alpha<palette::rgb::Rgb, f32>) -> Self {
+        Color::Custom(Srgba::new(val.red, val.green, val.blue, val.alpha))
     }
 }

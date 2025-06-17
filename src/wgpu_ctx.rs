@@ -56,7 +56,7 @@ impl<'window> WgpuCtx<'window> {
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+                required_limits: wgpu::Limits::downlevel_defaults()
                     .using_resolution(adapter.limits()),
                 memory_hints: Performance,
                 trace: wgpu::Trace::Off,
@@ -68,17 +68,13 @@ impl<'window> WgpuCtx<'window> {
         let width = size.width.max(1);
         let height = size.height.max(1);
 
-        // Get the supported alpha modes from the surface capabilities
-        let surface_caps = surface.get_capabilities(&adapter);
-        let alpha_mode = surface_caps.alpha_modes[0]; // Use the first supported alpha mode
-
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_caps.formats[0],
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             width,
             height,
             present_mode: wgpu::PresentMode::AutoVsync, // TODO: Allow the user to configure this in future
-            alpha_mode,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -141,7 +137,7 @@ impl<'window> WgpuCtx<'window> {
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo,

@@ -21,7 +21,7 @@ time = { version = "0.3.41", features = [
     "local-offset",
 ] }
 colored = "3.0.0"
-colorgrad = "0.7.2"
+palette = { version = "0.7.6", features = ["named", "wide"] }
 oauth2 = { version = "5.0.0", features = ["rustls-tls"] }
 reqwest = { version = "0.12.20", features = ["json", "rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive"] }

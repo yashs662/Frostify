@@ -1,4 +1,5 @@
 use crate::ui::{
+    color::Color,
     ecs::{
         BorderPosition, ComponentType, EcsComponents, EntityId, RenderBufferData, World,
         components::{
@@ -81,7 +82,7 @@ pub fn create_entity_buffer_data(
         .get_component::<IdentityComponent>(entity_id)
         .expect("Expected IdentityComponent to exist while preparing render data");
 
-    let default_color = [1.0, 0.0, 1.0, 1.0];
+    let default_color = Color::Magenta;
     let position = [
         bounds_comp.computed_bounds.position.x,
         bounds_comp.computed_bounds.position.y,
@@ -97,14 +98,14 @@ pub fn create_entity_buffer_data(
             let color_comp = components
                 .get_component::<ColorComponent>(entity_id)
                 .expect("BackgroundColor Type Component should have ColorComponent");
-            (color_comp.color.value(), 0.0, 0.0)
+            (color_comp.color, 0.0, 0.0)
         }
         ComponentType::FrostedGlass => {
             let frosted_glass_comp = components
                 .get_component::<FrostedGlassComponent>(entity_id)
                 .expect("FrostedGlass Type Component should have FrostedGlassComponent");
             (
-                frosted_glass_comp.tint_color.value(),
+                frosted_glass_comp.tint_color,
                 frosted_glass_comp.blur_radius,
                 frosted_glass_comp.tint_intensity,
             )
@@ -196,7 +197,7 @@ pub fn create_entity_buffer_data(
         };
 
     RenderBufferData {
-        color,
+        color: color.values_f32(),
         position,
         size,
         border_radius: visual_comp.border_radius.values(),
@@ -210,14 +211,14 @@ pub fn create_entity_buffer_data(
         tint_intensity,
         border_width: visual_comp.border_width,
         border_position: border_position_value,
-        border_color: visual_comp.border_color.value(),
+        border_color: visual_comp.border_color.values_f32(),
         bounds_with_border: [
             content_min[0],
             content_min[1],
             content_max[0],
             content_max[1],
         ],
-        shadow_color: visual_comp.shadow_color.value(),
+        shadow_color: visual_comp.shadow_color.values_f32(),
         shadow_offset: [visual_comp.shadow_offset.0, visual_comp.shadow_offset.1],
         shadow_blur: visual_comp.shadow_blur,
         shadow_opacity: visual_comp.shadow_opacity,

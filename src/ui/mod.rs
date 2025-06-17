@@ -288,6 +288,41 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
         &mut layout_context.z_index_manager,
     );
 
+    let notch_test_id_2 = BackgroundBuilder::with_gradient(BackgroundGradientConfig {
+        color_stops: vec![
+            GradientColorStop {
+                color: Color::Crimson,
+                position: 0.5,
+            },
+            GradientColorStop {
+                color: Color::Black,
+                position: 1.0,
+            },
+        ],
+        angle: 90.0,
+        gradient_type: GradientType::Linear,
+        center: None,
+        radius: None,
+    })
+    .with_debug_name("Notch Test Background 2")
+    .with_size(500, 300)
+    .with_border_radius(BorderRadius::all(10.0))
+    .with_border(2.0, Color::White)
+    .with_margin(Edges::top(5.0))
+    .with_notch(
+        NotchType::Bottom,
+        NotchPosition::Center,
+        20.0,
+        100.0,
+        150.0,
+        0.0,
+    )
+    .build(
+        &mut layout_context.world,
+        wgpu_ctx,
+        &mut layout_context.z_index_manager,
+    );
+
     let sample_text_2 = TextBuilder::new()
         .with_debug_name("Sample Text 2")
         .with_text("Test text 2")
@@ -303,6 +338,7 @@ pub fn create_test_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layou
 
     layout_context.add_child_to_parent(sub_container_id, sample_text);
     layout_context.add_child_to_parent(sub_container_id, notch_test_id);
+    layout_context.add_child_to_parent(sub_container_id, notch_test_id_2);
     layout_context.add_child_to_parent(sub_container_id, sample_text_2);
 }
 
