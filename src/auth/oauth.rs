@@ -63,7 +63,7 @@ fn generate_code_challenge(code_verifier: &str) -> String {
 // Updated to use AuthError
 pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthResponse, AuthError> {
     let listener = TcpListener::bind("127.0.0.1:8888").await.map_err(|e| {
-        log::error!("Failed to bind TCP listener: {}", e);
+        log::error!("Failed to bind TCP listener: {e}");
         AuthError::Server(e.to_string())
     })?;
 
@@ -78,15 +78,15 @@ pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthRes
     .map_err(|_| AuthError::Timeout("Timed out waiting for callback".into()))?;
 
     let (mut socket, _) = accept_result.map_err(|e| {
-        log::error!("Failed to accept connection: {}", e);
-        AuthError::Server(format!("Failed to accept connection: {}", e))
+        log::error!("Failed to accept connection: {e}");
+        AuthError::Server(format!("Failed to accept connection: {e}"))
     })?;
 
     let mut buffer = [0; 1024];
     socket
         .read(&mut buffer)
         .await
-        .map_err(|e| AuthError::Server(format!("Failed to read from socket: {}", e)))?;
+        .map_err(|e| AuthError::Server(format!("Failed to read from socket: {e}")))?;
 
     let request = String::from_utf8_lossy(&buffer);
     let code = request
@@ -120,11 +120,7 @@ pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthRes
             .text()
             .await
             .unwrap_or_else(|_| "Could not read error response".to_string());
-        log::error!(
-            "Token request failed with status {}: {}",
-            status,
-            error_text
-        );
+        log::error!("Token request failed with status {status}: {error_text}");
         return Err(AuthError::Api(error_text, Some(status.as_u16())));
     }
 
@@ -137,7 +133,7 @@ pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthRes
         || body.get("refresh_token").is_none()
         || body.get("scope").is_none()
     {
-        debug!("Invalid response from Spotify: {:#?}", body);
+        debug!("Invalid response from Spotify: {body:#?}");
 
         let error_html =
             FROSTIFY_LOGIN_ERROR_HTML.replace("LOGO_BASE64", &get_frostify_logo_base64());
@@ -219,11 +215,7 @@ pub async fn refresh_token(refresh_token: &str) -> Result<SpotifyAuthResponse, A
             .text()
             .await
             .unwrap_or_else(|_| "Could not read error response".to_string());
-        log::error!(
-            "Refresh token request failed with status {}: {}",
-            status,
-            error_text
-        );
+        log::error!("Refresh token request failed with status {status}: {error_text}");
         return Err(AuthError::Api(error_text, Some(status.as_u16())));
     }
 

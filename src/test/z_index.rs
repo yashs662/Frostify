@@ -1,14 +1,13 @@
 use crate::{
     test::test_utils::{get_event_sender, setup_asset_store_for_testing},
     ui::{
-        ecs::resources::NamedRefsResource,
+        ecs::{ComponentType, resources::NamedRefsResource},
         layout::{LayoutContext, Size},
         z_index_manager::ZIndexManager,
     },
     wgpu_ctx::WgpuCtx,
 };
 use std::cmp::Ordering;
-use uuid::Uuid;
 
 #[test]
 fn child_ordering() {
@@ -25,14 +24,18 @@ fn child_ordering() {
 
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
-    let parent_id = Uuid::new_v4();
+    let parent_id = ctx
+        .world
+        .create_entity("parent".to_string(), ComponentType::Container);
 
     z_index_manager.set_root_id(parent_id);
     z_index_manager.register_component(parent_id, None);
 
     let mut child_ids = Vec::new();
-    for _ in 0..10 {
-        let child_id = Uuid::new_v4();
+    for i in 0..10 {
+        let child_id = ctx
+            .world
+            .create_entity(format!("child_{i}"), ComponentType::Container);
         child_ids.push(child_id);
         z_index_manager.register_component(child_id, Some(parent_id));
     }
@@ -65,14 +68,18 @@ fn custom_z_index() {
 
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
-    let parent_id = Uuid::new_v4();
+    let parent_id = ctx
+        .world
+        .create_entity("parent".to_string(), ComponentType::Container);
 
     z_index_manager.set_root_id(parent_id);
     z_index_manager.register_component(parent_id, None);
 
     let mut child_ids = Vec::new();
     for i in 0..10 {
-        let child_id = Uuid::new_v4();
+        let child_id = ctx
+            .world
+            .create_entity(format!("child_{i}"), ComponentType::Container);
         child_ids.push(child_id);
         z_index_manager.register_component(child_id, Some(parent_id));
         if i == 5 {
@@ -114,15 +121,21 @@ fn hierarchical_z_index_ordering() {
 
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
-    let parent_id = Uuid::new_v4();
+    let parent_id = ctx
+        .world
+        .create_entity("parent".to_string(), ComponentType::Container);
 
     // Set up root parent
     z_index_manager.set_root_id(parent_id);
     z_index_manager.register_component(parent_id, None);
 
     // Create two child components
-    let child1_id = Uuid::new_v4();
-    let child2_id = Uuid::new_v4();
+    let child1_id = ctx
+        .world
+        .create_entity("child1".to_string(), ComponentType::Container);
+    let child2_id = ctx
+        .world
+        .create_entity("child2".to_string(), ComponentType::Container);
 
     // Register children in order: child1 first, then child2
     z_index_manager.register_component(child1_id, Some(parent_id));
@@ -130,16 +143,20 @@ fn hierarchical_z_index_ordering() {
 
     // Create 5 sub-children for child1
     let mut child1_subchildren = Vec::new();
-    for _ in 0..5 {
-        let sub_child_id = Uuid::new_v4();
+    for i in 0..5 {
+        let sub_child_id = ctx
+            .world
+            .create_entity(format!("child1_sub_{i}"), ComponentType::Container);
         child1_subchildren.push(sub_child_id);
         z_index_manager.register_component(sub_child_id, Some(child1_id));
     }
 
     // Create 5 sub-children for child2
     let mut child2_subchildren = Vec::new();
-    for _ in 0..5 {
-        let sub_child_id = Uuid::new_v4();
+    for i in 0..5 {
+        let sub_child_id = ctx
+            .world
+            .create_entity(format!("child2_sub_{i}"), ComponentType::Container);
         child2_subchildren.push(sub_child_id);
         z_index_manager.register_component(sub_child_id, Some(child2_id));
     }
@@ -178,15 +195,21 @@ fn inverted_hierarchical_z_index_ordering() {
 
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
-    let parent_id = Uuid::new_v4();
+    let parent_id = ctx
+        .world
+        .create_entity("parent".to_string(), ComponentType::Container);
 
     // Set up root parent
     z_index_manager.set_root_id(parent_id);
     z_index_manager.register_component(parent_id, None);
 
     // Create two child components
-    let child1_id = Uuid::new_v4();
-    let child2_id = Uuid::new_v4();
+    let child1_id = ctx
+        .world
+        .create_entity("child1".to_string(), ComponentType::Container);
+    let child2_id = ctx
+        .world
+        .create_entity("child2".to_string(), ComponentType::Container);
 
     // Register children in order: child1 first, then child2
     z_index_manager.register_component(child1_id, Some(parent_id));
@@ -194,16 +217,20 @@ fn inverted_hierarchical_z_index_ordering() {
 
     // Create 5 sub-children for child1
     let mut child1_subchildren = Vec::new();
-    for _ in 0..5 {
-        let sub_child_id = Uuid::new_v4();
+    for i in 0..5 {
+        let sub_child_id = ctx
+            .world
+            .create_entity(format!("child1_sub_{i}"), ComponentType::Container);
         child1_subchildren.push(sub_child_id);
         z_index_manager.register_component(sub_child_id, Some(child1_id));
     }
 
     // Create 5 sub-children for child2
     let mut child2_subchildren = Vec::new();
-    for _ in 0..5 {
-        let sub_child_id = Uuid::new_v4();
+    for i in 0..5 {
+        let sub_child_id = ctx
+            .world
+            .create_entity(format!("child2_sub_{i}"), ComponentType::Container);
         child2_subchildren.push(sub_child_id);
         z_index_manager.register_component(sub_child_id, Some(child2_id));
     }
@@ -246,19 +273,33 @@ fn multiple_adjustments() {
 
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
-    let parent_id = Uuid::new_v4();
+    let parent_id = ctx
+        .world
+        .create_entity("parent".to_string(), ComponentType::Container);
 
     // Set up root parent
     z_index_manager.set_root_id(parent_id);
     z_index_manager.register_component(parent_id, None);
 
     // Create child components
-    let child1_id = Uuid::new_v4();
-    let child2_id = Uuid::new_v4();
-    let child3_id = Uuid::new_v4();
-    let child4_id = Uuid::new_v4();
-    let child5_id = Uuid::new_v4();
-    let child6_id = Uuid::new_v4();
+    let child1_id = ctx
+        .world
+        .create_entity("child1".to_string(), ComponentType::Container);
+    let child2_id = ctx
+        .world
+        .create_entity("child2".to_string(), ComponentType::Container);
+    let child3_id = ctx
+        .world
+        .create_entity("child3".to_string(), ComponentType::Container);
+    let child4_id = ctx
+        .world
+        .create_entity("child4".to_string(), ComponentType::Container);
+    let child5_id = ctx
+        .world
+        .create_entity("child5".to_string(), ComponentType::Container);
+    let child6_id = ctx
+        .world
+        .create_entity("child6".to_string(), ComponentType::Container);
 
     // Register children in order: child1 first, then child2
     z_index_manager.register_component(child1_id, Some(parent_id));
@@ -308,15 +349,21 @@ fn multiple_adjustments_in_hierarchy() {
 
     ctx.initialize(viewport_size, &mut wgpu_ctx, &get_event_sender());
 
-    let parent_id = Uuid::new_v4();
+    let parent_id = ctx
+        .world
+        .create_entity("parent".to_string(), ComponentType::Container);
 
     // Set up root parent
     z_index_manager.set_root_id(parent_id);
     z_index_manager.register_component(parent_id, None);
 
     // Create child components
-    let child1_id = Uuid::new_v4();
-    let child2_id = Uuid::new_v4();
+    let child1_id = ctx
+        .world
+        .create_entity("child1".to_string(), ComponentType::Container);
+    let child2_id = ctx
+        .world
+        .create_entity("child2".to_string(), ComponentType::Container);
 
     // Register children in order: child1 first, then child2
     z_index_manager.register_component(child1_id, Some(parent_id));
@@ -327,11 +374,21 @@ fn multiple_adjustments_in_hierarchy() {
     z_index_manager.set_adjustment(child2_id, -1);
 
     // Create 5 sub-children for child1
-    let child1_subchild_1 = Uuid::new_v4();
-    let child1_subchild_2 = Uuid::new_v4();
-    let child1_subchild_3 = Uuid::new_v4();
-    let child1_subchild_4 = Uuid::new_v4();
-    let child1_subchild_5 = Uuid::new_v4();
+    let child1_subchild_1 = ctx
+        .world
+        .create_entity("child1_sub1".to_string(), ComponentType::Container);
+    let child1_subchild_2 = ctx
+        .world
+        .create_entity("child1_sub2".to_string(), ComponentType::Container);
+    let child1_subchild_3 = ctx
+        .world
+        .create_entity("child1_sub3".to_string(), ComponentType::Container);
+    let child1_subchild_4 = ctx
+        .world
+        .create_entity("child1_sub4".to_string(), ComponentType::Container);
+    let child1_subchild_5 = ctx
+        .world
+        .create_entity("child1_sub5".to_string(), ComponentType::Container);
 
     // Register child1's sub-children
     z_index_manager.register_component(child1_subchild_1, Some(child1_id));
@@ -348,11 +405,21 @@ fn multiple_adjustments_in_hierarchy() {
     z_index_manager.set_adjustment(child1_subchild_5, 4);
 
     // Create 5 sub-children for child2
-    let child2_subchild_1 = Uuid::new_v4();
-    let child2_subchild_2 = Uuid::new_v4();
-    let child2_subchild_3 = Uuid::new_v4();
-    let child2_subchild_4 = Uuid::new_v4();
-    let child2_subchild_5 = Uuid::new_v4();
+    let child2_subchild_1 = ctx
+        .world
+        .create_entity("child2_sub1".to_string(), ComponentType::Container);
+    let child2_subchild_2 = ctx
+        .world
+        .create_entity("child2_sub2".to_string(), ComponentType::Container);
+    let child2_subchild_3 = ctx
+        .world
+        .create_entity("child2_sub3".to_string(), ComponentType::Container);
+    let child2_subchild_4 = ctx
+        .world
+        .create_entity("child2_sub4".to_string(), ComponentType::Container);
+    let child2_subchild_5 = ctx
+        .world
+        .create_entity("child2_sub5".to_string(), ComponentType::Container);
 
     // Register child2's sub-children
     z_index_manager.register_component(child2_subchild_1, Some(child2_id));

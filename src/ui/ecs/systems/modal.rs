@@ -49,7 +49,7 @@ impl EcsSystem for ModalAnimationObserverSystem {
                             .remove(child_id);
                     }
 
-                    log::debug!("Modal {} is now open", modal_parent_id);
+                    log::debug!("Modal {modal_parent_id} is now open");
                 }
             } else if modal_comp.is_closing {
                 // Check if all children have completed exit animation
@@ -68,7 +68,7 @@ impl EcsSystem for ModalAnimationObserverSystem {
                             .remove(child_id);
                     }
 
-                    log::debug!("Modal {} is now closed", modal_parent_id);
+                    log::debug!("Modal {modal_parent_id} is now closed");
                 }
             }
         }

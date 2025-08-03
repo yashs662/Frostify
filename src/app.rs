@@ -174,7 +174,7 @@ impl App<'_> {
     fn try_handle_app_event(&mut self, event_loop: &ActiveEventLoop) -> bool {
         if let Some(receiver) = &mut self.event_receiver {
             if let Ok(event) = receiver.try_recv() {
-                log::debug!("Received app event: {:?}", event);
+                log::debug!("Received app event: {event:?}");
                 match event {
                     AppEvent::Close => {
                         event_loop.exit();
@@ -210,7 +210,7 @@ impl App<'_> {
                                 }
                             }
                             window.drag_window().unwrap_or_else(|e| {
-                                error!("Failed to drag window: {}", e);
+                                error!("Failed to drag window: {e}");
                             });
                             return true;
                         }
@@ -224,10 +224,7 @@ impl App<'_> {
                     }
                     AppEvent::OpenModal(modal_entity) => {
                         if !modal_entity.is_modal() {
-                            panic!(
-                                "Received OpenModal event for non-modal entity: {}",
-                                modal_entity
-                            );
+                            panic!("Received OpenModal event for non-modal entity: {modal_entity}");
                         }
 
                         // Open the modal through the modal management system
@@ -238,8 +235,7 @@ impl App<'_> {
                     AppEvent::CloseModal(modal_entity) => {
                         if !modal_entity.is_modal() {
                             panic!(
-                                "Received CloseModal event for non-modal entity: {}",
-                                modal_entity
+                                "Received CloseModal event for non-modal entity: {modal_entity}"
                             );
                         }
 
@@ -285,7 +281,7 @@ impl App<'_> {
         app_state: &mut AppState,
         view: UiView,
     ) {
-        log::trace!("Changing view to: {:?}", view);
+        log::trace!("Changing view to: {view:?}");
         if let Some(wgpu_ctx) = wgpu_ctx {
             layout_context.clear();
             match view {
@@ -313,9 +309,9 @@ impl App<'_> {
             while let Some(response) = worker.poll_responses() {
                 match response {
                     WorkerResponse::OAuthStarted { auth_url } => {
-                        debug!("OAuth flow started, URL: {}", auth_url);
+                        debug!("OAuth flow started, URL: {auth_url}");
                         webbrowser::open(&auth_url).unwrap_or_else(|e| {
-                            error!("Failed to open browser: {}", e);
+                            error!("Failed to open browser: {e}");
                         });
                     }
                     WorkerResponse::OAuthComplete { auth_response } => {
@@ -334,7 +330,7 @@ impl App<'_> {
                         }
                     }
                     WorkerResponse::OAuthFailed { error } => {
-                        error!("OAuth flow failed: {}", error);
+                        error!("OAuth flow failed: {error}");
                         // Stay on the login screen
                         self.app_state.is_checking_auth = false;
                     }
@@ -569,7 +565,7 @@ impl ApplicationHandler for App<'_> {
                         window
                             .drag_resize_window(resize_state.direction)
                             .unwrap_or_else(|e| {
-                                error!("Failed to resize window: {}", e);
+                                error!("Failed to resize window: {e}");
                             });
                     } else {
                         self.update_resize_cursor(position.x, position.y);

@@ -77,11 +77,7 @@ impl EcsSystem for MouseHoverSystem {
                 .expect("Expected at least one entity to be dragged");
 
             // Send the drag event
-            log::debug!(
-                "Sending drag event: {:?} for entity: {}",
-                drag_event,
-                entity_id
-            );
+            log::debug!("Sending drag event: {drag_event:?} for entity: {entity_id}");
             world.queue_event(*drag_event);
         }
     }
@@ -153,7 +149,7 @@ impl EcsSystem for MouseInputSystem {
             .iter()
             .max_by_key(|(_, _, index)| *index)
         {
-            log::debug!("Sending event: {:?} from entity: {}", app_event, entity_id);
+            log::debug!("Sending event: {app_event:?} from entity: {entity_id}");
             world.queue_event(*app_event);
         }
     }

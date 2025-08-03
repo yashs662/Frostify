@@ -43,11 +43,7 @@ impl StoredTokens {
             .unwrap_or(Duration::from_secs(0))
             .as_secs();
 
-        let expires_in = if self.expires_at > now {
-            self.expires_at - now
-        } else {
-            0
-        };
+        let expires_in = self.expires_at.saturating_sub(now);
 
         SpotifyAuthResponse {
             access_token: self.access_token.clone(),

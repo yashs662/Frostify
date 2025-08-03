@@ -372,6 +372,7 @@ impl<'window> WgpuCtx<'window> {
                                         },
                                         store: wgpu::StoreOp::Store,
                                     },
+                                    depth_slice: None,
                                 })],
                                 depth_stencil_attachment: None,
                                 occlusion_query_set: None,
@@ -444,6 +445,7 @@ impl<'window> WgpuCtx<'window> {
                                 load: load_op,
                                 store: wgpu::StoreOp::Store,
                             },
+                            depth_slice: None,
                         })],
                         depth_stencil_attachment: None,
                         occlusion_query_set: None,
@@ -516,6 +518,7 @@ impl<'window> WgpuCtx<'window> {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
@@ -757,7 +760,7 @@ fn update_frosted_glass_with_frame_texture(
                 resource: wgpu::BindingResource::Sampler(&render_comp.sampler),
             },
         ],
-        label: Some(format!("{} Unified Bind Group", entity_id).as_str()),
+        label: Some(format!("{entity_id} Unified Bind Group").as_str()),
     });
 
     render_comp.bind_group = Some(bind_group);

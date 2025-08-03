@@ -244,7 +244,7 @@ impl ModalBuilder {
         );
 
         let modal_parent_container_id = ContainerBuilder::new()
-            .with_debug_name(format!("Modal Parent Container for {}", modal_debug_name))
+            .with_debug_name(format!("Modal Parent Container for {modal_debug_name}"))
             .with_align_items(AlignItems::Center)
             .with_justify_content(JustifyContent::Center)
             .with_hidden_overflow()
@@ -310,7 +310,7 @@ impl ModalBuilder {
 
         if let Some(backdrop_color_config) = self.backdrop_color {
             let mut backdrop_builder = BackgroundBuilder::with_color(backdrop_color_config)
-                .with_debug_name(format!("Backdrop Color for {}", modal_debug_name))
+                .with_debug_name(format!("Backdrop Color for {modal_debug_name}"))
                 .with_fixed_position(Anchor::Center)
                 .with_z_index(current_child_z_index);
 
@@ -345,7 +345,7 @@ impl ModalBuilder {
 
         if let Some(backdrop_gradient_config) = self.backdrop_gradient {
             let mut backdrop_builder = BackgroundBuilder::with_gradient(backdrop_gradient_config)
-                .with_debug_name(format!("Backdrop Gradient for {}", modal_debug_name))
+                .with_debug_name(format!("Backdrop Gradient for {modal_debug_name}"))
                 .with_fixed_position(Anchor::Center)
                 .with_z_index(current_child_z_index);
 
@@ -371,7 +371,7 @@ impl ModalBuilder {
 
         if let Some(backdrop_image) = self.backdrop_image {
             let mut backdrop_builder = ImageBuilder::new(&backdrop_image)
-                .with_debug_name(format!("Backdrop Image for {}", modal_debug_name))
+                .with_debug_name(format!("Backdrop Image for {modal_debug_name}"))
                 .with_fixed_position(Anchor::Center)
                 .with_z_index(current_child_z_index);
 
@@ -402,7 +402,7 @@ impl ModalBuilder {
         if let Some(backdrop_frosted_glass_config) = self.backdrop_frosted_glass {
             let mut backdrop_builder =
                 BackgroundBuilder::with_frosted_glass(backdrop_frosted_glass_config)
-                    .with_debug_name(format!("Backdrop Frosted Glass for {}", modal_debug_name))
+                    .with_debug_name(format!("Backdrop Frosted Glass for {modal_debug_name}"))
                     .with_fixed_position(Anchor::Center)
                     .with_z_index(current_child_z_index);
 
@@ -438,7 +438,7 @@ impl ModalBuilder {
         // Modal Background
 
         let mut modal_container_builder = ContainerBuilder::new()
-            .with_debug_name(format!("Modal Container for {}", modal_debug_name))
+            .with_debug_name(format!("Modal Container for {modal_debug_name}"))
             .with_z_index(current_child_z_index);
 
         if self.common.position.is_none() {
@@ -463,7 +463,7 @@ impl ModalBuilder {
             let mut modal_background_builder =
                 BackgroundBuilder::with_color(modal_background_color_config)
                     .with_external_common_props(self.common.clone())
-                    .with_debug_name(format!("Modal Background Color for {}", modal_debug_name))
+                    .with_debug_name(format!("Modal Background Color for {modal_debug_name}"))
                     .with_fixed_position(Anchor::Center)
                     .with_z_index(current_child_z_index);
 
@@ -500,10 +500,7 @@ impl ModalBuilder {
             let mut modal_background_builder =
                 BackgroundBuilder::with_gradient(modal_background_gradient_config)
                     .with_external_common_props(self.common.clone())
-                    .with_debug_name(format!(
-                        "Modal Background Gradient for {}",
-                        modal_debug_name
-                    ))
+                    .with_debug_name(format!("Modal Background Gradient for {modal_debug_name}"))
                     .with_fixed_position(Anchor::Center)
                     .with_z_index(current_child_z_index);
 
@@ -530,8 +527,7 @@ impl ModalBuilder {
                 BackgroundBuilder::with_frosted_glass(modal_background_frosted_glass_config)
                     .with_external_common_props(self.common.clone())
                     .with_debug_name(format!(
-                        "Modal Background Frosted Glass for {}",
-                        modal_debug_name
+                        "Modal Background Frosted Glass for {modal_debug_name}"
                     ))
                     .with_fixed_position(Anchor::Center)
                     .with_z_index(current_child_z_index);
@@ -568,7 +564,7 @@ impl ModalBuilder {
         if let Some(modal_background_image) = self.background_image {
             let mut modal_background_builder = ImageBuilder::new(&modal_background_image)
                 .with_external_common_props(self.common.clone())
-                .with_debug_name(format!("Modal Background Image for {}", modal_debug_name))
+                .with_debug_name(format!("Modal Background Image for {modal_debug_name}"))
                 .with_fixed_position(Anchor::Center)
                 .with_z_index(current_child_z_index);
 
@@ -611,7 +607,7 @@ impl ModalBuilder {
             custom_close_button
         } else {
             let mut close_button_builder = ButtonBuilder::new()
-                .with_debug_name(format!("Close Button for {}", modal_debug_name))
+                .with_debug_name(format!("Close Button for {modal_debug_name}"))
                 .with_fixed_position(self.close_button_anchor)
                 .with_offset(self.close_button_offset)
                 .with_content_padding(Edges::all(5.0))

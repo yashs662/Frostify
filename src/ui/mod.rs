@@ -535,7 +535,7 @@ pub fn create_app_ui(wgpu_ctx: &mut WgpuCtx, layout_context: &mut layout::Layout
             "test.png"
         };
         let mut image_builder = ImageBuilder::new(image_name)
-            .with_debug_name(format!("Album Art {}", i))
+            .with_debug_name(format!("Album Art {i}"))
             .with_size(FlexValue::Fixed(70.0), FlexValue::Fixed(70.0))
             .with_border_radius(BorderRadius::all(5.0))
             .with_shadow(Color::Black, (0.0, 0.0), 4.0, 0.4)

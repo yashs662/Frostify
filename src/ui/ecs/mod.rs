@@ -19,14 +19,31 @@ use std::{
 };
 use strum_macros::Display;
 use tokio::sync::mpsc::UnboundedSender;
-use uuid::Uuid;
 
 pub mod builders;
 pub mod components;
 pub mod resources;
 pub mod systems;
 
-pub type EntityId = Uuid;
+/// Ultra-efficient entity ID using sequential integers
+/// This eliminates UUID overhead and enables direct array indexing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EntityId {
+    pub index: u32,
+    pub generation: u32,
+}
+
+impl EntityId {
+    pub fn new(index: u32, generation: u32) -> Self {
+        Self { index, generation }
+    }
+}
+
+impl std::fmt::Display for EntityId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.index, self.generation)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum ComponentType {
@@ -139,91 +156,327 @@ pub trait EcsResource: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
+/// Ultra-efficient component storage using direct array indexing
+/// No more HashMap lookups - direct O(1) array access using entity index
+pub struct ComponentStorage<T: EcsComponent> {
+    /// Dense array of components indexed directly by entity index
+    components: Vec<Option<T>>,
+    /// Generation counter to match entity generations for safety
+    generations: Vec<u32>,
+    /// List of free indices for reuse
+    free_indices: Vec<u32>,
+}
+
+/// Iterator for mutable component access
+pub struct IterMut<'a, T> {
+    components: std::iter::Enumerate<std::slice::IterMut<'a, Option<T>>>,
+    generations: &'a [u32],
+}
+
+impl<'a, T: EcsComponent> Iterator for IterMut<'a, T> {
+    type Item = (EntityId, &'a mut T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (index, component) in self.components.by_ref() {
+            if let Some(comp) = component.as_mut() {
+                let generation = self.generations[index];
+                return Some((EntityId::new(index as u32, generation), comp));
+            }
+        }
+        None
+    }
+}
+
+impl<T: EcsComponent> ComponentStorage<T> {
+    pub fn new() -> Self {
+        Self {
+            components: Vec::new(),
+            generations: Vec::new(),
+            free_indices: Vec::new(),
+        }
+    }
+
+    /// Ensure storage can accommodate the given entity index
+    fn ensure_capacity(&mut self, index: usize) {
+        if index >= self.components.len() {
+            self.components.resize_with(index + 1, || None);
+            self.generations.resize(index + 1, 0);
+        }
+    }
+
+    pub fn insert(&mut self, entity: EntityId, component: T) -> bool {
+        let index = entity.index as usize;
+
+        // Ensure we have enough capacity
+        self.ensure_capacity(index);
+
+        // Check if entity generation matches (prevents use-after-free with recycled IDs)
+        if self.generations[index] != entity.generation {
+            return false;
+        }
+
+        // Check if component already exists
+        if self.components[index].is_some() {
+            return false;
+        }
+
+        self.components[index] = Some(component);
+        true
+    }
+
+    pub fn get(&self, entity: EntityId) -> Option<&T> {
+        let index = entity.index as usize;
+
+        if index >= self.components.len() {
+            return None;
+        }
+
+        // Verify generation matches
+        if self.generations[index] != entity.generation {
+            return None;
+        }
+
+        self.components[index].as_ref()
+    }
+
+    pub fn get_mut(&mut self, entity: EntityId) -> Option<&mut T> {
+        let index = entity.index as usize;
+
+        if index >= self.components.len() {
+            return None;
+        }
+
+        // Verify generation matches
+        if self.generations[index] != entity.generation {
+            return None;
+        }
+
+        self.components[index].as_mut()
+    }
+
+    pub fn remove(&mut self, entity: EntityId) -> Option<T> {
+        let index = entity.index as usize;
+
+        if index >= self.components.len() {
+            return None;
+        }
+
+        // Verify generation matches
+        if self.generations[index] != entity.generation {
+            return None;
+        }
+
+        self.components[index].take()
+    }
+
+    /// Iterate over all components (skips None slots automatically)
+    pub fn iter(&self) -> impl Iterator<Item = (EntityId, &T)> + '_ {
+        self.components
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, component)| {
+                component
+                    .as_ref()
+                    .map(|comp| (EntityId::new(index as u32, self.generations[index]), comp))
+            })
+    }
+
+    /// Mutable iteration over all components
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        IterMut {
+            components: self.components.iter_mut().enumerate(),
+            generations: &self.generations,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.components.iter().filter(|c| c.is_some()).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.components.iter().all(|c| c.is_none())
+    }
+
+    pub fn clear(&mut self) {
+        self.components.clear();
+        self.generations.clear();
+        self.free_indices.clear();
+    }
+
+    /// Mark an entity slot as free for the given generation
+    pub fn mark_entity_removed(&mut self, entity: EntityId) {
+        let index = entity.index as usize;
+        if index < self.generations.len() {
+            // Increment generation to invalidate old entity references
+            self.generations[index] = self.generations[index].wrapping_add(1);
+            self.free_indices.push(entity.index);
+        }
+    }
+
+    /// Check if entity exists in this storage
+    pub fn has_entity(&self, entity: EntityId) -> bool {
+        let index = entity.index as usize;
+        index < self.components.len()
+            && self.generations[index] == entity.generation
+            && self.components[index].is_some()
+    }
+}
+
+/// Type-erased component storage for dynamic access
+trait ComponentStorageErased: Send + Sync {
+    fn remove_entity(&mut self, entity: EntityId) -> bool;
+    fn has_entity(&self, entity: EntityId) -> bool;
+    fn len(&self) -> usize;
+    fn clear(&mut self);
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: EcsComponent> ComponentStorageErased for ComponentStorage<T> {
+    fn remove_entity(&mut self, entity: EntityId) -> bool {
+        let removed = self.remove(entity).is_some();
+        if removed {
+            self.mark_entity_removed(entity);
+        }
+        removed
+    }
+
+    fn has_entity(&self, entity: EntityId) -> bool {
+        self.has_entity(entity)
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn clear(&mut self) {
+        self.clear()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
 pub struct EcsComponents {
-    inner: HashMap<TypeId, HashMap<EntityId, Box<dyn EcsComponent>>>,
+    storages: HashMap<TypeId, Box<dyn ComponentStorageErased>>,
 }
 
 impl EcsComponents {
     pub fn new() -> Self {
         Self {
-            inner: HashMap::new(),
+            storages: HashMap::new(),
         }
     }
 
     pub fn clear(&mut self) {
-        self.inner.clear();
+        for storage in self.storages.values_mut() {
+            storage.clear();
+        }
+    }
+
+    /// Get or create storage for a component type
+    fn get_storage<T: EcsComponent>(&mut self) -> &mut ComponentStorage<T> {
+        let type_id = TypeId::of::<T>();
+        self.storages
+            .entry(type_id)
+            .or_insert_with(|| Box::new(ComponentStorage::<T>::new()));
+
+        self.storages
+            .get_mut(&type_id)
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<ComponentStorage<T>>()
+            .unwrap()
+    }
+
+    /// Get storage for a component type (read-only)
+    pub fn get_storage_ref<T: EcsComponent>(&self) -> Option<&ComponentStorage<T>> {
+        let type_id = TypeId::of::<T>();
+        self.storages
+            .get(&type_id)?
+            .as_any()
+            .downcast_ref::<ComponentStorage<T>>()
+    }
+
+    pub fn add_component<T: EcsComponent>(&mut self, entity: EntityId, component: T) -> bool {
+        self.get_storage::<T>().insert(entity, component)
     }
 
     pub fn get_component<T: EcsComponent + 'static>(&self, entity_id: EntityId) -> Option<&T> {
-        let type_id = TypeId::of::<T>();
-        self.inner
-            .get(&type_id)
-            .and_then(|entity_map| entity_map.get(&entity_id))
-            .and_then(|boxed_component| boxed_component.as_any().downcast_ref::<T>())
+        self.get_storage_ref::<T>()?.get(entity_id)
     }
 
     pub fn get_component_mut<T: EcsComponent + 'static>(
         &mut self,
         entity_id: EntityId,
     ) -> Option<&mut T> {
-        let type_id = TypeId::of::<T>();
-        self.inner
-            .get_mut(&type_id)
-            .and_then(|entity_map| entity_map.get_mut(&entity_id))
-            .and_then(|boxed_component| boxed_component.as_any_mut().downcast_mut::<T>())
+        self.get_storage::<T>().get_mut(entity_id)
     }
 
-    pub fn get_components_mut_pair<T1: EcsComponent + 'static, T2: EcsComponent + 'static>(
-        &mut self,
-        entity_id: EntityId,
-    ) -> Option<(&mut T1, &mut T2)> {
-        let type1_id = TypeId::of::<T1>();
-        let type2_id = TypeId::of::<T2>();
-        let type_ids = [&type1_id, &type2_id];
+    pub fn remove_component<T: EcsComponent>(&mut self, entity: EntityId) -> Option<T> {
+        self.get_storage::<T>().remove(entity)
+    }
 
-        match self.inner.get_disjoint_mut(type_ids) {
-            [Some(map1), Some(map2)] => {
-                let comp1 = map1
-                    .get_mut(&entity_id)
-                    .and_then(|boxed| boxed.as_any_mut().downcast_mut::<T1>());
-                let comp2 = map2
-                    .get_mut(&entity_id)
-                    .and_then(|boxed| boxed.as_any_mut().downcast_mut::<T2>());
-                if let (Some(c1), Some(c2)) = (comp1, comp2) {
-                    Some((c1, c2))
-                } else {
-                    None
-                }
-            }
-            _ => None,
+    pub fn has_component<T: EcsComponent>(&self, entity: EntityId) -> bool {
+        self.get_storage_ref::<T>()
+            .map(|storage| storage.has_entity(entity))
+            .unwrap_or(false)
+    }
+
+    /// Remove all components for an entity
+    pub fn remove_entity(&mut self, entity: EntityId) {
+        for storage in self.storages.values_mut() {
+            storage.remove_entity(entity);
         }
     }
 
-    pub fn entry(&mut self, type_id: TypeId) -> &mut HashMap<EntityId, Box<dyn EcsComponent>> {
-        self.inner.entry(type_id).or_default()
+    /// Efficient iteration over single component type
+    pub fn for_each<T: EcsComponent, F>(&self, mut f: F)
+    where
+        F: FnMut(EntityId, &T),
+    {
+        if let Some(storage) = self.get_storage_ref::<T>() {
+            for (entity, component) in storage.iter() {
+                f(entity, component);
+            }
+        }
     }
 
-    pub fn get(&self, type_id: &TypeId) -> Option<&HashMap<EntityId, Box<dyn EcsComponent>>> {
-        self.inner.get(type_id)
+    /// Efficient mutable iteration over single component type
+    pub fn for_each_mut<T: EcsComponent, F>(&mut self, mut f: F)
+    where
+        F: FnMut(EntityId, &mut T),
+    {
+        let storage = self.get_storage::<T>();
+        for (entity, component) in storage.iter_mut() {
+            f(entity, component);
+        }
     }
 
     pub fn query_combined_2<T: EcsComponent + 'static, U: EcsComponent + 'static>(
         &self,
     ) -> Vec<(EntityId, &T, &U)> {
-        let type_id_t = TypeId::of::<T>();
-        let type_id_u = TypeId::of::<U>();
-
         let mut result = Vec::new();
 
-        if let (Some(t_map), Some(u_map)) = (self.get(&type_id_t), self.get(&type_id_u)) {
-            // Find entities that have both component types
-            for (entity_id, t_component) in t_map {
-                if let Some(u_component) = u_map.get(entity_id) {
-                    if let (Some(t), Some(u)) = (
-                        t_component.as_any().downcast_ref::<T>(),
-                        u_component.as_any().downcast_ref::<U>(),
-                    ) {
-                        result.push((*entity_id, t, u));
+        if let (Some(storage_t), Some(storage_u)) =
+            (self.get_storage_ref::<T>(), self.get_storage_ref::<U>())
+        {
+            // Iterate over the smaller storage for efficiency
+            if storage_t.len() <= storage_u.len() {
+                for (entity, t_comp) in storage_t.iter() {
+                    if let Some(u_comp) = storage_u.get(entity) {
+                        result.push((entity, t_comp, u_comp));
+                    }
+                }
+            } else {
+                for (entity, u_comp) in storage_u.iter() {
+                    if let Some(t_comp) = storage_t.get(entity) {
+                        result.push((entity, t_comp, u_comp));
                     }
                 }
             }
@@ -239,27 +492,46 @@ impl EcsComponents {
     >(
         &self,
     ) -> Vec<(EntityId, &T, &U, &V)> {
-        let type_id_t = TypeId::of::<T>();
-        let type_id_u = TypeId::of::<U>();
-        let type_id_v = TypeId::of::<V>();
-
         let mut result = Vec::new();
 
-        if let (Some(t_map), Some(u_map), Some(v_map)) = (
-            self.get(&type_id_t),
-            self.get(&type_id_u),
-            self.get(&type_id_v),
+        if let (Some(storage_t), Some(storage_u), Some(storage_v)) = (
+            self.get_storage_ref::<T>(),
+            self.get_storage_ref::<U>(),
+            self.get_storage_ref::<V>(),
         ) {
-            // Find entities that have all three component types
-            for (entity_id, t_component) in t_map {
-                if let Some(u_component) = u_map.get(entity_id) {
-                    if let Some(v_component) = v_map.get(entity_id) {
-                        if let (Some(t), Some(u), Some(v)) = (
-                            t_component.as_any().downcast_ref::<T>(),
-                            u_component.as_any().downcast_ref::<U>(),
-                            v_component.as_any().downcast_ref::<V>(),
-                        ) {
-                            result.push((*entity_id, t, u, v));
+            // Find smallest storage for iteration efficiency
+            let storages = [
+                (storage_t.len(), 0),
+                (storage_u.len(), 1),
+                (storage_v.len(), 2),
+            ];
+            let (_, smallest_idx) = storages.iter().min().unwrap();
+
+            match smallest_idx {
+                0 => {
+                    for (entity, t_comp) in storage_t.iter() {
+                        if let (Some(u_comp), Some(v_comp)) =
+                            (storage_u.get(entity), storage_v.get(entity))
+                        {
+                            result.push((entity, t_comp, u_comp, v_comp));
+                        }
+                    }
+                }
+                1 => {
+                    for (entity, u_comp) in storage_u.iter() {
+                        if let (Some(t_comp), Some(v_comp)) =
+                            (storage_t.get(entity), storage_v.get(entity))
+                        {
+                            result.push((entity, t_comp, u_comp, v_comp));
+                        }
+                    }
+                }
+                _ => {
+                    for (entity, v_comp) in storage_v.iter() {
+                        if let (Some(t_comp), Some(u_comp)) =
+                            (storage_t.get(entity), storage_u.get(entity))
+                        {
+                            result.push((entity, t_comp, u_comp, v_comp));
                         }
                     }
                 }
@@ -303,7 +575,14 @@ impl EcsResources {
 
 // World - main ECS container
 pub struct World {
+    /// List of all entity IDs (for iteration)
     entities: Vec<EntityId>,
+    /// Next entity index to assign
+    next_entity_index: u32,
+    /// Free entity indices for reuse
+    free_entity_indices: Vec<u32>,
+    /// Generation counter for each entity index
+    entity_generations: Vec<u32>,
     pub components: EcsComponents,
     pub resources: EcsResources,
 }
@@ -318,6 +597,9 @@ impl World {
     pub fn new() -> Self {
         Self {
             entities: Vec::new(),
+            next_entity_index: 0,
+            free_entity_indices: Vec::new(),
+            entity_generations: Vec::new(),
             components: EcsComponents::new(),
             resources: EcsResources::new(),
         }
@@ -333,10 +615,11 @@ impl World {
     }
 
     pub fn get_entities_with_component<T: EcsComponent + 'static>(&self) -> Vec<EntityId> {
-        let type_id = TypeId::of::<T>();
-        self.components
-            .get(&type_id)
-            .map_or_else(Vec::new, |entity_map| entity_map.keys().cloned().collect())
+        if let Some(storage) = self.components.get_storage_ref::<T>() {
+            storage.iter().map(|(entity, _)| entity).collect()
+        } else {
+            Vec::new()
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -375,7 +658,22 @@ impl World {
         // Validate that the debug name is unique
         self.validate_unique_debug_name(&debug_name);
 
-        let entity_id = Uuid::new_v4();
+        // Get the next entity index (reuse if available)
+        let index = if let Some(free_index) = self.free_entity_indices.pop() {
+            free_index
+        } else {
+            let index = self.next_entity_index;
+            self.next_entity_index += 1;
+            index
+        };
+
+        // Ensure we have enough generation storage
+        if index as usize >= self.entity_generations.len() {
+            self.entity_generations.resize(index as usize + 1, 0);
+        }
+
+        let generation = self.entity_generations[index as usize];
+        let entity_id = EntityId::new(index, generation);
         self.entities.push(entity_id);
 
         // Add IdentityComponent by default
@@ -394,7 +692,7 @@ impl World {
     fn validate_unique_debug_name(&self, debug_name: &str) {
         self.for_each_component::<IdentityComponent, _>(|_, component| {
             if component.debug_name == debug_name {
-                panic!("Entity with debug name {} already exists", debug_name);
+                panic!("Entity with debug name {debug_name} already exists");
             }
         });
     }
@@ -406,11 +704,14 @@ impl World {
             debug_name.to_string()
         };
 
-        log::trace!("New Entity | {:<40} | ID: {}", truncated_name, entity_id);
+        log::trace!("New Entity | {truncated_name:<40} | ID: {entity_id}");
     }
 
     pub fn reset(&mut self) {
         self.entities.clear();
+        self.next_entity_index = 0;
+        self.free_entity_indices.clear();
+        self.entity_generations.clear();
         self.components.clear();
         self.reset_resettable_resources();
         log::trace!("World reset");
@@ -418,22 +719,28 @@ impl World {
 
     pub fn add_component<T: EcsComponent>(&mut self, entity_id: EntityId, component: T) {
         if !self.entities.contains(&entity_id) {
-            panic!(
-                "Tried to add component to non existent entity with Entity ID {}",
-                entity_id
-            );
+            panic!("Tried to add component to non existent entity with Entity ID {entity_id}");
         }
-        if self
-            .components
-            .get(&TypeId::of::<T>())
-            .and_then(|entity_map| entity_map.get(&entity_id))
-            .is_some()
-        {
+        if self.components.has_component::<T>(entity_id) {
             panic!("Entity already has a component of this type");
         }
-        let type_id = TypeId::of::<T>();
-        let entity_map = self.components.entry(type_id);
-        entity_map.insert(entity_id, Box::new(component));
+        self.components.add_component(entity_id, component);
+    }
+
+    /// Remove an entity and all its components
+    pub fn remove_entity(&mut self, entity_id: EntityId) {
+        // Remove from entities list
+        self.entities.retain(|&e| e != entity_id);
+
+        // Remove all components for this entity
+        self.components.remove_entity(entity_id);
+
+        // Mark the entity index as free and increment generation
+        let index = entity_id.index as usize;
+        if index < self.entity_generations.len() {
+            self.entity_generations[index] = self.entity_generations[index].wrapping_add(1);
+            self.free_entity_indices.push(entity_id.index);
+        }
     }
 
     pub fn add_resource<T: EcsResource>(&mut self, resource: T) {
@@ -448,27 +755,13 @@ impl World {
 
     pub fn for_each_component_mut<T: EcsComponent + 'static, F: FnMut(EntityId, &mut T)>(
         &mut self,
-        mut f: F,
+        f: F,
     ) {
-        let type_id = TypeId::of::<T>();
-        if let Some(entity_map) = self.components.inner.get_mut(&type_id) {
-            for (entity_id, component) in entity_map {
-                if let Some(typed_component) = component.as_any_mut().downcast_mut::<T>() {
-                    f(*entity_id, typed_component);
-                }
-            }
-        }
+        self.components.for_each_mut::<T, _>(f);
     }
 
-    pub fn for_each_component<T: EcsComponent + 'static, F: FnMut(EntityId, &T)>(&self, mut f: F) {
-        let type_id = TypeId::of::<T>();
-        if let Some(entity_map) = self.components.get(&type_id) {
-            for (entity_id, component) in entity_map {
-                if let Some(typed_component) = component.as_any().downcast_ref::<T>() {
-                    f(*entity_id, typed_component);
-                }
-            }
-        }
+    pub fn for_each_component<T: EcsComponent + 'static, F: FnMut(EntityId, &T)>(&self, f: F) {
+        self.components.for_each::<T, _>(f);
     }
 }
 

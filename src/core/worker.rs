@@ -59,13 +59,13 @@ impl Worker {
 
                                 match auth_response {
                                     Ok(auth_response) => {
-                                        debug!("OAuth complete: {:?}", auth_response);
+                                        debug!("OAuth complete: {auth_response:?}");
 
                                         // Save tokens for later use
                                         let stored_tokens =
                                             StoredTokens::from(auth_response.clone());
                                         if let Err(e) = token_manager::save_tokens(&stored_tokens) {
-                                            error!("Failed to save tokens: {}", e);
+                                            error!("Failed to save tokens: {e}");
                                         }
 
                                         response_sender_clone
@@ -98,8 +98,7 @@ impl Worker {
                                                         token_manager::save_tokens(&new_tokens)
                                                     {
                                                         error!(
-                                                            "Failed to save refreshed tokens: {}",
-                                                            e
+                                                            "Failed to save refreshed tokens: {e}"
                                                         );
                                                     }
 
@@ -110,7 +109,7 @@ impl Worker {
                                                         .unwrap();
                                                 }
                                                 Err(e) => {
-                                                    error!("Failed to refresh token: {}", e);
+                                                    error!("Failed to refresh token: {e}");
                                                     response_sender_clone
                                                         .send(WorkerResponse::NoStoredTokens)
                                                         .unwrap();
@@ -126,7 +125,7 @@ impl Worker {
                                         }
                                     }
                                     Err(e) => {
-                                        debug!("No stored tokens found: {}", e);
+                                        debug!("No stored tokens found: {e}");
                                         response_sender_clone
                                             .send(WorkerResponse::NoStoredTokens)
                                             .unwrap();

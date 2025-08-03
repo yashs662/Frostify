@@ -683,10 +683,7 @@ impl LayoutContext {
         if root_component_ids.is_empty() {
             panic!("No root components found in the world");
         } else if root_component_ids.len() > 1 {
-            panic!(
-                "Multiple root components found in the world {:?}",
-                root_component_ids
-            );
+            panic!("Multiple root components found in the world {root_component_ids:?}");
         }
 
         self.root_component_id = Some(root_component_ids[0]);
@@ -888,51 +885,86 @@ impl LayoutContext {
             .expect("TextRenderingResource should exist");
 
         for (entity, new_bounds) in text_updated_bounds {
-            let (text_comp, render_data_comp) = self
-                .world
-                .components
-                .get_components_mut_pair::<TextComponent, RenderDataComponent>(entity)
-                .expect("Expected TextComponent and RenderDataComponent to exist");
+            // Update text component bounds
+            {
+                let text_comp = self
+                    .world
+                    .components
+                    .get_component_mut::<TextComponent>(entity)
+                    .expect("Expected TextComponent to exist");
 
-            text_comp.update_bounds(new_bounds, &mut text_resource.font_system);
-            text_comp.update_texture_if_needed(
-                &wgpu_ctx.device,
-                &wgpu_ctx.queue,
-                &mut text_resource.font_system,
-                &mut text_resource.swash_cache,
-            );
-
-            if text_comp.bind_group_update_required() {
-                let texture_view = text_comp.get_texture_view().expect(
-                    "Expected TextComponent to have a valid texture view after updating texture",
+                text_comp.update_bounds(new_bounds, &mut text_resource.font_system);
+                text_comp.update_texture_if_needed(
+                    &wgpu_ctx.device,
+                    &wgpu_ctx.queue,
+                    &mut text_resource.font_system,
+                    &mut text_resource.swash_cache,
                 );
+            }
 
-                let bind_group = wgpu_ctx
-                    .device
-                    .create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &wgpu_ctx.unified_bind_group_layout,
-                        entries: &[
-                            // Component uniform data
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: render_data_comp.render_data_buffer.as_entire_binding(),
-                            },
-                            // Text texture view
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(texture_view),
-                            },
-                            // Sampler
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: wgpu::BindingResource::Sampler(&render_data_comp.sampler),
-                            },
-                        ],
-                        label: Some(format!("{} Text Bind Group", entity).as_str()),
-                    });
+            // Update render data component
+            let texture_view_ptr = if let Some(text_comp) =
+                self.world.components.get_component::<TextComponent>(entity)
+            {
+                if text_comp.bind_group_update_required() {
+                    let texture_view = text_comp.get_texture_view().expect(
+                        "Expected TextComponent to have a valid texture view after updating texture",
+                    );
+                    Some(texture_view as *const _)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
-                render_data_comp.bind_group = Some(bind_group);
-                text_comp.reset_bind_group_update_required();
+            if let Some(texture_view_ptr) = texture_view_ptr {
+                if let Some(render_data_comp) = self
+                    .world
+                    .components
+                    .get_component_mut::<RenderDataComponent>(entity)
+                {
+                    let texture_view = unsafe { &*texture_view_ptr };
+                    let bind_group =
+                        wgpu_ctx
+                            .device
+                            .create_bind_group(&wgpu::BindGroupDescriptor {
+                                layout: &wgpu_ctx.unified_bind_group_layout,
+                                entries: &[
+                                    // Component uniform data
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: render_data_comp
+                                            .render_data_buffer
+                                            .as_entire_binding(),
+                                    },
+                                    // Text texture view
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::TextureView(texture_view),
+                                    },
+                                    // Sampler
+                                    wgpu::BindGroupEntry {
+                                        binding: 2,
+                                        resource: wgpu::BindingResource::Sampler(
+                                            &render_data_comp.sampler,
+                                        ),
+                                    },
+                                ],
+                                label: Some(format!("{entity} Text Bind Group").as_str()),
+                            });
+
+                    render_data_comp.bind_group = Some(bind_group);
+                }
+
+                // Reset bind group update flag on text component
+                if let Some(text_comp) = self
+                    .world
+                    .components
+                    .get_component_mut::<TextComponent>(entity)
+                {
+                    text_comp.reset_bind_group_update_required();
+                }
             }
         }
 
@@ -973,8 +1005,7 @@ impl LayoutContext {
 
         if modal_component.is_open || modal_component.is_opening || modal_component.is_closing {
             log::warn!(
-                "Modal {} is already open, opening, or closing. Skipping open request.",
-                modal_named_ref
+                "Modal {modal_named_ref} is already open, opening, or closing. Skipping open request."
             );
             return;
         }
@@ -1007,8 +1038,7 @@ impl LayoutContext {
 
         if !modal_component.is_open || modal_component.is_closing {
             log::warn!(
-                "Modal {} is already closed or closing. Skipping close request.",
-                modal_named_ref
+                "Modal {modal_named_ref} is already closed or closing. Skipping close request."
             );
             return;
         }
