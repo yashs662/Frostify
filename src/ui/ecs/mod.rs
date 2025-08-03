@@ -163,8 +163,7 @@ pub struct ComponentStorage<T: EcsComponent> {
     components: Vec<Option<T>>,
     /// Generation counter to match entity generations for safety
     generations: Vec<u32>,
-    /// List of free indices for reuse
-    free_indices: Vec<u32>,
+    // List of free indices for reuse (removed as unused)
 }
 
 /// Iterator for mutable component access
@@ -199,8 +198,14 @@ impl<T: EcsComponent> ComponentStorage<T> {
     /// Ensure storage can accommodate the given entity index
     fn ensure_capacity(&mut self, index: usize) {
         if index >= self.components.len() {
-            self.components.resize_with(index + 1, || None);
-            self.generations.resize(index + 1, 0);
+            // Use a growth factor (double the current length or at least index+1)
+            let current_len = self.components.len();
+            let mut new_len = current_len.max(1);
+            while new_len <= index {
+                new_len *= 2;
+            }
+            self.components.resize_with(new_len, || None);
+            self.generations.resize(new_len, 0);
         }
     }
 
@@ -384,11 +389,7 @@ impl EcsComponents {
         let type_id = TypeId::of::<T>();
         self.storages
             .entry(type_id)
-            .or_insert_with(|| Box::new(ComponentStorage::<T>::new()));
-
-        self.storages
-            .get_mut(&type_id)
-            .unwrap()
+            .or_insert_with(|| Box::new(ComponentStorage::<T>::new()))
             .as_any_mut()
             .downcast_mut::<ComponentStorage<T>>()
             .unwrap()
