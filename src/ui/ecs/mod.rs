@@ -163,7 +163,8 @@ pub struct ComponentStorage<T: EcsComponent> {
     components: Vec<Option<T>>,
     /// Generation counter to match entity generations for safety
     generations: Vec<u32>,
-    // List of free indices for reuse (removed as unused)
+    /// List of free indices for reuse
+    free_indices: Vec<u32>,
 }
 
 /// Iterator for mutable component access
