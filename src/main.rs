@@ -56,7 +56,7 @@ fn main() -> Result<(), EventLoopError> {
     }
 
     if let Some(test_ui_view) = args.ui_test {
-        println!("Running in UI test mode: {:?}", test_ui_view);
+        println!("Running in UI test mode: {test_ui_view:?}");
     }
 
     // Initialize assets before creating the event loop

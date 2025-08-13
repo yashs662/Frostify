@@ -38,8 +38,7 @@ impl EcsSystem for RenderPrepareSystem {
                 .get_component::<IdentityComponent>(*component_id)
                 .unwrap_or_else(|| {
                     panic!(
-                        "Failed to get IdentityComponent for entity: {}",
-                        component_id
+                        "Failed to get IdentityComponent for entity: {component_id}"
                     )
                 });
 
@@ -48,8 +47,7 @@ impl EcsSystem for RenderPrepareSystem {
                 .get_component::<InteractionComponent>(*component_id)
                 .unwrap_or_else(|| {
                     panic!(
-                        "Failed to get InteractionComponent for entity: {}",
-                        component_id
+                        "Failed to get InteractionComponent for entity: {component_id}"
                     )
                 });
 

@@ -684,8 +684,7 @@ impl LayoutContext {
             panic!("No root components found in the world");
         } else if root_component_ids.len() > 1 {
             panic!(
-                "Multiple root components found in the world {:?}",
-                root_component_ids
+                "Multiple root components found in the world {root_component_ids:?}"
             );
         }
 
@@ -928,7 +927,7 @@ impl LayoutContext {
                                 resource: wgpu::BindingResource::Sampler(&render_data_comp.sampler),
                             },
                         ],
-                        label: Some(format!("{} Text Bind Group", entity).as_str()),
+                        label: Some(format!("{entity} Text Bind Group").as_str()),
                     });
 
                 render_data_comp.bind_group = Some(bind_group);
@@ -973,8 +972,7 @@ impl LayoutContext {
 
         if modal_component.is_open || modal_component.is_opening || modal_component.is_closing {
             log::warn!(
-                "Modal {} is already open, opening, or closing. Skipping open request.",
-                modal_named_ref
+                "Modal {modal_named_ref} is already open, opening, or closing. Skipping open request."
             );
             return;
         }
@@ -1007,8 +1005,7 @@ impl LayoutContext {
 
         if !modal_component.is_open || modal_component.is_closing {
             log::warn!(
-                "Modal {} is already closed or closing. Skipping close request.",
-                modal_named_ref
+                "Modal {modal_named_ref} is already closed or closing. Skipping close request."
             );
             return;
         }

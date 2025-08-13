@@ -80,10 +80,7 @@ impl NamedRefsResource {
         if let Some(existing_id) = self.named_refs_map.get(&named_ref) {
             if *existing_id != entity_id {
                 log::warn!(
-                    "Overwriting existing entity ID for named reference '{}': {} -> {}",
-                    named_ref,
-                    existing_id,
-                    entity_id
+                    "Overwriting existing entity ID for named reference '{named_ref}': {existing_id} -> {entity_id}"
                 );
             }
         }
@@ -104,7 +101,7 @@ impl TextRenderingResource {
 
         for font_asset in font_assets {
             let font_file_bytes = get_asset(font_asset)
-                .unwrap_or_else(|| panic!("Failed to load custom font asset: {}", font_asset));
+                .unwrap_or_else(|| panic!("Failed to load custom font asset: {font_asset}"));
             font_db.load_font_data(font_file_bytes.to_vec());
         }
 

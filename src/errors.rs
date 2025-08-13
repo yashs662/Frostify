@@ -38,16 +38,16 @@ pub enum AuthError {
 impl fmt::Display for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AuthError::Network(msg) => write!(f, "Network error: {}", msg),
+            AuthError::Network(msg) => write!(f, "Network error: {msg}"),
             AuthError::Api(msg, status) => match status {
-                Some(code) => write!(f, "API error ({}): {}", code, msg),
-                None => write!(f, "API error: {}", msg),
+                Some(code) => write!(f, "API error ({code}): {msg}"),
+                None => write!(f, "API error: {msg}"),
             },
-            AuthError::Server(msg) => write!(f, "Server error: {}", msg),
-            AuthError::Timeout(msg) => write!(f, "Timeout: {}", msg),
-            AuthError::Generic(msg) => write!(f, "Authentication error: {}", msg),
-            AuthError::Parse(msg) => write!(f, "Parse error: {}", msg),
-            AuthError::Storage(msg) => write!(f, "Storage error: {}", msg),
+            AuthError::Server(msg) => write!(f, "Server error: {msg}"),
+            AuthError::Timeout(msg) => write!(f, "Timeout: {msg}"),
+            AuthError::Generic(msg) => write!(f, "Authentication error: {msg}"),
+            AuthError::Parse(msg) => write!(f, "Parse error: {msg}"),
+            AuthError::Storage(msg) => write!(f, "Storage error: {msg}"),
         }
     }
 }

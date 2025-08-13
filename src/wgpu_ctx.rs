@@ -757,7 +757,7 @@ fn update_frosted_glass_with_frame_texture(
                 resource: wgpu::BindingResource::Sampler(&render_comp.sampler),
             },
         ],
-        label: Some(format!("{} Unified Bind Group", entity_id).as_str()),
+        label: Some(format!("{entity_id} Unified Bind Group").as_str()),
     });
 
     render_comp.bind_group = Some(bind_group);

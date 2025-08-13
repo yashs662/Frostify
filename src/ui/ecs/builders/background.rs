@@ -139,7 +139,7 @@ impl BackgroundBuilder {
             wgpu_ctx
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(format!("{} Render Data Buffer", entity_id).as_str()),
+                    label: Some(format!("{entity_id} Render Data Buffer").as_str()),
                     contents: bytemuck::cast_slice(&[create_entity_buffer_data(
                         &world.components,
                         entity_id,
@@ -158,7 +158,7 @@ impl BackgroundBuilder {
                 let placeholder_texture_data: [u8; 4] = [0, 0, 0, 0]; // Transparent pixel
                 let placeholder_texture =
                     wgpu_ctx.device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some(format!("{} Placeholder Texture", entity_id).as_str()),
+                        label: Some(format!("{entity_id} Placeholder Texture").as_str()),
                         size: placeholder_texture_size,
                         mip_level_count: 1,
                         sample_count: 1,
@@ -233,7 +233,7 @@ impl BackgroundBuilder {
                         resource: wgpu::BindingResource::Sampler(&sampler),
                     },
                 ],
-                label: Some(format!("{} Unified Bind Group", entity_id).as_str()),
+                label: Some(format!("{entity_id} Unified Bind Group").as_str()),
             });
 
         // Add render data component with bind group

@@ -171,7 +171,7 @@ impl ImageBuilder {
             wgpu_ctx
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(format!("{} Render Data Buffer", entity_id).as_str()),
+                    label: Some(format!("{entity_id} Render Data Buffer").as_str()),
                     contents: bytemuck::cast_slice(&[create_entity_buffer_data(
                         &world.components,
                         entity_id,
@@ -201,7 +201,7 @@ impl ImageBuilder {
                         resource: wgpu::BindingResource::Sampler(&sampler),
                     },
                 ],
-                label: Some(format!("{} Unified Bind Group", entity_id).as_str()),
+                label: Some(format!("{entity_id} Unified Bind Group").as_str()),
             });
 
         // Add render data component with bind group

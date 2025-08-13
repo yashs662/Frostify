@@ -394,7 +394,7 @@ impl World {
     fn validate_unique_debug_name(&self, debug_name: &str) {
         self.for_each_component::<IdentityComponent, _>(|_, component| {
             if component.debug_name == debug_name {
-                panic!("Entity with debug name {} already exists", debug_name);
+                panic!("Entity with debug name {debug_name} already exists");
             }
         });
     }
@@ -406,7 +406,7 @@ impl World {
             debug_name.to_string()
         };
 
-        log::trace!("New Entity | {:<40} | ID: {}", truncated_name, entity_id);
+        log::trace!("New Entity | {truncated_name:<40} | ID: {entity_id}");
     }
 
     pub fn reset(&mut self) {
@@ -419,8 +419,7 @@ impl World {
     pub fn add_component<T: EcsComponent>(&mut self, entity_id: EntityId, component: T) {
         if !self.entities.contains(&entity_id) {
             panic!(
-                "Tried to add component to non existent entity with Entity ID {}",
-                entity_id
+                "Tried to add component to non existent entity with Entity ID {entity_id}"
             );
         }
         if self

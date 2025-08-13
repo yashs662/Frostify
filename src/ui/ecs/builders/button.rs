@@ -194,7 +194,7 @@ impl ButtonBuilder {
         );
         let button_container_id = ContainerBuilder::new()
             .with_external_common_props(self.common.clone())
-            .with_debug_name(format!("Button Container for {}", button_debug_name))
+            .with_debug_name(format!("Button Container for {button_debug_name}"))
             .with_align_items(AlignItems::Center)
             .with_justify_content(JustifyContent::Center)
             .with_hidden_overflow()
@@ -214,8 +214,7 @@ impl ButtonBuilder {
         let content_container = if let Some(padding) = self.content_padding {
             let content_container_id = ContainerBuilder::new()
                 .with_debug_name(format!(
-                    "Button Content Container for {}",
-                    button_debug_name
+                    "Button Content Container for {button_debug_name}"
                 ))
                 .with_fixed_position(Anchor::Center)
                 .with_align_items(AlignItems::Center)
@@ -243,7 +242,7 @@ impl ButtonBuilder {
             let mut background_color_builder =
                 BackgroundBuilder::with_color(background_color_config)
                     .with_fixed_position(Anchor::Center)
-                    .with_debug_name(format!("Button Background Color for {}", button_debug_name))
+                    .with_debug_name(format!("Button Background Color for {button_debug_name}"))
                     .with_z_index(current_child_z_index);
 
             if let Some(animation) = background_color_animation {
@@ -270,8 +269,7 @@ impl ButtonBuilder {
                 BackgroundBuilder::with_gradient(background_gradient_config)
                     .with_fixed_position(Anchor::Center)
                     .with_debug_name(format!(
-                        "Button Background Gradient for {}",
-                        button_debug_name
+                        "Button Background Gradient for {button_debug_name}"
                     ))
                     .with_z_index(current_child_z_index);
 
@@ -294,7 +292,7 @@ impl ButtonBuilder {
             let mut background_image_builder = ImageBuilder::new(&background_image)
                 .with_fixed_position(Anchor::Center)
                 .with_scale_mode(self.background_image_scale_mode.unwrap_or_default())
-                .with_debug_name(format!("Button Background Image for {}", button_debug_name))
+                .with_debug_name(format!("Button Background Image for {button_debug_name}"))
                 .with_z_index(current_child_z_index);
 
             for animation in &generic_animations {
@@ -316,8 +314,7 @@ impl ButtonBuilder {
             let mut background_frosted_glass_builder =
                 BackgroundBuilder::with_frosted_glass(frosted_glass_config)
                     .with_debug_name(format!(
-                        "Button Background Frosted Glass for {}",
-                        button_debug_name
+                        "Button Background Frosted Glass for {button_debug_name}"
                     ))
                     .with_fixed_position(Anchor::Center)
                     .with_z_index(current_child_z_index);
@@ -339,7 +336,7 @@ impl ButtonBuilder {
 
         if let Some(foreground_image) = self.foreground_image {
             let mut foreground_image_builder = ImageBuilder::new(&foreground_image)
-                .with_debug_name(format!("Button Foreground Image for {}", button_debug_name))
+                .with_debug_name(format!("Button Foreground Image for {button_debug_name}"))
                 .with_fixed_position(Anchor::Center)
                 .with_scale_mode(self.foreground_image_scale_mode.unwrap_or_default())
                 .with_z_index(current_child_z_index);
@@ -365,7 +362,7 @@ impl ButtonBuilder {
 
         if let Some(text_config) = &self.foreground_text {
             let mut text_builder = TextBuilder::new()
-                .with_debug_name(format!("Button Foreground Text for {}", button_debug_name))
+                .with_debug_name(format!("Button Foreground Text for {button_debug_name}"))
                 .with_fixed_position(Anchor::Center)
                 .with_text(text_config.text.clone())
                 .with_font_size(text_config.font_size)
