@@ -77,9 +77,7 @@ impl EcsSystem for MouseHoverSystem {
                 .expect("Expected at least one entity to be dragged");
 
             // Send the drag event
-            log::debug!(
-                "Sending drag event: {drag_event:?} for entity: {entity_id}"
-            );
+            log::debug!("Sending drag event: {drag_event:?} for entity: {entity_id}");
             world.queue_event(*drag_event);
         }
     }

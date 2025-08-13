@@ -418,9 +418,7 @@ impl World {
 
     pub fn add_component<T: EcsComponent>(&mut self, entity_id: EntityId, component: T) {
         if !self.entities.contains(&entity_id) {
-            panic!(
-                "Tried to add component to non existent entity with Entity ID {entity_id}"
-            );
+            panic!("Tried to add component to non existent entity with Entity ID {entity_id}");
         }
         if self
             .components

@@ -37,18 +37,14 @@ impl EcsSystem for RenderPrepareSystem {
                 .components
                 .get_component::<IdentityComponent>(*component_id)
                 .unwrap_or_else(|| {
-                    panic!(
-                        "Failed to get IdentityComponent for entity: {component_id}"
-                    )
+                    panic!("Failed to get IdentityComponent for entity: {component_id}")
                 });
 
             let interaction_comp = world
                 .components
                 .get_component::<InteractionComponent>(*component_id)
                 .unwrap_or_else(|| {
-                    panic!(
-                        "Failed to get InteractionComponent for entity: {component_id}"
-                    )
+                    panic!("Failed to get InteractionComponent for entity: {component_id}")
                 });
 
             // Skip container components and inactive components

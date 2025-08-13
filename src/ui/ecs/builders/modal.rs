@@ -500,9 +500,7 @@ impl ModalBuilder {
             let mut modal_background_builder =
                 BackgroundBuilder::with_gradient(modal_background_gradient_config)
                     .with_external_common_props(self.common.clone())
-                    .with_debug_name(format!(
-                        "Modal Background Gradient for {modal_debug_name}"
-                    ))
+                    .with_debug_name(format!("Modal Background Gradient for {modal_debug_name}"))
                     .with_fixed_position(Anchor::Center)
                     .with_z_index(current_child_z_index);
 

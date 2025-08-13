@@ -683,9 +683,7 @@ impl LayoutContext {
         if root_component_ids.is_empty() {
             panic!("No root components found in the world");
         } else if root_component_ids.len() > 1 {
-            panic!(
-                "Multiple root components found in the world {root_component_ids:?}"
-            );
+            panic!("Multiple root components found in the world {root_component_ids:?}");
         }
 
         self.root_component_id = Some(root_component_ids[0]);

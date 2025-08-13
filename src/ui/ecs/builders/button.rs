@@ -213,9 +213,7 @@ impl ButtonBuilder {
 
         let content_container = if let Some(padding) = self.content_padding {
             let content_container_id = ContainerBuilder::new()
-                .with_debug_name(format!(
-                    "Button Content Container for {button_debug_name}"
-                ))
+                .with_debug_name(format!("Button Content Container for {button_debug_name}"))
                 .with_fixed_position(Anchor::Center)
                 .with_align_items(AlignItems::Center)
                 .with_justify_content(JustifyContent::Center)

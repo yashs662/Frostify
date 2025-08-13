@@ -120,9 +120,7 @@ pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthRes
             .text()
             .await
             .unwrap_or_else(|_| "Could not read error response".to_string());
-        log::error!(
-            "Token request failed with status {status}: {error_text}"
-        );
+        log::error!("Token request failed with status {status}: {error_text}");
         return Err(AuthError::Api(error_text, Some(status.as_u16())));
     }
 
@@ -217,9 +215,7 @@ pub async fn refresh_token(refresh_token: &str) -> Result<SpotifyAuthResponse, A
             .text()
             .await
             .unwrap_or_else(|_| "Could not read error response".to_string());
-        log::error!(
-            "Refresh token request failed with status {status}: {error_text}"
-        );
+        log::error!("Refresh token request failed with status {status}: {error_text}");
         return Err(AuthError::Api(error_text, Some(status.as_u16())));
     }
 

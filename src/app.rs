@@ -224,9 +224,7 @@ impl App<'_> {
                     }
                     AppEvent::OpenModal(modal_entity) => {
                         if !modal_entity.is_modal() {
-                            panic!(
-                                "Received OpenModal event for non-modal entity: {modal_entity}"
-                            );
+                            panic!("Received OpenModal event for non-modal entity: {modal_entity}");
                         }
 
                         // Open the modal through the modal management system
