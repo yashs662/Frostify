@@ -218,14 +218,13 @@ impl EcsComponents {
         if let (Some(t_map), Some(u_map)) = (self.get(&type_id_t), self.get(&type_id_u)) {
             // Find entities that have both component types
             for (entity_id, t_component) in t_map {
-                if let Some(u_component) = u_map.get(entity_id) {
-                    if let (Some(t), Some(u)) = (
+                if let Some(u_component) = u_map.get(entity_id)
+                    && let (Some(t), Some(u)) = (
                         t_component.as_any().downcast_ref::<T>(),
                         u_component.as_any().downcast_ref::<U>(),
                     ) {
                         result.push((*entity_id, t, u));
                     }
-                }
             }
         }
 
@@ -252,17 +251,15 @@ impl EcsComponents {
         ) {
             // Find entities that have all three component types
             for (entity_id, t_component) in t_map {
-                if let Some(u_component) = u_map.get(entity_id) {
-                    if let Some(v_component) = v_map.get(entity_id) {
-                        if let (Some(t), Some(u), Some(v)) = (
+                if let Some(u_component) = u_map.get(entity_id)
+                    && let Some(v_component) = v_map.get(entity_id)
+                        && let (Some(t), Some(u), Some(v)) = (
                             t_component.as_any().downcast_ref::<T>(),
                             u_component.as_any().downcast_ref::<U>(),
                             v_component.as_any().downcast_ref::<V>(),
                         ) {
                             result.push((*entity_id, t, u, v));
                         }
-                    }
-                }
             }
         }
 

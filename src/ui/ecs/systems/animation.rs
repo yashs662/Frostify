@@ -277,12 +277,10 @@ impl EcsSystem for AnimationSystem {
             if let Some(AnimationComponent { animations, .. }) = world
                 .components
                 .get_component_mut::<AnimationComponent>(update.entity_id)
-            {
-                if update.animation_index < animations.len() {
+                && update.animation_index < animations.len() {
                     // Update the raw progress value, not the eased one
                     animations[update.animation_index].progress = update.raw_progress;
                 }
-            }
 
             updated_render_datas.push((
                 update.entity_id,
@@ -313,12 +311,10 @@ impl EcsSystem for AnimationSystem {
             if let Some(anim_comp) = world
                 .components
                 .get_component_mut::<AnimationComponent>(entity_id)
-            {
-                if animation_index < anim_comp.animations.len() {
+                && animation_index < anim_comp.animations.len() {
                     anim_comp.animations[animation_index].is_forever_going_forward =
                         !anim_comp.animations[animation_index].is_forever_going_forward;
                 }
-            }
         }
 
         // Third pass: Update render data buffers

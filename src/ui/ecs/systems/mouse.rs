@@ -197,8 +197,8 @@ impl EcsSystem for MouseScrollSystem {
         }
 
         // Apply scroll delta to the entity with the highest z index
-        if let Some((entity_id, _)) = entities_scrolled.iter().max_by_key(|(_, index)| *index) {
-            if let Some(layout_comp) = world
+        if let Some((entity_id, _)) = entities_scrolled.iter().max_by_key(|(_, index)| *index)
+            && let Some(layout_comp) = world
                 .components
                 .get_component_mut::<LayoutComponent>(*entity_id)
             {
@@ -214,7 +214,6 @@ impl EcsSystem for MouseScrollSystem {
                     .expect("Expected RequestReLayoutResource to be present");
                 request_relayout_resource.request_relayout = true;
             }
-        }
     }
 }
 

@@ -221,7 +221,7 @@ impl TextComponent {
         self
     }
 
-    fn get_text_attrs(font_family: Option<&str>) -> Attrs {
+    fn get_text_attrs(font_family: Option<&str>) -> Attrs<'_> {
         Attrs {
             color_opt: None,
             family: match font_family {
@@ -303,11 +303,10 @@ impl TextComponent {
             }
 
             // If no runs, fallback to buffer metrics
-            if total_height == 0.0 {
-                if let Some(run) = buffer.layout_runs().next() {
+            if total_height == 0.0
+                && let Some(run) = buffer.layout_runs().next() {
                     total_height = run.line_height;
                 }
-            }
 
             if max_width == 0.0 || total_height == 0.0 {
                 None
@@ -366,11 +365,10 @@ impl TextComponent {
             }
 
             // If no runs, fallback to buffer metrics
-            if total_height == 0.0 {
-                if let Some(run) = buffer.layout_runs().next() {
+            if total_height == 0.0
+                && let Some(run) = buffer.layout_runs().next() {
                     total_height = run.line_height;
                 }
-            }
 
             // Add padding, especially for descenders
             let width = (max_width.ceil() as u32 + 6).max(1); // Extra padding for side bearings

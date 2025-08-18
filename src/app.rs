@@ -196,8 +196,8 @@ impl App<'_> {
                     }
                     AppEvent::DragWindow => {
                         if let Some(window) = &self.window {
-                            if window.is_maximized() {
-                                if let Some(cursor_position) = self.app_state.cursor_position {
+                            if window.is_maximized()
+                                && let Some(cursor_position) = self.app_state.cursor_position {
                                     let old_window_size = window.inner_size();
                                     let x_ratio = cursor_position.0 / old_window_size.width as f64;
                                     window.set_maximized(false);
@@ -208,7 +208,6 @@ impl App<'_> {
                                         cursor_position.1 - 20.0,
                                     ));
                                 }
-                            }
                             window.drag_window().unwrap_or_else(|e| {
                                 error!("Failed to drag window: {e}");
                             });
@@ -586,8 +585,8 @@ impl ApplicationHandler for App<'_> {
                 };
 
                 // Only update dragging state if mouse is currently pressed
-                if mouse_resource.is_pressed {
-                    if let Some(press_pos) = mouse_resource.press_position {
+                if mouse_resource.is_pressed
+                    && let Some(press_pos) = mouse_resource.press_position {
                         // Only set dragging flag if we've moved at least a few pixels
                         let dx = curr_pos.x - press_pos.x;
                         let dy = curr_pos.y - press_pos.y;
@@ -596,7 +595,6 @@ impl ApplicationHandler for App<'_> {
                             mouse_resource.is_dragging = true;
                         }
                     }
-                }
 
                 mouse_resource.position = curr_pos;
                 self.layout_context.world.run_system(MouseHoverSystem);
@@ -643,8 +641,8 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if let Some((x, y)) = self.app_state.cursor_position {
-                    if let MouseScrollDelta::LineDelta(_, scroll_y) = delta {
+                if let Some((x, y)) = self.app_state.cursor_position
+                    && let MouseScrollDelta::LineDelta(_, scroll_y) = delta {
                         let mouse_resource = self
                             .layout_context
                             .world
@@ -660,7 +658,6 @@ impl ApplicationHandler for App<'_> {
                         self.layout_context.world.run_system(MouseScrollSystem);
                         self.layout_context.world.run_system(MouseHoverSystem);
                     }
-                }
             }
             WindowEvent::Focused(focused) => {
                 if focused {

@@ -77,13 +77,12 @@ impl NamedRefsResource {
     }
 
     pub fn set_entity_id(&mut self, named_ref: NamedRef, entity_id: EntityId) {
-        if let Some(existing_id) = self.named_refs_map.get(&named_ref) {
-            if *existing_id != entity_id {
+        if let Some(existing_id) = self.named_refs_map.get(&named_ref)
+            && *existing_id != entity_id {
                 log::warn!(
                     "Overwriting existing entity ID for named reference '{named_ref}': {existing_id} -> {entity_id}"
                 );
             }
-        }
         self.named_refs_map.insert(named_ref, entity_id);
     }
 }

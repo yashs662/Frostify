@@ -140,11 +140,10 @@ impl ZIndexManager {
             panic!("Warning: Attempted to register an already registered component");
         }
         // Check for cycles when setting a parent
-        if let Some(pid) = parent_id {
-            if pid == component_id || self.would_create_cycle(component_id, pid) {
+        if let Some(pid) = parent_id
+            && (pid == component_id || self.would_create_cycle(component_id, pid)) {
                 panic!("Warning: Attempted to create a cycle in component hierarchy");
             }
-        }
 
         self.hierarchy.insert(component_id, parent_id);
 

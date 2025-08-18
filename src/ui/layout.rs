@@ -782,38 +782,30 @@ impl LayoutContext {
                     .world
                     .components
                     .get_component::<ImageComponent>(*entity_id)
-                {
-                    if let Some((calc_size, calc_offset)) =
+                    && let Some((calc_size, calc_offset)) =
                         image_comp.calculate_fit_to_size(old_bounds)
-                    {
-                        if calc_size != old_bounds.size {
+                        && calc_size != old_bounds.size {
                             let new_bounds = Bounds {
                                 position: old_bounds.position,
                                 size: calc_size,
                             };
                             entities_requiring_resizing.push((*entity_id, new_bounds, calc_offset));
                         }
-                    }
-                }
 
                 // Check if any text components need to be fit to size
                 if let Some(text_comp) = self
                     .world
                     .components
                     .get_component::<TextComponent>(*entity_id)
-                {
-                    if let Some((calc_size, calc_offset)) =
+                    && let Some((calc_size, calc_offset)) =
                         text_comp.calculate_fit_to_size(old_bounds)
-                    {
-                        if calc_size != old_bounds.size {
+                        && calc_size != old_bounds.size {
                             let new_bounds = Bounds {
                                 position: old_bounds.position,
                                 size: calc_size,
                             };
                             entities_requiring_resizing.push((*entity_id, new_bounds, calc_offset));
                         }
-                    }
-                }
             }
 
             // update transform components of entities that need resizing
@@ -1330,14 +1322,13 @@ impl LayoutContext {
         heirarchy_comp: &HierarchyComponent,
         available_space: Bounds,
     ) -> Bounds {
-        if let Position::Grid(row, col) = transform_comp.position_type {
-            if let Some(parent_id) = &heirarchy_comp.parent {
-                if let Some(parent) = self
+        if let Position::Grid(row, col) = transform_comp.position_type
+            && let Some(parent_id) = &heirarchy_comp.parent
+                && let Some(parent) = self
                     .world
                     .components
                     .get_component::<LayoutComponent>(*parent_id)
-                {
-                    if let Some(grid) = &parent.layout.grid {
+                    && let Some(grid) = &parent.layout.grid {
                         // Calculate cell position and size
                         let mut x = available_space.position.x;
                         let mut y = available_space.position.y;
@@ -1381,9 +1372,6 @@ impl LayoutContext {
                             size: Size { width, height },
                         };
                     }
-                }
-            }
-        }
 
         // Fall back to flex layout if grid information is missing
         panic!("Grid layout not found, falling back to flex layout, this should not happen");
@@ -1596,8 +1584,7 @@ impl LayoutContext {
             .world
             .components
             .get_component_mut::<LayoutComponent>(*parent_id)
-        {
-            if component.layout.is_scrollable {
+            && component.layout.is_scrollable {
                 // Calculate total content size
                 let additional_flex_space = space_per_flex_unit * total_flex_grow;
                 let total_content_size = if component.layout.is_scrollable {
@@ -1618,7 +1605,6 @@ impl LayoutContext {
                 let max_scroll = (total_content_size - container_size).max(0.0);
                 component.layout.max_scroll = max_scroll;
             }
-        }
 
         // Get scroll position for this container
         let scroll_offset = if let Some(component) = self
