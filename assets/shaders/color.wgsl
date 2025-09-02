@@ -32,6 +32,9 @@ struct ComponentUniform {
     notch_position: u32,            // Anchor position: 0=left/top, 1=center, 2=right/bottom
 }
 
+// PI2 constant for 2 * PI
+const PI2 = 6.28318530718;
+
 @group(0) @binding(0)
 var<uniform> component : ComponentUniform;
 
@@ -106,7 +109,7 @@ fn get_content_color(pixel_coords: vec2<f32>, tex_coords: vec2<f32>, base_color:
     else if (component.use_texture == 2u) {
         // Improved frosted glass effect using high-quality Gaussian blur
         var blurAmount = component.blur_radius;
-        var background = gaussian_blur(t_diffuse, s_diffuse, tex_coords, blurAmount);
+        var background = gaussian_blur_opt(t_diffuse, s_diffuse, tex_coords, blurAmount);
         
         // Use tint_intensity parameter to control tint strength
         var tinted = mix(
@@ -126,6 +129,40 @@ fn get_content_color(pixel_coords: vec2<f32>, tex_coords: vec2<f32>, base_color:
         // Plain color mode
         return base_color;
     }
+}
+
+fn gaussian_blur_opt(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, blur_radius: f32) -> vec4<f32> {
+    // GAUSSIAN BLUR SETTINGS
+    let directions = 16.0; // BLUR DIRECTIONS (Default 16.0 - More is better but slower)
+    let quality = 3.0; // BLUR QUALITY (Default 4.0 - More is better but slower)
+    
+    // Get texture dimensions for proper radius calculation
+    let tex_size = vec2<f32>(textureDimensions(tex));
+    let radius = blur_radius / tex_size;
+    
+    // Pixel colour - start with the center sample
+    var color = textureSample(tex, samp, uv);
+
+    var d = 0.0;
+    loop {
+        if (d >= PI2) { break; }
+        
+        var i = 1.0 / quality;
+        loop {
+            if (i > 1.0) { break; }
+            
+            let offset = vec2<f32>(cos(d), sin(d)) * radius * i;
+            color += textureSample(tex, samp, uv + offset);
+            
+            i += 1.0 / quality;
+        }
+        
+        d += PI2 / directions;
+    }
+    
+    // Output to screen
+    color /= quality * directions - 15.0;
+    return color;
 }
 
 // High-quality Gaussian blur function
