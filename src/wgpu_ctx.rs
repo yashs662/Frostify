@@ -41,7 +41,7 @@ pub struct WgpuCtx<'window> {
 }
 
 impl<'window> WgpuCtx<'window> {
-    pub async fn new_async(window: Arc<Window>) -> WgpuCtx<'window> {
+    pub async fn new_async(window: Arc<dyn Window>) -> WgpuCtx<'window> {
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(Arc::clone(&window)).unwrap();
         let adapter = instance
@@ -64,7 +64,7 @@ impl<'window> WgpuCtx<'window> {
             .await
             .expect("Failed to create device");
 
-        let size = window.inner_size();
+        let size = window.surface_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
 
@@ -176,7 +176,7 @@ impl<'window> WgpuCtx<'window> {
         }
     }
 
-    pub fn new(window: Arc<Window>) -> WgpuCtx<'window> {
+    pub fn new(window: Arc<dyn Window>) -> WgpuCtx<'window> {
         pollster::block_on(WgpuCtx::new_async(window))
     }
 

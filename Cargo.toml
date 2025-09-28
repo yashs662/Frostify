@@ -5,7 +5,8 @@ edition = "2024"
 build = "build.rs"
 
 [dependencies]
-winit = "0.30.12"
+rustix = "1.1.2"
+winit = { git = "https://github.com/rust-windowing/winit.git", branch = "master" }
 wgpu = { version = "26.0.1", features = ["noop"] }
 tokio = { version = "1.47.1", features = ["full"] }
 bytemuck = { version = "1.23.2", features = ["derive"] }

@@ -22,9 +22,12 @@ use std::{sync::Arc, time::Instant};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use winit::{
     application::ApplicationHandler,
+    cursor::{Cursor, CursorIcon},
+    dpi::{PhysicalPosition, Position},
     event::{ElementState, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
-    window::{CursorIcon, Icon, ResizeDirection, Theme, Window, WindowId},
+    icon::{Icon, RgbaIcon},
+    window::{ResizeDirection, Theme, Window, WindowAttributes, WindowId},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -45,7 +48,7 @@ pub enum AppEvent {
 
 #[derive(Default)]
 pub struct App<'window> {
-    window: Option<Arc<Window>>,
+    window: Option<Arc<dyn Window>>,
     wgpu_ctx: Option<WgpuCtx<'window>>,
     event_sender: Option<UnboundedSender<AppEvent>>,
     event_receiver: Option<UnboundedReceiver<AppEvent>>,
@@ -171,7 +174,7 @@ impl App<'_> {
         }
     }
 
-    fn try_handle_app_event(&mut self, event_loop: &ActiveEventLoop) -> bool {
+    fn try_handle_app_event(&mut self, event_loop: &dyn ActiveEventLoop) -> bool {
         if let Some(receiver) = &mut self.event_receiver {
             if let Ok(event) = receiver.try_recv() {
                 log::debug!("Received app event: {event:?}");
@@ -198,15 +201,15 @@ impl App<'_> {
                         if let Some(window) = &self.window {
                             if window.is_maximized()
                                 && let Some(cursor_position) = self.app_state.cursor_position {
-                                    let old_window_size = window.inner_size();
+                                    let old_window_size = window.surface_size();
                                     let x_ratio = cursor_position.0 / old_window_size.width as f64;
                                     window.set_maximized(false);
-                                    let new_window_size = window.inner_size();
-                                    window.set_outer_position(winit::dpi::PhysicalPosition::new(
-                                        cursor_position.0
-                                            - (new_window_size.width as f64 * x_ratio),
-                                        cursor_position.1 - 20.0,
-                                    ));
+                                    let new_window_size = window.surface_size();
+                                    window.set_outer_position(Position::Physical(PhysicalPosition::new(
+                                        (cursor_position.0
+                                            - (new_window_size.width as f64 * x_ratio)) as i32,
+                                        (cursor_position.1 - 20.0) as i32,
+                                    )));
                                 }
                             window.drag_window().unwrap_or_else(|e| {
                                 error!("Failed to drag window: {e}");
@@ -402,47 +405,48 @@ impl App<'_> {
                 Some(ResizeDirection::South) => CursorIcon::SResize,
                 None => CursorIcon::Default,
             };
-            window.set_cursor(cursor);
+            window.set_cursor(Cursor::Icon(cursor));
         }
     }
 }
 
 impl ApplicationHandler for App<'_> {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
         if self.window.is_none() {
             let icon = load_icon(include_bytes!("../assets/frostify_logo.ico"));
             // allow unused_mut to avoid warnings on systems other than windows
             #[allow(unused_mut)]
-            let mut win_attr = Window::default_attributes()
+            let mut win_attr = WindowAttributes::default()
                 .with_title("Frostify")
                 .with_window_icon(Some(icon.clone()))
                 .with_decorations(false)
                 .with_transparent(true)
                 .with_resizable(true)
-                .with_min_inner_size(winit::dpi::PhysicalSize::new(800, 600))
+                .with_min_surface_size(winit::dpi::PhysicalSize::new(800, 600))
                 .with_blur(true)
-                .with_inner_size(winit::dpi::PhysicalSize::new(1100, 750))
+                .with_surface_size(winit::dpi::PhysicalSize::new(1100, 750))
                 .with_visible(false) // Start with window invisible
                 .with_theme(Some(Theme::Dark));
 
             #[cfg(target_os = "windows")]
             {
-                use winit::platform::windows::WindowAttributesExtWindows;
+                use winit::platform::windows::{WindowAttributesWindows, CornerPreference};
 
-                win_attr = win_attr
+                let windows_attrs = WindowAttributesWindows::default()
                     .with_taskbar_icon(Some(icon))
-                    .with_system_backdrop(winit::platform::windows::BackdropType::TransientWindow)
-                    .with_corner_preference(winit::platform::windows::CornerPreference::Round);
+                    .with_corner_preference(CornerPreference::Round);
+
+                win_attr = win_attr.with_platform_attributes(Box::new(windows_attrs));
             }
 
-            let window = Arc::new(
-                event_loop
-                    .create_window(win_attr)
-                    .expect("create window err."),
-            );
+            let window = event_loop
+                .create_window(win_attr)
+                .expect("create window err.");
 
-            self.window = Some(window.clone());
-            let mut wgpu_ctx = WgpuCtx::new(window.clone());
+            // Convert Box<dyn Window> to Arc<dyn Window> for wgpu
+            let window_arc: Arc<dyn Window> = Arc::from(window);
+            self.window = Some(window_arc.clone());
+            let mut wgpu_ctx = WgpuCtx::new(window_arc.clone());
             let viewport_size = Size {
                 width: wgpu_ctx.surface_config.width,
                 height: wgpu_ctx.surface_config.height,
@@ -502,7 +506,9 @@ impl ApplicationHandler for App<'_> {
                 window.set_visible(true);
             }
         }
+    }
 
+    fn resumed(&mut self, event_loop: &dyn ActiveEventLoop) {
         // Check for any pending events after resuming
         self.check_worker_responses();
         self.try_handle_app_event(event_loop);
@@ -510,7 +516,7 @@ impl ApplicationHandler for App<'_> {
 
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        event_loop: &dyn ActiveEventLoop,
         _window_id: WindowId,
         event: WindowEvent,
     ) {
@@ -523,7 +529,7 @@ impl ApplicationHandler for App<'_> {
                 }
                 event_loop.exit();
             }
-            WindowEvent::Resized(new_size) => {
+            WindowEvent::SurfaceResized(new_size) => {
                 if let (Some(wgpu_ctx), Some(window)) =
                     (self.wgpu_ctx.as_mut(), self.window.as_ref())
                 {
@@ -556,7 +562,7 @@ impl ApplicationHandler for App<'_> {
                 }
                 self.frame_counter.update();
             }
-            WindowEvent::CursorMoved { position, .. } => {
+            WindowEvent::PointerMoved { position, .. } => {
                 if let Some(window) = &self.window {
                     self.app_state.cursor_position = Some((position.x, position.y));
 
@@ -599,7 +605,7 @@ impl ApplicationHandler for App<'_> {
                 mouse_resource.position = curr_pos;
                 self.layout_context.world.run_system(MouseHoverSystem);
             }
-            WindowEvent::MouseInput { state, .. } => {
+            WindowEvent::PointerButton { state, .. } => {
                 if let Some((x, y)) = self.app_state.cursor_position {
                     let is_pressed = state == ElementState::Pressed;
                     let is_released = state == ElementState::Released;
@@ -670,9 +676,9 @@ impl ApplicationHandler for App<'_> {
                     }
                 }
             }
-            WindowEvent::CursorLeft { .. } | WindowEvent::CursorEntered { .. } => {
+            WindowEvent::PointerLeft { .. } | WindowEvent::PointerEntered { .. } => {
                 if let Some(window) = &self.window {
-                    window.set_cursor(CursorIcon::Default);
+                    window.set_cursor(Cursor::Icon(CursorIcon::Default));
                 }
 
                 // reset mouse resource
@@ -699,5 +705,5 @@ fn load_icon(bytes: &[u8]) -> Icon {
         let rgba = image.into_raw();
         (rgba, width, height)
     };
-    Icon::from_rgba(icon_rgba, icon_width, icon_height).expect("Failed to open icon")
+    RgbaIcon::new(icon_rgba, icon_width, icon_height).expect("Failed to open icon").into()
 }
