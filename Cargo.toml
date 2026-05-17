@@ -1,52 +1,24 @@
 [package]
-name = "Frostify"
+name = "frostify"
 version = "0.1.0"
 edition = "2024"
-build = "build.rs"
 
 [dependencies]
-rustix = "1.1.2"
-winit = { git = "https://github.com/rust-windowing/winit.git", branch = "master" }
-wgpu = { version = "26.0.1", features = ["noop"] }
-tokio = { version = "1.47.1", features = ["full"] }
-bytemuck = { version = "1.23.2", features = ["derive"] }
-pollster = "0.4.0"
-image = "0.25.8"
-cosmic-text = "0.14.2"
-uuid = { version = "1.18.1", features = ["v4", "fast-rng"] }
-log = "0.4.28"
-env_logger = "0.11.8"
-time = { version = "0.3.44", features = [
-    "formatting",
-    "macros",
-    "local-offset",
-] }
-colored = "3.0.0"
-palette = { version = "0.7.6", features = ["named", "wide"] }
-oauth2 = { version = "5.0.0", features = ["rustls-tls"] }
-reqwest = { version = "0.12.23", features = ["json", "rustls-tls"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
-webbrowser = "1.0.5"
-base64 = "0.22.1"
-sha2 = "0.10.9"
-rand = "0.9.2"
-url = "2.5.7"
-keyring = { version = "3.6.3", features = [
-    "windows-native",
-    "apple-native",
-    "linux-native",
-] }
-clap = { version = "4.5.48", features = ["derive"] }
-# librespot = "0.7.1"
-strum = "0.27.2"
-strum_macros = "0.27.2"
+frostify-gfx = { path = "../frostify-gfx" }
+log = "0.4"
+env_logger = "0.11"
 
-# Derive crate for Frostify
-frostify_derive = { path = "./frostify_derive" }
+# Auth + HTTP
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+oauth2 = { version = "5", features = ["rustls-tls"], default-features = false }
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.9"
+webbrowser = "1"
 
-[features]
-console = []
-
-[build-dependencies]
-winresource = "0.1.23"
+# Token persistence
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }

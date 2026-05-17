@@ -1,103 +1,135 @@
 #![cfg_attr(
-    all(target_os = "windows", not(debug_assertions), not(feature = "console")),
+    all(target_os = "windows", not(debug_assertions)),
     windows_subsystem = "windows"
 )]
 
-use crate::{app::App, ui::asset};
-use clap::Parser;
-use colored::Colorize;
-use env_logger::Builder;
-use log::LevelFilter;
-use std::io::Write;
-use time::{UtcOffset, macros::format_description};
-use ui::UiView;
-use winit::{
-    error::EventLoopError,
-    event_loop::{ControlFlow, EventLoop},
-};
-
-mod app;
+mod api;
 mod auth;
 mod constants;
-mod core;
 mod errors;
-mod test;
 mod ui;
-mod utils;
-mod wgpu_ctx;
+mod worker;
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Reset stored login data
-    #[arg(long, short, action = clap::ArgAction::SetTrue, help = "Reset Frostify config")]
-    reset: bool,
-    /// Ui test mode
-    #[arg(long, short, default_value = None,help = "Run in UI test mode")]
-    ui_test: Option<UiView>,
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+use frostify_gfx::App;
+
+use crate::api::HomeData;
+use crate::auth::oauth::SpotifyAuthResponse;
+use crate::ui::View;
+use crate::worker::{Worker, WorkerResponse};
+
+const W: u32 = 1280;
+const H: u32 = 780;
+
+#[derive(Default)]
+struct AppState {
+    view: Cell<View>,
+    auth: RefCell<Option<SpotifyAuthResponse>>,
+    home: RefCell<HomeData>,
 }
 
-fn main() -> Result<(), EventLoopError> {
-    // Parse command line arguments
-    let args = Args::parse();
+impl Default for View {
+    fn default() -> Self { View::Splash }
+}
 
-    // Handle reset option if specified
-    if args.reset {
-        match auth::token_manager::delete_tokens() {
-            Ok(_) => {
-                println!("{}", "Frostify config reset successfully.".green());
-                return Ok(());
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info,wgpu_hal=warn,wgpu_core=warn,frostify=debug"),
+    )
+    .init();
+
+    let state = Rc::new(AppState::default());
+    if std::env::var_os("FROSTIFY_FORCE_HOME").is_some() {
+        state.view.set(View::Home);
+    }
+
+    let mut app = App::new("Frostify", W, H).decorations(false).capture_from_env();
+    let icons = std::rc::Rc::new(ui::icon::load_all(&mut app));
+    let rebuild = app.rebuild_token();
+    let worker = Rc::new(Worker::new(app.wake_handle()));
+    worker.try_load_tokens();
+
+    let on_login: Rc<dyn Fn()> = {
+        let worker = worker.clone();
+        Rc::new(move || worker.start_oauth())
+    };
+
+    let app = {
+        let state = state.clone();
+        let on_login = on_login.clone();
+        let icons = icons.clone();
+        app.scene(move |s| match state.view.get() {
+            View::Splash | View::Login => {
+                let checking = matches!(state.view.get(), View::Splash);
+                ui::login::build(s, &icons, on_login.clone(), checking)
             }
-            Err(e) => {
-                println!("{}: {}", "Error resetting Frostify config".red(), e);
-                return Ok(());
+            View::Home => ui::home::build(s, &icons, &state.home.borrow()),
+        })
+    };
+
+    let state_for_frame = state.clone();
+    let worker_for_frame = worker.clone();
+    let rebuild_for_frame = rebuild.clone();
+    let app = app.on_frame(move |_ctx, _tl, _now| {
+        while let Some(resp) = worker_for_frame.poll() {
+            handle_worker_response(
+                &state_for_frame,
+                &rebuild_for_frame,
+                &worker_for_frame,
+                resp,
+            );
+        }
+    });
+
+    app.run()
+}
+
+fn handle_worker_response(
+    state: &Rc<AppState>,
+    rebuild: &Rc<Cell<bool>>,
+    worker: &Rc<Worker>,
+    resp: WorkerResponse,
+) {
+    match resp {
+        WorkerResponse::OAuthStarted { auth_url } => {
+            log::info!("opening browser for OAuth");
+            if let Err(e) = webbrowser::open(&auth_url) {
+                log::error!("open browser: {e}");
             }
         }
+        WorkerResponse::OAuthComplete { auth } | WorkerResponse::TokensLoaded { auth } => {
+            log::info!("auth ok — switching to Home");
+            worker.fetch_home(auth.access_token.clone());
+            *state.auth.borrow_mut() = Some(auth);
+            if state.view.get() != View::Home {
+                state.view.set(View::Home);
+                rebuild.set(true);
+            }
+        }
+        WorkerResponse::OAuthFailed { error } => {
+            log::error!("OAuth failed: {error}");
+            if state.view.get() != View::Login {
+                state.view.set(View::Login);
+                rebuild.set(true);
+            }
+        }
+        WorkerResponse::NoStoredTokens => {
+            log::info!("no stored tokens — showing Login");
+            if state.view.get() != View::Login {
+                state.view.set(View::Login);
+                rebuild.set(true);
+            }
+        }
+        WorkerResponse::HomeData { data } => {
+            log::info!(
+                "home data ready: playlists={} recent={}",
+                data.playlists.len(),
+                data.recent.len()
+            );
+            *state.home.borrow_mut() = data;
+            rebuild.set(true);
+        }
     }
-
-    if let Some(test_ui_view) = args.ui_test {
-        println!("Running in UI test mode: {test_ui_view:?}");
-    }
-
-    // Initialize assets before creating the event loop
-    asset::initialize_assets();
-
-    let event_loop = EventLoop::new().unwrap();
-    event_loop.set_control_flow(ControlFlow::Poll);
-
-    // Configure the logger
-    let time_format = format_description!("[hour]:[minute]:[second].[subsecond digits:3]");
-    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-
-    let mut builder = Builder::new();
-    builder
-        .format(move |buf, record| {
-            let level = match record.level() {
-                log::Level::Error => record.level().to_string().red(),
-                log::Level::Warn => record.level().to_string().yellow(),
-                log::Level::Info => record.level().to_string().green(),
-                log::Level::Debug => record.level().to_string().cyan(),
-                log::Level::Trace => record.level().to_string().magenta(),
-            };
-            let now = time::OffsetDateTime::now_utc().to_offset(offset);
-            writeln!(
-                buf,
-                "{} [{}] - {}",
-                now.format(&time_format).unwrap(),
-                level,
-                record.args()
-            )
-        })
-        .filter_level(LevelFilter::Off);
-
-    #[cfg(any(debug_assertions, feature = "console"))]
-    builder.filter_module("Frostify", LevelFilter::Trace);
-
-    #[cfg(all(not(debug_assertions), not(feature = "console")))]
-    builder.filter_module("Frostify", LevelFilter::Warn);
-
-    builder.init();
-
-    let mut app = App::new(args.ui_test);
-    event_loop.run_app(&mut app)
 }
