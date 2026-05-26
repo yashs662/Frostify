@@ -49,6 +49,24 @@ impl StoredTokens {
     pub fn is_expired(&self) -> bool {
         self.expires_at < now_secs() + 60
     }
+
+    /// Returns true if every comma-separated scope in `required` is
+    /// present in this token's granted scope string. Used at startup
+    /// to invalidate tokens that were minted before a constants update
+    /// added new scopes — avoids a 401 loop on the first API call.
+    pub fn has_scopes(&self, required: &str) -> bool {
+        // OAuth tokens return scope space-separated; our constants list
+        // is comma-separated. Normalise both sides on either delimiter.
+        let granted: std::collections::HashSet<&str> = self
+            .scope
+            .split([' ', ','])
+            .filter(|s| !s.is_empty())
+            .collect();
+        required
+            .split([' ', ','])
+            .filter(|s| !s.is_empty())
+            .all(|s| granted.contains(s))
+    }
 }
 
 pub fn save_tokens(t: &StoredTokens) -> Result<(), AuthError> {

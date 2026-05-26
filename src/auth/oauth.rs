@@ -100,7 +100,7 @@ pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthRes
         .and_then(|s| {
             let after = &request[s + 5..];
             let end = after
-                .find(|c: char| c == '&' || c == ' ' || c == '\r' || c == '\n')
+                .find(['&', ' ', '\r', '\n'])
                 .unwrap_or(after.len());
             (end > 0).then(|| &after[..end])
         })

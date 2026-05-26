@@ -22,3 +22,17 @@ webbrowser = "1"
 
 # Token persistence
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
+
+# Spotify dealer + Connect device
+# Using git/dev — librespot 0.8.0 has a vergen build-script bug
+# (https://github.com/librespot-org/librespot/issues/1681) fixed in PR #1683
+# but not yet released as 0.8.1. Pin to a known-good commit when 0.8.1 ships.
+librespot-core = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+librespot-oauth = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+librespot-protocol = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+librespot-connect = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+librespot-playback = { git = "https://github.com/librespot-org/librespot", branch = "dev", default-features = false }
+protobuf = "3"
+futures = "0.3"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+dirs = "5"

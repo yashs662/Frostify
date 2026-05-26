@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use frostify_gfx::{App, ImageHandle, Scene};
+use frostify_gfx::{App, Bind, ImageHandle, Scene};
 
 const RASTER_PX: u32 = 64;
 
@@ -85,7 +85,13 @@ impl IconSet {
         *self.handles.get(&icon).expect("icon not loaded — extend ALL")
     }
 
-    pub fn render(&self, s: &mut Scene, icon: Icon, size_px: f32, color: [f32; 4]) {
+    pub fn render(
+        &self,
+        s: &mut Scene,
+        icon: Icon,
+        size_px: f32,
+        color: impl Into<Bind<[f32; 4]>>,
+    ) {
         s.image((), self.get(icon))
             .w_px(size_px)
             .h_px(size_px)
