@@ -5,7 +5,7 @@
 //! cache key. Decode → RGBA → frostify-gfx atlas via
 //! `frostify_gfx::Uploader::upload_rgba` from the worker thread.
 
-use crate::ui::theme;
+use crate::ui::tokens;
 use image::ImageReader;
 use std::io::Cursor;
 
@@ -50,7 +50,7 @@ pub fn decode_to_rgba(bytes: &[u8], max_dim: u32) -> Option<(u32, u32, Vec<u8>)>
 /// Dominant accent colour for a decoded album cover. v1 algorithm:
 /// average the RGB of every pixel whose brightest channel clears
 /// `ACCENT_BRIGHTNESS_FLOOR` — skips shadows so the mean isn't pulled
-/// toward muddy greys. Falls back to `theme::ACCENT` when the cover is
+/// toward muddy greys. Falls back to `tokens::ACCENT` when the cover is
 /// either too dark to find any bright pixels or has no pixels at all
 /// (e.g. an unexpected zero-sized decode). Alpha is always 1.0.
 pub fn extract_accent(rgba: &[u8], _w: u32, _h: u32) -> [f32; 4] {
@@ -69,7 +69,7 @@ pub fn extract_accent(rgba: &[u8], _w: u32, _h: u32) -> [f32; 4] {
         }
     }
     if n == 0 {
-        return theme::ACCENT;
+        return tokens::ACCENT;
     }
     let inv = 1.0 / n as f32;
     [sum[0] * inv, sum[1] * inv, sum[2] * inv, 1.0]
@@ -103,6 +103,6 @@ mod tests {
         // theme accent, not a divide-by-zero.
         let rgba = make_rgba(&[[10, 10, 10, 255]; 4]);
         let accent = extract_accent(&rgba, 2, 2);
-        assert_eq!(accent, theme::ACCENT);
+        assert_eq!(accent, tokens::ACCENT);
     }
 }

@@ -1,5 +1,5 @@
 use crate::album_art;
-use crate::api::{self, CurrentlyPlaying, HomeData, TrackDetails};
+use crate::api::{self, CurrentlyPlaying, HomeData, RepeatMode, TrackDetails};
 use crate::disk_cache;
 use crate::auth::oauth::{self, SpotifyAuthResponse, listen_for_callback, refresh_token};
 use crate::auth::token_manager::{self, StoredTokens};
@@ -8,7 +8,10 @@ use frostify_gfx::{ImageHandle, Uploader, WakeHandle};
 use librespot_connect::Spirc;
 use librespot_core::Session;
 use librespot_core::authentication::Credentials;
+use librespot_protocol::extended_metadata::{BatchedEntityRequest, EntityRequest, ExtensionQuery};
+use librespot_protocol::extension_kind::ExtensionKind;
 use log::{debug, error, info, warn};
+use protobuf::EnumOrUnknown;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
@@ -17,10 +20,11 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::mpsc::{self as tmpsc, UnboundedSender};
 
 /// Cap the longest side of decoded album art. The 2048² atlas holds
-/// several covers at this size; 640 matches Spotify's largest variant
-/// and keeps the now-playing pane (~308 px logical, ~616 px @2× DPI) and
-/// full-window backdrop crisp. The 56 px player-bar thumb downsamples
-/// from the same handle.
+/// Decoded RGBA cap per cover. Matches Spotify's largest variant
+/// (640) — keeps the now-playing pane (~308 px logical, ~616 px @2×
+/// DPI) and full-window backdrop sharp. Atlas headroom comes from
+/// the 4096² image atlas in frostify-gfx, which fits ~40 covers at
+/// this size.
 const ALBUM_ART_MAX_DIM: u32 = 640;
 
 #[derive(Debug)]
@@ -35,9 +39,29 @@ pub enum WorkerCommand {
     SeedPlayerState { access_token: String },
     FetchTrackDetails { access_token: String, track_id: String },
     FetchAlbumArt { url: String, key: String },
+    /// Fetch Spotify's own extracted accent colour for a cover, via the
+    /// librespot session's extended-metadata endpoint. `image_hex` is the
+    /// `i.scdn.co/image/<hex>` trailing hash (our cache key).
+    FetchAccent { image_hex: String },
     ConnectSpotifySession { access_token: String },
+    /// Transport control on the active Connect device (Web API).
+    Playback { access_token: String, cmd: PlaybackCmd },
     #[allow(dead_code)]
     Shutdown,
+}
+
+/// A transport intent dispatched from a player-bar button. Resolved to
+/// the matching `api::*` call on the worker; the resulting state change
+/// flows back through the dealer cluster subscription, not a direct
+/// response, so the UI updates via the same path as remote changes.
+#[derive(Debug, Clone)]
+pub enum PlaybackCmd {
+    Play,
+    Pause,
+    Next,
+    Prev,
+    Shuffle(bool),
+    Repeat(RepeatMode),
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +80,10 @@ pub enum WorkerResponse {
         accent: [f32; 4],
     },
     AlbumArtFailed { key: String },
+    /// Spotify's extracted accent for a cover. `key` is the image hex so
+    /// the UI can confirm it still matches the current track before
+    /// applying it.
+    AccentReady { key: String, accent: [f32; 4] },
     SpotifySessionConnected,
     SpotifySessionFailed { error: String },
 }
@@ -117,12 +145,18 @@ impl Worker {
                             url,
                             key,
                         ),
+                        WorkerCommand::FetchAccent { image_hex } => {
+                            spawn_fetch_accent(resp.clone(), session.clone(), image_hex)
+                        }
                         WorkerCommand::ConnectSpotifySession { access_token } => spawn_connect_session(
                             resp.clone(),
                             session.clone(),
                             spirc.clone(),
                             access_token,
                         ),
+                        WorkerCommand::Playback { access_token, cmd } => {
+                            spawn_playback(access_token, cmd)
+                        }
                         WorkerCommand::Shutdown => break,
                     }
                 }
@@ -155,10 +189,18 @@ impl Worker {
     pub fn fetch_album_art(&self, url: String, key: String) {
         let _ = self.cmd_tx.send(WorkerCommand::FetchAlbumArt { url, key });
     }
+    pub fn fetch_accent(&self, image_hex: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::FetchAccent { image_hex });
+    }
     pub fn connect_spotify_session(&self, access_token: String) {
         let _ = self
             .cmd_tx
             .send(WorkerCommand::ConnectSpotifySession { access_token });
+    }
+    pub fn playback(&self, access_token: String, cmd: PlaybackCmd) {
+        let _ = self
+            .cmd_tx
+            .send(WorkerCommand::Playback { access_token, cmd });
     }
     pub fn poll(&self) -> Option<WorkerResponse> {
         self.resp_rx.try_recv().ok()
@@ -192,10 +234,12 @@ fn spawn_oauth(resp: Responder) {
 
 fn spawn_fetch_home(resp: Responder, access_token: String) {
     tokio::spawn(async move {
-        let (profile, playlists, recent) = tokio::join!(
+        let (profile, playlists, recent, top_artists, top_tracks) = tokio::join!(
             api::get_me(&access_token),
             api::get_playlists(&access_token),
             api::get_recently_played(&access_token),
+            api::get_top_artists(&access_token, 10),
+            api::get_top_tracks(&access_token, 10),
         );
         let mut data = HomeData::default();
         match profile {
@@ -210,11 +254,30 @@ fn spawn_fetch_home(resp: Responder, access_token: String) {
             Ok(rs) => data.recent = rs,
             Err(e) => warn!("get_recently_played failed: {e}"),
         }
+        match top_artists {
+            Ok(a) => data.top_artists = a,
+            Err(e) => warn!("get_top_artists failed: {e}"),
+        }
+        match top_tracks {
+            Ok(t) => data.top_tracks = t,
+            Err(e) => warn!("get_top_tracks failed: {e}"),
+        }
+        // Chained "latest release": newest album from #1 top artist.
+        // Skipped silently if top_artists came back empty.
+        if let Some(top) = data.top_artists.first() {
+            match api::get_artist_albums(&access_token, &top.id, 5).await {
+                Ok(mut albums) => data.latest_release = albums.drain(..).next(),
+                Err(e) => warn!("get_artist_albums for top artist failed: {e}"),
+            }
+        }
         info!(
-            "home data: profile={} playlists={} recent={}",
+            "home data: profile={} playlists={} recent={} top_artists={} top_tracks={} latest_release={}",
             data.profile.is_some(),
             data.playlists.len(),
-            data.recent.len()
+            data.recent.len(),
+            data.top_artists.len(),
+            data.top_tracks.len(),
+            data.latest_release.is_some(),
         );
         resp.send(WorkerResponse::HomeData { data });
     });
@@ -232,6 +295,82 @@ fn spawn_seed_player(resp: Responder, access_token: String) {
     });
 }
 
+/// Fetch Spotify's own extracted accent colour for a cover via the
+/// librespot session's `/extended-metadata` endpoint (`EXTRACTED_COLOR`
+/// extension). This is the exact colour the official client tints its
+/// now-playing UI with — far cleaner than our pixel-average fallback.
+/// No-ops silently if the session isn't up yet or the cover has no
+/// extracted colour (UI keeps the art-derived accent).
+fn spawn_fetch_accent(
+    resp: Responder,
+    session_slot: Arc<AsyncMutex<Option<Session>>>,
+    image_hex: String,
+) {
+    tokio::spawn(async move {
+        let session = { session_slot.lock().await.clone() };
+        let Some(session) = session else {
+            debug!("accent fetch skipped — no session yet ({image_hex})");
+            return;
+        };
+        // The extracted-colour extension is keyed by the cover's image
+        // URI, not the track URI.
+        let image_uri = format!("spotify:image:{image_hex}");
+        match fetch_extracted_color(&session, &image_uri).await {
+            Some(accent) => {
+                debug!("extracted color {image_hex} -> {accent:?}");
+                resp.send(WorkerResponse::AccentReady { key: image_hex, accent });
+            }
+            None => debug!("no extracted color for {image_hex}"),
+        }
+    });
+}
+
+async fn fetch_extracted_color(session: &Session, image_uri: &str) -> Option<[f32; 4]> {
+    let req = BatchedEntityRequest {
+        entity_request: vec![EntityRequest {
+            entity_uri: image_uri.to_string(),
+            query: vec![ExtensionQuery {
+                extension_kind: EnumOrUnknown::new(ExtensionKind::EXTRACTED_COLOR),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut res = match session.spclient().get_extended_metadata(req).await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("extracted-color request failed ({image_uri}): {e}");
+            return None;
+        }
+    };
+    // BatchedExtensionResponse → first entity → first extension → bytes.
+    let mut arr = res.extended_metadata.pop()?;
+    let mut data = arr.extension_data.pop()?;
+    let any = data.extension_data.take()?;
+    crate::extracted_color::parse_color_dark(&any.value)
+}
+
+fn spawn_playback(access_token: String, cmd: PlaybackCmd) {
+    tokio::spawn(async move {
+        let result = match cmd.clone() {
+            PlaybackCmd::Play => api::play(&access_token).await,
+            PlaybackCmd::Pause => api::pause(&access_token).await,
+            PlaybackCmd::Next => api::next_track(&access_token).await,
+            PlaybackCmd::Prev => api::previous_track(&access_token).await,
+            PlaybackCmd::Shuffle(on) => api::set_shuffle(&access_token, on).await,
+            PlaybackCmd::Repeat(mode) => api::set_repeat(&access_token, mode).await,
+        };
+        match result {
+            Ok(()) => debug!("playback cmd {cmd:?} ok"),
+            // 404 = no active device; the optimistic UI flip may now be
+            // out of sync with reality, but there's nothing to control
+            // until the user starts playback on some device.
+            Err(e) => warn!("playback cmd {cmd:?} failed: {e}"),
+        }
+    });
+}
+
 fn spawn_fetch_track_details(resp: Responder, access_token: String, track_id: String) {
     tokio::spawn(async move {
         match api::get_track(&access_token, &track_id).await {
@@ -241,16 +380,53 @@ fn spawn_fetch_track_details(resp: Responder, access_token: String, track_id: St
     });
 }
 
-/// Fetch the raw image bytes for `url`, retrying once on transient
-/// failure. Returns `None` only after both attempts fail.
+/// Global cap on concurrent album-art network fetches. Spotify's CDN
+/// generally tolerates parallel requests, but a full Home view can
+/// kick off 30–50 covers at once; throttling keeps us friendly + means
+/// a 429 from anywhere can't snowball into a flood of retries.
+const ART_CONCURRENCY: usize = 4;
+
+fn art_throttle() -> &'static Arc<tokio::sync::Semaphore> {
+    static SEM: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
+    SEM.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(ART_CONCURRENCY)))
+}
+
+/// Fetch the raw image bytes for `url`. Honors `Retry-After` on 429 +
+/// retries once on transient failure. Caller-side throttle in
+/// `spawn_fetch_album_art` bounds concurrency.
 async fn fetch_art_bytes(url: &str) -> Option<Vec<u8>> {
     for attempt in 1..=2 {
-        match reqwest::get(url).await.and_then(|r| r.error_for_status()) {
-            Ok(r) => match r.bytes().await {
-                Ok(b) => return Some(b.to_vec()),
-                Err(e) => warn!("album art read body failed ({url}) attempt {attempt}: {e}"),
-            },
-            Err(e) => warn!("album art fetch failed ({url}) attempt {attempt}: {e}"),
+        let resp = match reqwest::get(url).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("album art fetch failed ({url}) attempt {attempt}: {e}");
+                continue;
+            }
+        };
+        let status = resp.status();
+        // 429: back off for the server-advertised window before retrying.
+        // 5xx: brief pause + retry once.
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let wait = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(2);
+            warn!("album art 429 ({url}) — sleeping {wait}s");
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            continue;
+        }
+        if !status.is_success() {
+            warn!("album art status {status} ({url}) attempt {attempt}");
+            if status.is_server_error() && attempt == 1 {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            continue;
+        }
+        match resp.bytes().await {
+            Ok(b) => return Some(b.to_vec()),
+            Err(e) => warn!("album art read body failed ({url}) attempt {attempt}: {e}"),
         }
     }
     None
@@ -276,13 +452,19 @@ fn spawn_fetch_album_art(
                 debug!("album art disk-cache hit key={key}");
                 (b, false)
             }
-            None => match fetch_art_bytes(&url).await {
-                Some(b) => (b, true),
-                None => {
-                    resp.send(WorkerResponse::AlbumArtFailed { key });
-                    return;
+            None => {
+                // Bound concurrent network fetches across all in-flight
+                // art tasks. Held only for the actual GET (decode + atlas
+                // upload run uncapped).
+                let _permit = art_throttle().acquire().await.ok();
+                match fetch_art_bytes(&url).await {
+                    Some(b) => (b, true),
+                    None => {
+                        resp.send(WorkerResponse::AlbumArtFailed { key });
+                        return;
+                    }
                 }
-            },
+            }
         };
         // 2. Decode off the network task — image::decode is blocking CPU
         //    work that would stall the tokio worker. Accent extraction +

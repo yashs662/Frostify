@@ -25,6 +25,8 @@ pub enum Icon {
     Search,
     Plus,
     Heart,
+    Queue,
+    Devices,
 }
 
 impl Icon {
@@ -49,6 +51,8 @@ impl Icon {
             Icon::Search => include_bytes!("../../assets/icons/search.svg"),
             Icon::Plus => include_bytes!("../../assets/icons/plus.svg"),
             Icon::Heart => include_bytes!("../../assets/icons/heart.svg"),
+            Icon::Queue => include_bytes!("../../assets/icons/queue.svg"),
+            Icon::Devices => include_bytes!("../../assets/icons/devices.svg"),
         }
     }
 }
@@ -73,6 +77,8 @@ const ALL: &[Icon] = &[
     Icon::Search,
     Icon::Plus,
     Icon::Heart,
+    Icon::Queue,
+    Icon::Devices,
 ];
 
 #[derive(Clone)]

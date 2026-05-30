@@ -34,5 +34,5 @@ librespot-connect = { git = "https://github.com/librespot-org/librespot", branch
 librespot-playback = { git = "https://github.com/librespot-org/librespot", branch = "dev", default-features = false }
 protobuf = "3"
 futures = "0.3"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "5"

@@ -29,11 +29,42 @@ pub struct RecentTrack {
     pub album_image_url: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ArtistRef {
+    pub id: String,
+    pub name: String,
+    pub image_url: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrackRef {
+    pub id: String,
+    pub name: String,
+    pub artist: String,
+    pub album_image_url: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AlbumRef {
+    pub id: String,
+    pub name: String,
+    pub artist: String,
+    pub image_url: Option<String>,
+    /// `YYYY-MM-DD`, `YYYY-MM`, or `YYYY` — Spotify's precision varies.
+    pub release_date: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct HomeData {
     pub profile: Option<Profile>,
     pub playlists: Vec<PlaylistRef>,
     pub recent: Vec<RecentTrack>,
+    pub top_artists: Vec<ArtistRef>,
+    pub top_tracks: Vec<TrackRef>,
+    /// Newest album from the user's #1 top artist — our "New release"
+    /// stand-in. `/v1/browse/new-releases` got deprecated for new apps
+    /// in Nov 2024 alongside featured-playlists + recommendations.
+    pub latest_release: Option<AlbumRef>,
 }
 
 #[derive(Debug, Clone)]
@@ -177,6 +208,136 @@ pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthEr
         .collect())
 }
 
+/// User's top artists for the past ~4 weeks (`short_term`). Up to
+/// `limit` items, highest-rank first.
+pub async fn get_top_artists(token: &str, limit: u32) -> Result<Vec<ArtistRef>, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        items: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        #[serde(default)]
+        id: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        images: Vec<Img>,
+    }
+    #[derive(Deserialize)]
+    struct Img {
+        url: String,
+    }
+    let url = format!("{API}/me/top/artists?time_range=short_term&limit={limit}");
+    let r: R = get_json(token, &url).await?;
+    Ok(r.items
+        .into_iter()
+        .map(|a| ArtistRef {
+            id: a.id,
+            name: a.name,
+            image_url: a.images.into_iter().next().map(|i| i.url),
+        })
+        .collect())
+}
+
+/// User's top tracks for the past ~4 weeks (`short_term`).
+pub async fn get_top_tracks(token: &str, limit: u32) -> Result<Vec<TrackRef>, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        items: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        #[serde(default)]
+        id: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        artists: Vec<Artist>,
+        album: Album,
+    }
+    #[derive(Deserialize)]
+    struct Artist {
+        #[serde(default)]
+        name: String,
+    }
+    #[derive(Deserialize)]
+    struct Album {
+        #[serde(default)]
+        images: Vec<Img>,
+    }
+    #[derive(Deserialize)]
+    struct Img {
+        url: String,
+    }
+    let url = format!("{API}/me/top/tracks?time_range=short_term&limit={limit}");
+    let r: R = get_json(token, &url).await?;
+    Ok(r.items
+        .into_iter()
+        .map(|t| TrackRef {
+            id: t.id,
+            name: t.name,
+            artist: t.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
+            album_image_url: t.album.images.into_iter().next().map(|i| i.url),
+        })
+        .collect())
+}
+
+/// Albums by an artist, sorted newest-first by `release_date`. We
+/// request `include_groups=album,single` (skip appearances + compilations)
+/// and re-sort client-side because Spotify's default order is not
+/// guaranteed to be by date.
+pub async fn get_artist_albums(
+    token: &str,
+    artist_id: &str,
+    limit: u32,
+) -> Result<Vec<AlbumRef>, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        items: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        #[serde(default)]
+        id: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        artists: Vec<Artist>,
+        #[serde(default)]
+        images: Vec<Img>,
+        #[serde(default)]
+        release_date: String,
+    }
+    #[derive(Deserialize)]
+    struct Artist {
+        #[serde(default)]
+        name: String,
+    }
+    #[derive(Deserialize)]
+    struct Img {
+        url: String,
+    }
+    let url = format!(
+        "{API}/artists/{artist_id}/albums?include_groups=album,single&limit={limit}"
+    );
+    let r: R = get_json(token, &url).await?;
+    let mut albums: Vec<AlbumRef> = r
+        .items
+        .into_iter()
+        .map(|a| AlbumRef {
+            id: a.id,
+            name: a.name,
+            artist: a.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
+            image_url: a.images.into_iter().next().map(|i| i.url),
+            release_date: a.release_date,
+        })
+        .collect();
+    // Lexicographic sort on `YYYY[-MM[-DD]]` is chronological.
+    albums.sort_by(|a, b| b.release_date.cmp(&a.release_date));
+    Ok(albums)
+}
+
 /// Bare-ID lookup against `/v1/tracks/{id}`. Used to fill the artist
 /// name (which `ProvidedTrack.metadata` doesn't carry — only an
 /// `artist_uri`) on each `track_id` change.
@@ -298,6 +459,77 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
         shuffle: r.shuffle_state,
         repeat,
     }))
+}
+
+/// Transport control against the user's **active** Connect device.
+/// These hit the Web API player endpoints (not librespot/Spirc) on
+/// purpose: Frostify registers as a Connect device with a NullSink, so
+/// taking over via Spirc would route audio into silence. The Web API
+/// commands instead steer whatever device is already playing (phone,
+/// desktop app, etc.), and the dealer cluster subscription pushes the
+/// resulting state change back so the UI reflects it.
+///
+/// All endpoints return `204 No Content` on success. A `404` means
+/// "no active device" — surfaced as `AuthError::Api` for the caller to
+/// log; there's nothing to control until the user starts playback
+/// somewhere.
+async fn player_command(
+    token: &str,
+    method: reqwest::Method,
+    path: &str,
+) -> Result<(), AuthError> {
+    let res = reqwest::Client::new()
+        .request(method, format!("{API}{path}"))
+        .bearer_auth(token)
+        // PUT/POST with an empty body — Spotify rejects a missing
+        // Content-Length on some of these, so set it explicitly.
+        .header(reqwest::header::CONTENT_LENGTH, 0)
+        .send()
+        .await?;
+    let status = res.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = res.text().await.unwrap_or_default();
+    Err(AuthError::Api(body, Some(status.as_u16())))
+}
+
+pub async fn play(token: &str) -> Result<(), AuthError> {
+    player_command(token, reqwest::Method::PUT, "/me/player/play").await
+}
+
+pub async fn pause(token: &str) -> Result<(), AuthError> {
+    player_command(token, reqwest::Method::PUT, "/me/player/pause").await
+}
+
+pub async fn next_track(token: &str) -> Result<(), AuthError> {
+    player_command(token, reqwest::Method::POST, "/me/player/next").await
+}
+
+pub async fn previous_track(token: &str) -> Result<(), AuthError> {
+    player_command(token, reqwest::Method::POST, "/me/player/previous").await
+}
+
+pub async fn set_shuffle(token: &str, on: bool) -> Result<(), AuthError> {
+    player_command(token, reqwest::Method::PUT, &format!("/me/player/shuffle?state={on}")).await
+}
+
+pub async fn set_repeat(token: &str, mode: RepeatMode) -> Result<(), AuthError> {
+    let state = match mode {
+        RepeatMode::Off => "off",
+        RepeatMode::Track => "track",
+        RepeatMode::Context => "context",
+    };
+    player_command(token, reqwest::Method::PUT, &format!("/me/player/repeat?state={state}")).await
+}
+
+pub async fn seek(token: &str, position_ms: u32) -> Result<(), AuthError> {
+    player_command(
+        token,
+        reqwest::Method::PUT,
+        &format!("/me/player/seek?position_ms={position_ms}"),
+    )
+    .await
 }
 
 async fn get_json<T: for<'de> Deserialize<'de>>(token: &str, url: &str) -> Result<T, AuthError> {

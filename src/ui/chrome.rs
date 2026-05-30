@@ -1,7 +1,7 @@
 use frostify_gfx::{Align, Len, Scene, WindowAction};
 
 use crate::ui::icon::{Icon, IconSet};
-use crate::ui::theme;
+use crate::ui::tokens;
 
 pub fn title_bar(s: &mut Scene, icons: &IconSet, title: &str) {
     s.row(())
@@ -10,14 +10,14 @@ pub fn title_bar(s: &mut Scene, icons: &IconSet, title: &str) {
         .pad_xy(10.0, 0.0)
         .gap(8.0)
         .align(Align::Center)
-        .rgba(theme::PANEL[0], theme::PANEL[1], theme::PANEL[2], 1.0)
+        .rgba(tokens::PANEL[0], tokens::PANEL[1], tokens::PANEL[2], 1.0)
         .window_action(WindowAction::DragMove)
         .child(|t| {
-            t.text((), title, 13.0).color(theme::TEXT_DIM);
+            t.text((), title, 13.0).color(tokens::TEXT_DIM);
 
-            chrome_btn(t, icons, Icon::Minimize, WindowAction::Minimize, theme::BTN_HOVER, true);
-            chrome_btn(t, icons, Icon::Maximize, WindowAction::ToggleMaximize, theme::BTN_HOVER, false);
-            chrome_btn(t, icons, Icon::Close, WindowAction::Close, theme::CLOSE_HOVER, false);
+            chrome_btn(t, icons, Icon::Minimize, WindowAction::Minimize, tokens::BTN_HOVER, true);
+            chrome_btn(t, icons, Icon::Maximize, WindowAction::ToggleMaximize, tokens::BTN_HOVER, false);
+            chrome_btn(t, icons, Icon::Close, WindowAction::Close, tokens::CLOSE_HOVER, false);
         });
 }
 
@@ -33,6 +33,6 @@ fn chrome_btn(s: &mut Scene, icons: &IconSet, icon: Icon, action: WindowAction, 
         b.push_end();
     }
     b.child(|c| {
-        icons.render(c, icon, 14.0, theme::TEXT);
+        icons.render(c, icon, 14.0, tokens::TEXT);
     });
 }
