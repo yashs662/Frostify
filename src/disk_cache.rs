@@ -22,6 +22,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
 /// Entries older than this (by mtime, refreshed on each read) are
 /// treated as absent and deleted. Covers don't change, so this is long
 /// — it exists to bound unbounded growth from one-off plays, not to
@@ -44,11 +47,15 @@ fn cache_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
-/// Map a cache key to its on-disk path, rejecting anything that isn't a
-/// bare filename (defence-in-depth against path traversal — keys are
-/// already hex-only in practice).
+/// Reject anything that isn't a bare filename (defence-in-depth against
+/// path traversal — keys are hex / base62 / known sentinels in practice).
+fn is_safe_key(key: &str) -> bool {
+    !(key.is_empty() || key.contains(['/', '\\']) || key == "." || key == "..")
+}
+
+/// Map a cache key to its on-disk path under the art dir.
 fn entry_path(key: &str) -> Option<PathBuf> {
-    if key.is_empty() || key.contains(['/', '\\']) || key == "." || key == ".." {
+    if !is_safe_key(key) {
         return None;
     }
     cache_dir().map(|d| d.join(key))
@@ -110,6 +117,100 @@ fn enforce_cap() {
     entries.sort_by_key(|(_, mtime, _)| *mtime); // oldest first
     for (path, _, len) in entries {
         if total <= EVICT_TARGET {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(len);
+        }
+    }
+}
+
+// ============================================================================
+// API JSON cache
+//
+// Caches deserialized API payloads (playlist track listings, etc.) as
+// JSON on disk, keyed by a caller-supplied id. Unlike the album-art
+// bytes above (immutable → 30-day TTL, mtime-refreshed LRU), JSON
+// listings are *mutable* — a user can edit a playlist — so the caller
+// passes a much shorter TTL and reads do NOT touch mtime (an entry ages
+// out from its original fetch time, never kept alive by re-reads).
+// ============================================================================
+
+/// Soft ceiling on the JSON cache dir; evict oldest past this.
+const JSON_MAX_BYTES: u64 = 64 * 1024 * 1024;
+const JSON_EVICT_TARGET: u64 = 48 * 1024 * 1024;
+
+/// `<os-cache-dir>/frostify/json`, created on first use.
+fn json_dir() -> Option<PathBuf> {
+    let dir = dirs::cache_dir()?.join("frostify").join("json");
+    fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+fn json_path(key: &str) -> Option<PathBuf> {
+    if !is_safe_key(key) {
+        return None;
+    }
+    json_dir().map(|d| d.join(format!("{key}.json")))
+}
+
+/// Read + deserialize a cached JSON value for `key`, or `None` on miss /
+/// expiry (older than `ttl`) / IO / parse error. Does not refresh mtime.
+pub fn read_json<T: DeserializeOwned>(key: &str, ttl: Duration) -> Option<T> {
+    let path = json_path(key)?;
+    let meta = fs::metadata(&path).ok()?;
+    let age = meta
+        .modified()
+        .ok()
+        .and_then(|m| SystemTime::now().duration_since(m).ok())
+        .unwrap_or(Duration::ZERO);
+    if age > ttl {
+        let _ = fs::remove_file(&path);
+        return None;
+    }
+    let bytes = fs::read(&path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// Serialize + persist `value` for `key`, then enforce the size cap.
+/// Best-effort: any IO / serialize failure is swallowed.
+pub fn write_json<T: Serialize>(key: &str, value: &T) {
+    let Some(path) = json_path(key) else { return };
+    let Ok(bytes) = serde_json::to_vec(value) else {
+        return;
+    };
+    if fs::write(&path, bytes).is_err() {
+        return;
+    }
+    enforce_json_cap();
+}
+
+fn enforce_json_cap() {
+    let Some(dir) = json_dir() else { return };
+    evict_dir(&dir, JSON_MAX_BYTES, JSON_EVICT_TARGET);
+}
+
+/// Shared oldest-by-mtime eviction for a cache directory.
+fn evict_dir(dir: &PathBuf, max_bytes: u64, target: u64) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    let mut entries: Vec<(PathBuf, SystemTime, u64)> = Vec::new();
+    let mut total: u64 = 0;
+    for e in rd.flatten() {
+        let Ok(meta) = e.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let len = meta.len();
+        let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        total += len;
+        entries.push((e.path(), mtime, len));
+    }
+    if total <= max_bytes {
+        return;
+    }
+    entries.sort_by_key(|(_, mtime, _)| *mtime);
+    for (path, _, len) in entries {
+        if total <= target {
             break;
         }
         if fs::remove_file(&path).is_ok() {

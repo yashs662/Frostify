@@ -16,10 +16,6 @@ use crate::api::Profile;
 use crate::ui::icon::{Icon, IconSet};
 use crate::ui::tokens as t;
 
-/// Timeline key for the toggle knob slide. Distinct namespace from
-/// main.rs's `TWEEN_KEY_*` (0x0001_xxxx) so they can't collide.
-const TOGGLE_TWEEN_KEY: u32 = 0x0002_0001;
-
 // Animated toggle dimensions (logical px). The knob slides `TRAVEL` px
 // between the two pad-inset ends of the track.
 const TOGGLE_W: f32 = 44.0;
@@ -157,9 +153,8 @@ fn toggle_switch(
             st.set(now_on);
             on_change();
             let target = if now_on { TOGGLE_TRAVEL } else { 0.0 };
-            ctx.timeline.start(
-                TOGGLE_TWEEN_KEY,
-                kt.clone(),
+            ctx.timeline.animate(
+                &kt,
                 target,
                 Curve::EaseInOut,
                 Duration::from_millis(TOGGLE_MS),

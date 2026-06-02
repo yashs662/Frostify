@@ -8,6 +8,8 @@ mod api;
 mod auth;
 mod cluster_listener;
 mod constants;
+#[cfg(feature = "automation")]
+mod debug_config;
 mod disk_cache;
 mod errors;
 mod extracted_color;
@@ -25,21 +27,68 @@ use std::time::{Duration, Instant};
 
 use frostify_gfx::{App, Curve, ImageHandle, Overlay, Signal, TextSignal, Timeline};
 
-use crate::api::{CurrentlyPlaying, HomeData, RepeatMode, TrackDetails, track_id_from_uri};
+use crate::api::{
+    CurrentlyPlaying, HomeData, PlaylistDetail, PlaylistTrack, RepeatMode, TrackDetails,
+    track_id_from_uri,
+};
 use crate::auth::oauth::SpotifyAuthResponse;
 use crate::prefs::{StoredPlayer, UserPreferences};
-use crate::ui::View;
-use crate::ui::home::PlayerAction;
+use crate::ui::home::{NavFn, PlayFn, PlayerAction};
+use crate::ui::playlist::{self, PlaylistRow, PlaylistViewData, RowBuf};
 use crate::ui::tokens;
+use crate::ui::{MainNav, View};
 use crate::worker::{PlaybackCmd, Worker, WorkerResponse};
 
 const W: u32 = 1280;
 const H: u32 = 780;
 
+/// A loaded playlist plus the wall-clock at which it was fetched —
+/// drives the in-memory TTL cache so re-opening a playlist within
+/// [`PLAYLIST_TTL`] reuses the data instead of re-hitting the Web API.
+struct CachedPlaylist {
+    detail: PlaylistDetail,
+    fetched: Instant,
+}
+
+/// The playlist currently open in the centre pane. Holds the metadata
+/// plus a **live, growable** row buffer the streaming worker pages fill —
+/// the view's `lazy_list` reads it on scroll, so later pages appear
+/// without a rebuild. `total` drives the list length from the first
+/// response so the scrollbar is correct before everything has streamed.
+struct OpenPlaylist {
+    liked: bool,
+    name: String,
+    owner: String,
+    image_url: Option<String>,
+    context_uri: Option<String>,
+    total: u32,
+    rows: RowBuf,
+    /// Metadata not yet arrived (header shows the sidebar-known name).
+    loading: bool,
+    /// Every page has streamed in.
+    complete: bool,
+}
+
 struct AppState {
     view: Cell<View>,
     auth: RefCell<Option<SpotifyAuthResponse>>,
     home: RefCell<HomeData>,
+    /// What the centre pane is showing. Mutated by `navigate`, read by
+    /// the scene closure to pick Home-feed vs playlist content.
+    nav: RefCell<MainNav>,
+    /// Playlist detail TTL cache (id → detail + fetch time). Liked Songs
+    /// lives here under `api::LIKED_SONGS_ID`. Keeps repeated opens from
+    /// spamming `/v1/playlists/{id}`; entries past [`PLAYLIST_TTL`] are
+    /// re-fetched so edits show up.
+    playlist_cache: RefCell<HashMap<String, CachedPlaylist>>,
+    /// Playlist ids with a fetch in flight — gate so navigating back and
+    /// forth doesn't dispatch duplicate loads.
+    playlist_inflight: RefCell<HashSet<String>>,
+    /// The playlist open in the centre pane (live streaming buffer).
+    open_playlist: RefCell<Option<OpenPlaylist>>,
+    /// 0 → 1 slide/fade progress for the centre-pane content, retween'd
+    /// on every nav change (see `navigate`). Parks at 1.0 (settled).
+    main_t: Signal<f32>,
     player: RefCell<Option<CurrentlyPlaying>>,
     /// `/v1/tracks/{id}` results keyed by bare track ID. Cluster
     /// updates carry only `artist_uri`, not the resolved name, so we
@@ -74,11 +123,12 @@ struct AppState {
     /// Incoming backdrop layer — the current track's art, fading in.
     backdrop_curr: Signal<Option<ImageHandle>>,
     /// 0 → 1 crossfade progress between `backdrop_prev` and
-    /// `backdrop_curr`. Driven directly by `frostify_gfx::Timeline`:
-    /// `promote_backdrop` resets to 0 and `timeline.start(...)`
-    /// tweens to 1 over `CROSSFADE_DURATION`. The scene closure binds
-    /// per-layer alpha through `Computed<[f32; 4]>` derived from this
-    /// signal, so the lib drives the redraw cadence — no manual
+    /// `backdrop_curr`. Driven by `frostify_gfx::Timeline`:
+    /// `promote_backdrop` resets to 0 and `timeline.animate(&crossfade_t,
+    /// 1.0, …)` over `CROSSFADE_DURATION`. The incoming backdrop image is
+    /// a `.layer_opacity(crossfade_t)` compositor layer, so the lib drives
+    /// its composite opacity each frame (composite-only, no per-frame
+    /// image re-raster) — the lib also owns the redraw cadence, no manual
     /// rebuild ticking.
     crossfade_t: Signal<f32>,
     /// Separate, faster crossfade for the foreground panel art (now-
@@ -163,6 +213,11 @@ impl AppState {
             view: Cell::default(),
             auth: RefCell::default(),
             home: RefCell::default(),
+            nav: RefCell::default(),
+            playlist_cache: RefCell::default(),
+            playlist_inflight: RefCell::default(),
+            open_playlist: RefCell::default(),
+            main_t: Signal::new(1.0),
             player: RefCell::default(),
             track_details: RefCell::default(),
             art_inflight: RefCell::default(),
@@ -191,16 +246,16 @@ impl AppState {
     }
 }
 
-/// Tween key namespace. Each timeline tween is identified by a `u32`
-/// and replacing one with the same key restarts smoothly mid-flight.
-const TWEEN_KEY_CROSSFADE: u32 = 0x0001_0001;
-const TWEEN_KEY_ACCENT: u32 = 0x0001_0002;
-const TWEEN_KEY_PANEL: u32 = 0x0001_0003;
-const TWEEN_KEY_PROGRESS: u32 = 0x0001_0004;
-/// Anchors a dummy timeline tween that keeps the loop awake long
-/// enough for the debounced prefs save to fire after the user stops
-/// changing things.
-const TWEEN_KEY_PREFS_DEBOUNCE: u32 = 0x0001_0005;
+// Tweens are keyed by signal identity via `timeline.animate(&sig, …)` /
+// `timeline.stop_for(&sig)` — no hand-authored tween keys.
+
+/// Centre-pane content transition duration on nav change.
+const MAIN_NAV_DURATION: Duration = Duration::from_millis(260);
+
+/// How long a cached playlist stays fresh before a re-open re-fetches it.
+/// Long enough to make back-and-forth navigation free, short enough that
+/// edits made elsewhere show up within a few minutes.
+const PLAYLIST_TTL: Duration = Duration::from_secs(300);
 
 /// How long to wait after the last pref mutation before writing the
 /// file. Smooths out splitter-drag bursts (~60 events/sec) into a
@@ -220,13 +275,23 @@ const PANEL_CROSSFADE_DURATION: Duration = Duration::from_millis(450);
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Debug-only launch config (REMOVABLE — `automation` feature). Parsed
+    // before logging so it can override the filter.
+    #[cfg(feature = "automation")]
+    let debug_cfg = debug_config::from_args();
+
     // `frostify_gfx=debug` would spam per-frame `[loop] WaitUntil(...)` +
     // active-tick lines while the progress tween runs (60 fps during
     // playback). Drop the lib to `info`; keep `frostify` at debug.
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(
-        "info,wgpu_hal=warn,wgpu_core=warn,frostify=debug,frostify_gfx=info",
-    ))
-    .init();
+    let default_filter = "info,wgpu_hal=warn,wgpu_core=warn,frostify=debug,frostify_gfx=info";
+    #[cfg(feature = "automation")]
+    let filter = debug_cfg
+        .as_ref()
+        .and_then(|c| c.log_filter.clone())
+        .unwrap_or_else(|| default_filter.to_string());
+    #[cfg(not(feature = "automation"))]
+    let filter = default_filter.to_string();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(filter)).init();
 
     // Load persisted preferences before any window work — initial size
     // + panel widths come from here. Fail-soft: a missing or malformed
@@ -251,9 +316,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let win_w = prefs.window.width.unwrap_or(W);
     let win_h = prefs.window.height.unwrap_or(H);
+    // Debug config may pin the window size (REMOVABLE — shadows the above).
+    #[cfg(feature = "automation")]
+    let (win_w, win_h) = match debug_cfg.as_ref().and_then(|c| c.window) {
+        Some([w, h]) => (w, h),
+        None => (win_w, win_h),
+    };
 
     let state = Rc::new(AppState::from_prefs(prefs));
-    if std::env::var_os("FROSTIFY_FORCE_HOME").is_some() {
+    let force_home = std::env::var_os("FROSTIFY_FORCE_HOME").is_some();
+    #[cfg(feature = "automation")]
+    let force_home = force_home || debug_cfg.as_ref().map(|c| c.force_home).unwrap_or(false);
+    if force_home {
         state.view.set(View::Home);
     }
 
@@ -358,6 +432,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
 
+    // Centre-pane navigation: open a playlist (or Home). Receives the
+    // `EventCtx` from the triggering click so it can start the entrance
+    // transition tween at click time.
+    let on_navigate: NavFn = {
+        let state = state.clone();
+        let worker = worker.clone();
+        let rebuild = rebuild.clone();
+        Rc::new(move |ctx, nav| navigate(&state, &rebuild, &worker, ctx.timeline, ctx.now, nav))
+    };
+
+    // Lazily fetch a track cover when its row scrolls into view. Created
+    // once + cloned into the scene; gated so it never re-dispatches.
+    let request_cover: playlist::CoverFn = {
+        let state = state.clone();
+        let worker = worker.clone();
+        Rc::new(move |url| dispatch_cover(&state, &worker, url))
+    };
+
+    // Start playback of a playlist context / track selection. Optimistic
+    // is_playing flip; the dealer cluster push corrects the real state.
+    let on_play: PlayFn = {
+        let state = state.clone();
+        let worker = worker.clone();
+        Rc::new(move |target| {
+            let Some(token) = state.auth.borrow().as_ref().map(|a| a.access_token.clone()) else {
+                log::warn!("play ignored — no auth token");
+                return;
+            };
+            state.is_playing.set(true);
+            worker.playback(token, PlaybackCmd::PlayContext(target));
+        })
+    };
+
     let app = {
         let state = state.clone();
         let on_login = on_login.clone();
@@ -365,6 +472,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let on_action = on_action.clone();
         let on_canvas_change = on_canvas_change.clone();
         let sign_out = sign_out.clone();
+        let on_navigate = on_navigate.clone();
+        let on_play = on_play.clone();
+        let request_cover = request_cover.clone();
         app.scene(move |s| match state.view.get() {
             View::Splash | View::Login => {
                 let checking = matches!(state.view.get(), View::Splash);
@@ -378,6 +488,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let dirty_state = state.clone();
                 let mark_dirty: Rc<dyn Fn()> =
                     Rc::new(move || mark_prefs_dirty(&dirty_state, Instant::now()));
+                // Hold the nav borrow for the build. Build the playlist
+                // view data (metadata + live row buffer handle) when a
+                // playlist is open — cheap clones; the rows `Rc` is shared
+                // with the streaming appends so new pages appear without
+                // rebuilding this.
+                let nav = state.nav.borrow();
+                let playlist: Option<PlaylistViewData> = match &*nav {
+                    MainNav::Playlist { .. } => {
+                        state.open_playlist.borrow().as_ref().map(|o| {
+                            let cover = o.image_url.as_ref().and_then(|u| {
+                                state.home_art.borrow().get(&album_art::cache_key(u)).cloned()
+                            });
+                            PlaylistViewData {
+                                name: o.name.clone(),
+                                owner: o.owner.clone(),
+                                total: o.total,
+                                liked: o.liked,
+                                loading: o.loading,
+                                cover,
+                                context_uri: o.context_uri.clone(),
+                                rows: o.rows.clone(),
+                                request_cover: request_cover.clone(),
+                            }
+                        })
+                    }
+                    MainNav::Home => None,
+                };
                 let view = ui::home::HomeView {
                     backdrop_prev: &state.backdrop_prev,
                     backdrop_curr: &state.backdrop_curr,
@@ -392,6 +529,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     progress: &state.progress,
                     sidebar_w: &state.sidebar_w,
                     now_playing_w: &state.now_playing_w,
+                    nav: &nav,
+                    playlist: playlist.as_ref(),
+                    main_t: &state.main_t,
+                    on_navigate: on_navigate.clone(),
+                    on_play: on_play.clone(),
                     mark_dirty,
                     on_action: on_action.clone(),
                     settings: &state.settings,
@@ -437,6 +579,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(e) => log::warn!("prefs flush on exit failed: {e}"),
         }
     });
+
+    // Attach a scripted-input run if the debug config carries one
+    // (REMOVABLE — `automation` feature).
+    #[cfg(feature = "automation")]
+    let app = match debug_cfg.as_ref().map(|c| c.script()) {
+        Some(script) if !script.steps.is_empty() => app.automation(script),
+        _ => app,
+    };
 
     app.run()
 }
@@ -496,22 +646,15 @@ fn tick_prefs_save(state: &AppState, timeline: &mut Timeline, now: Instant) {
             Err(e) => log::warn!("prefs save failed: {e}"),
         }
         state.prefs_dirty_since.set(None);
-        timeline.stop(TWEEN_KEY_PREFS_DEBOUNCE);
+        timeline.stop_for(&state.prefs_save_anchor);
     } else {
         // Keep the loop awake until the deadline. Restart the anchor
-        // tween (idempotent — timeline.start with the same key replaces
-        // any in-flight one) so this fires whether or not other input
-        // is keeping the loop ticking.
+        // tween (idempotent — `animate` on the same signal replaces any
+        // in-flight one) so this fires whether or not other input is
+        // keeping the loop ticking.
         let remaining = PREFS_DEBOUNCE - elapsed + Duration::from_millis(50);
         state.prefs_save_anchor.set(0.0);
-        timeline.start(
-            TWEEN_KEY_PREFS_DEBOUNCE,
-            state.prefs_save_anchor.clone(),
-            1.0,
-            Curve::Linear,
-            remaining,
-            now,
-        );
+        timeline.animate(&state.prefs_save_anchor, 1.0, Curve::Linear, remaining, now);
     }
 }
 
@@ -523,10 +666,11 @@ fn tick_prefs_save(state: &AppState, timeline: &mut Timeline, now: Instant) {
 /// lock-step. `accent = None` keeps the previous accent so a cache-
 /// miss doesn't flash to the default.
 ///
-/// The lib's timeline pump drives the tween at 60 Hz; the scene's
-/// `Computed` colour binds map `crossfade_t` to per-layer alphas and
-/// `process_binds` (per about_to_wait tick) pushes the new values to
-/// the tree. No manual rebuild cadence.
+/// The lib's timeline pump drives the tween at 60 Hz; the incoming
+/// backdrop's `.layer_opacity(crossfade_t)` layer picks up the new value
+/// each tick as a composite-only opacity (no per-frame image re-raster),
+/// and the panel `crossfaded_art` reads it through `Computed` colour
+/// binds. No manual rebuild cadence.
 /// Walk every image URL in `data` and ensure a reactive handle signal
 /// exists per cache_key. Dispatches a worker fetch for each key that's
 /// neither already in flight nor already resolved (signal carries
@@ -551,6 +695,9 @@ fn prefetch_home_art(state: &AppState, worker: &Worker, data: &HomeData) {
         .playlists
         .iter()
         .filter_map(|p| p.image_url.as_ref())
+        // Sidebar library icons fetch the tiny (64 px) tier separately —
+        // distinct scdn key from the full-res home tile, so both load.
+        .chain(data.playlists.iter().filter_map(|p| p.image_url_small.as_ref()))
         .chain(data.recent.iter().filter_map(|t| t.album_image_url.as_ref()))
         .chain(data.top_artists.iter().filter_map(|a| a.image_url.as_ref()))
         .chain(data.top_tracks.iter().filter_map(|t| t.album_image_url.as_ref()))
@@ -581,6 +728,162 @@ fn count_with_image<T>(items: &[T], has: impl Fn(&T) -> bool) -> (usize, usize) 
     (total, with)
 }
 
+/// Ease-out for the centre-pane entrance — fast start, gentle settle.
+const NAV_CURVE: Curve = Curve::CubicBezier([0.16, 1.0, 0.3, 1.0]);
+
+/// Switch the centre pane to `nav`. Ensures the target playlist is
+/// loaded (TTL cache → fetch on miss/stale), flips the nav state, kicks
+/// the slide/fade-in transition, and requests the one scene rebuild that
+/// swaps the pane content. Navigation is the one place a deliberate
+/// rebuild is correct (the content is structurally different); the
+/// reactive path can't restructure the tree.
+fn navigate(
+    state: &Rc<AppState>,
+    rebuild: &Rc<Cell<bool>>,
+    worker: &Worker,
+    timeline: &mut Timeline,
+    now: Instant,
+    nav: MainNav,
+) {
+    match &nav {
+        MainNav::Playlist { id, liked } => open_playlist_for(state, worker, id, *liked),
+        MainNav::Home => *state.open_playlist.borrow_mut() = None,
+    }
+    *state.nav.borrow_mut() = nav;
+    // Restart the entrance transition from 0. The scene rebuild mounts
+    // the new content; the tween fades + slides it in over the next
+    // ~260 ms (timeline-pumped, no manual rebuild cadence).
+    state.main_t.set(0.0);
+    timeline.animate(&state.main_t, 1.0, NAV_CURVE, MAIN_NAV_DURATION, now);
+    rebuild.set(true);
+}
+
+/// Set up `open_playlist` for a nav target. A fresh in-memory cache hit
+/// populates the row buffer fully (instant). Otherwise a shell is built
+/// from the sidebar-known name/cover (so the header shows immediately)
+/// and a streaming fetch is dispatched — the first page + later pages
+/// fill the buffer progressively, never a blocking load.
+fn open_playlist_for(state: &Rc<AppState>, worker: &Worker, id: &str, liked: bool) {
+    let cached = state
+        .playlist_cache
+        .borrow()
+        .get(id)
+        .filter(|c| c.fetched.elapsed() < PLAYLIST_TTL)
+        .map(|c| c.detail.clone());
+    let buf: RowBuf = std::rc::Rc::new(RefCell::new(Vec::new()));
+
+    if let Some(detail) = cached {
+        build_rows(state, &buf, &detail.tracks);
+        *state.open_playlist.borrow_mut() = Some(OpenPlaylist {
+            liked,
+            name: detail.name,
+            owner: detail.owner,
+            image_url: detail.image_url,
+            context_uri: detail.context_uri,
+            total: detail.total,
+            rows: buf,
+            loading: false,
+            complete: true,
+        });
+        return;
+    }
+
+    // Shell from whatever the sidebar already knows, so the header isn't
+    // blank while metadata + the first page stream in.
+    let (name, image_url) = if liked {
+        ("Liked Songs".to_string(), None)
+    } else {
+        state
+            .home
+            .borrow()
+            .playlists
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| (p.name.clone(), p.image_url.clone()))
+            .unwrap_or((String::new(), None))
+    };
+    let context_uri = if liked {
+        None
+    } else {
+        Some(format!("spotify:playlist:{id}"))
+    };
+    *state.open_playlist.borrow_mut() = Some(OpenPlaylist {
+        liked,
+        name,
+        owner: String::new(),
+        image_url,
+        context_uri,
+        total: 0,
+        rows: buf,
+        loading: true,
+        complete: false,
+    });
+    ensure_playlist_loaded(state, worker, id, liked);
+}
+
+/// Dispatch a streaming playlist fetch unless a fresh copy is cached or a
+/// load is already in flight. Liked Songs routes through the same path
+/// under its sentinel id.
+fn ensure_playlist_loaded(state: &AppState, worker: &Worker, id: &str, liked: bool) {
+    if state.playlist_inflight.borrow().contains(id) {
+        return;
+    }
+    let Some(token) = state.auth.borrow().as_ref().map(|a| a.access_token.clone()) else {
+        log::warn!("playlist load skipped — no auth token");
+        return;
+    };
+    state.playlist_inflight.borrow_mut().insert(id.to_string());
+    worker.fetch_playlist(token, id.to_string(), liked);
+}
+
+/// Bake `tracks` into [`PlaylistRow`]s appended to `buf`. Each cover gets
+/// a reactive `Signal` off the shared `home_art` map (so an arriving
+/// handle repaints just that thumb) but the **fetch is not dispatched
+/// here** — the row's `cover_url` is kept and the download is triggered
+/// lazily when the row scrolls into view (`request_cover`), so opening a
+/// 989-track playlist doesn't kick off 989 downloads. Called for both
+/// cache-hit opens and every streamed page.
+fn build_rows(state: &AppState, buf: &RowBuf, tracks: &[PlaylistTrack]) {
+    let mut signals = state.home_art.borrow_mut();
+    let mut out = buf.borrow_mut();
+    out.reserve(tracks.len());
+    for t in tracks {
+        let art = t.album_image_url.as_ref().map(|u| {
+            let key = album_art::cache_key(u);
+            signals
+                .entry(key)
+                .or_insert_with(|| Signal::new(None))
+                .clone()
+        });
+        out.push(PlaylistRow {
+            title: t.name.clone(),
+            artist: t.artist.clone(),
+            album: t.album.clone(),
+            duration: playlist::fmt_duration(t.duration_ms),
+            uri: t.uri.clone(),
+            art,
+            cover_url: t.album_image_url.clone(),
+        });
+    }
+}
+
+/// Lazily fetch a track cover (called when a row materializes). Gated so
+/// repeated materializes / already-resolved / in-flight covers are
+/// no-ops — only the first sight of an unresolved cover dispatches.
+fn dispatch_cover(state: &AppState, worker: &Worker, url: String) {
+    let key = album_art::cache_key(&url);
+    if let Some(sig) = state.home_art.borrow().get(&key)
+        && sig.get().is_some()
+    {
+        return;
+    }
+    if state.art_inflight.borrow().contains(&key) {
+        return;
+    }
+    state.art_inflight.borrow_mut().insert(key.clone());
+    worker.fetch_album_art(url, key);
+}
+
 fn promote_backdrop(
     state: &Rc<AppState>,
     next: ImageHandle,
@@ -598,20 +901,12 @@ fn promote_backdrop(
         state.backdrop_prev.set(current);
         state.backdrop_curr.set(Some(next));
         state.crossfade_t.set(0.0);
-        timeline.start(
-            TWEEN_KEY_CROSSFADE,
-            state.crossfade_t.clone(),
-            1.0,
-            Curve::EaseInOut,
-            CROSSFADE_DURATION,
-            now,
-        );
+        timeline.animate(&state.crossfade_t, 1.0, Curve::EaseInOut, CROSSFADE_DURATION, now);
         // Foreground cover/thumb ride a separate, faster tween so they
         // swap snappily while the backdrop + accent lag behind.
         state.panel_crossfade_t.set(0.0);
-        timeline.start(
-            TWEEN_KEY_PANEL,
-            state.panel_crossfade_t.clone(),
+        timeline.animate(
+            &state.panel_crossfade_t,
             1.0,
             Curve::EaseInOut,
             PANEL_CROSSFADE_DURATION,
@@ -619,14 +914,7 @@ fn promote_backdrop(
         );
     }
     if let Some(c) = accent {
-        timeline.start(
-            TWEEN_KEY_ACCENT,
-            state.accent.clone(),
-            c,
-            Curve::EaseInOut,
-            CROSSFADE_DURATION,
-            now,
-        );
+        timeline.animate(&state.accent, c, Curve::EaseInOut, CROSSFADE_DURATION, now);
     }
 }
 
@@ -762,16 +1050,15 @@ fn handle_worker_response(
                     state.progress.set(frac);
                     if p.is_playing && p.duration_ms > 0 {
                         let remaining = p.duration_ms.saturating_sub(live);
-                        timeline.start(
-                            TWEEN_KEY_PROGRESS,
-                            state.progress.clone(),
+                        timeline.animate(
+                            &state.progress,
                             1.0,
                             Curve::Linear,
                             Duration::from_millis(remaining),
                             now,
                         );
                     } else {
-                        timeline.stop(TWEEN_KEY_PROGRESS);
+                        timeline.stop_for(&state.progress);
                     }
                 }
                 None => {
@@ -784,7 +1071,7 @@ fn handle_worker_response(
                     // Just mark stopped and freeze the progress bar; leave
                     // title/artist/progress showing the last-known track.
                     state.is_playing.set(false);
-                    timeline.stop(TWEEN_KEY_PROGRESS);
+                    timeline.stop_for(&state.progress);
                 }
             }
             *state.player.borrow_mut() = player;
@@ -863,15 +1150,73 @@ fn handle_worker_response(
                     .map(|k| k == key)
                     .unwrap_or(false);
             if is_current {
-                timeline.start(
-                    TWEEN_KEY_ACCENT,
-                    state.accent.clone(),
-                    accent,
-                    Curve::EaseInOut,
-                    CROSSFADE_DURATION,
-                    now,
+                timeline.animate(&state.accent, accent, Curve::EaseInOut, CROSSFADE_DURATION, now);
+            }
+        }
+        WorkerResponse::PlaylistOpened { detail, complete } => {
+            let id = detail.id.clone();
+            // Apply to the open pane if it's still showing this playlist:
+            // overwrite metadata + seed the first page, then rebuild ONCE
+            // to mount the full-length virtualised list (item_count =
+            // total). Subsequent pages append without a rebuild.
+            let applies =
+                matches!(&*state.nav.borrow(), MainNav::Playlist { id: nid, .. } if *nid == id);
+            if applies {
+                let buf = {
+                    let mut op = state.open_playlist.borrow_mut();
+                    op.as_mut().map(|o| {
+                        o.name = detail.name.clone();
+                        o.owner = detail.owner.clone();
+                        o.image_url = detail.image_url.clone();
+                        o.context_uri = detail.context_uri.clone();
+                        o.total = detail.total;
+                        o.loading = false;
+                        o.complete = complete;
+                        o.rows.clone()
+                    })
+                };
+                if let Some(buf) = buf {
+                    buf.borrow_mut().clear();
+                    build_rows(state, &buf, &detail.tracks);
+                    rebuild.set(true);
+                }
+            }
+            // A `complete` response (disk-cache hit or single-page) carries
+            // the whole listing — cache it in memory for an instant
+            // re-open and clear the inflight gate.
+            if complete {
+                state.playlist_inflight.borrow_mut().remove(&id);
+                state.playlist_cache.borrow_mut().insert(
+                    id.clone(),
+                    CachedPlaylist {
+                        detail,
+                        fetched: Instant::now(),
+                    },
                 );
             }
+        }
+        WorkerResponse::PlaylistTracks { id, tracks, done } => {
+            // Append a streamed page into the live buffer — no rebuild;
+            // the lazy_list reads it on scroll. (Covers fill in reactively
+            // via the per-row image bind baked in `build_rows`.)
+            let applies =
+                matches!(&*state.nav.borrow(), MainNav::Playlist { id: nid, .. } if *nid == id);
+            if applies {
+                let buf = state.open_playlist.borrow().as_ref().map(|o| o.rows.clone());
+                if let Some(buf) = buf {
+                    build_rows(state, &buf, &tracks);
+                }
+                if done && let Some(o) = state.open_playlist.borrow_mut().as_mut() {
+                    o.complete = true;
+                }
+            }
+            if done {
+                state.playlist_inflight.borrow_mut().remove(&id);
+            }
+        }
+        WorkerResponse::PlaylistFailed { id, error } => {
+            state.playlist_inflight.borrow_mut().remove(&id);
+            log::warn!("playlist {id} load failed: {error}");
         }
         WorkerResponse::TrackDetails { details } => {
             let track_id = details.track_id.clone();

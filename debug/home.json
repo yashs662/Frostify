@@ -1,0 +1,17 @@
+{
+  "force_home": true,
+  "window": [1280, 780],
+  "log_filter": "info,wgpu_hal=warn,wgpu_core=warn,frostify=info,frostify_gfx=warn",
+  "script": [
+    { "wait_ms": 2500 },
+    { "screenshot": "debug_captures/01_home.png" },
+    { "hover": [120, 240], "dwell_ms": 500 },
+    { "screenshot": "debug_captures/02_hover_sidebar.png" },
+    { "click": [120, 240] },
+    { "wait_ms": 1800 },
+    { "screenshot": "debug_captures/03_playlist.png" },
+    { "scroll": [640, 500], "by": [0, -10] },
+    { "wait_ms": 800 },
+    { "screenshot": "debug_captures/04_scrolled.png" }
+  ]
+}

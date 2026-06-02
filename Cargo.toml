@@ -3,6 +3,12 @@ name = "frostify"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Debug-only scripted-input + screenshot harness (REMOVABLE before ship).
+# Forwards to the engine's `automation` feature + enables the `--config`
+# script branch in `main.rs` (see `src/debug_config.rs`). Off by default.
+automation = ["frostify-gfx/automation"]
+
 [dependencies]
 frostify-gfx = { path = "../frostify-gfx" }
 log = "0.4"

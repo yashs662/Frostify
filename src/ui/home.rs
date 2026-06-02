@@ -1,13 +1,16 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use frostify_gfx::{
-    Align, Computed, ImageHandle, Justify, Len, Overflow, Overlay, Scene, Signal, TextSignal,
-    WindowAction,
+    Align, Computed, EventCtx, ImageHandle, Justify, Len, Overflow, Overlay, Scene, Signal,
+    TextSignal, WindowAction,
 };
 
 use crate::album_art;
-use crate::api::{AlbumRef, HomeData};
+use crate::api::{AlbumRef, HomeData, PlayTarget};
+use crate::ui::MainNav;
 use crate::ui::icon::{Icon, IconSet};
+use crate::ui::playlist::PlaylistViewData;
 use crate::ui::tokens as t;
 
 /// Per-URL reactive cover handles for Home tiles. Keyed by cache_key
@@ -87,6 +90,15 @@ fn collapsed_text_width(sidebar_w: &Signal<f32>) -> Computed<f32> {
     })
 }
 
+/// Centre-pane navigation callback — opens a playlist or returns Home.
+/// Takes the `EventCtx` so it can start the entrance transition tween at
+/// click time.
+pub type NavFn = Rc<dyn Fn(&mut EventCtx, MainNav)>;
+
+/// Playback-start callback — hands a resolved [`PlayTarget`] up to the
+/// consumer (which adds the token + dispatches the worker command).
+pub type PlayFn = Rc<dyn Fn(PlayTarget)>;
+
 /// A transport intent raised by a player-bar button click. The consumer
 /// (main.rs) maps these to optimistic signal flips + worker commands;
 /// the UI layer stays ignorant of tokens and the Web API.
@@ -121,6 +133,18 @@ pub struct HomeView<'a> {
     /// Resizable panel widths (driven by splitters via `width_px_bind`).
     pub sidebar_w: &'a Signal<f32>,
     pub now_playing_w: &'a Signal<f32>,
+    /// What the centre pane is showing (Home feed vs a playlist page).
+    pub nav: &'a MainNav,
+    /// View data for the open playlist (metadata + live streaming row
+    /// buffer). `Some` whenever `nav` is a `Playlist`.
+    pub playlist: Option<&'a PlaylistViewData>,
+    /// 0 → 1 slide/fade progress for the centre-pane content on nav
+    /// change. Driven by a timeline tween in `main.rs::navigate`.
+    pub main_t: &'a Signal<f32>,
+    /// Switch the centre pane (sidebar/header clicks).
+    pub on_navigate: NavFn,
+    /// Start playback of a playlist/track selection on the active device.
+    pub on_play: PlayFn,
     /// Called by the splitters after every committed width change.
     /// Wired by the consumer to debounced prefs persistence.
     pub mark_dirty: std::rc::Rc<dyn Fn()>,
@@ -138,7 +162,7 @@ pub struct HomeView<'a> {
     pub sign_out: std::rc::Rc<dyn Fn()>,
 }
 
-pub fn build(s: &mut Scene, icons: &IconSet, home: &HomeData, art: &ArtMap, v: &HomeView) {
+pub fn build(s: &mut Scene, icons: &Rc<IconSet>, home: &HomeData, art: &ArtMap, v: &HomeView) {
     s.col("home_root")
         .fill()
         .rgba(t::BG[0], t::BG[1], t::BG[2], 1.0)
@@ -155,18 +179,24 @@ pub fn build(s: &mut Scene, icons: &IconSet, home: &HomeData, art: &ArtMap, v: &
                 .h(Len::Fill)
                 .blur_source()
                 .color(OPAQUE_TINT);
-            // Incoming layer: current cover, alpha rising 0 → 1. The
-            // handle tracks the signal (rebuild-free); the timeline writes
-            // new t every 16 ms and `process_binds` snaps both the handle
-            // and the alpha into the tree. `blur_source` so its handle/
-            // alpha changes (the crossfade) are the *only* thing that
-            // re-runs the full-window blur.
+            // Incoming layer: current cover, fading in over the outgoing
+            // one. **Composite-opacity crossfade (compositor P4):** the
+            // image is held opaque (`OPAQUE_TINT`) and promoted to its own
+            // layer via `.layer_opacity(crossfade_t)` — the lib drives the
+            // layer's *composite* opacity from the tween each frame, so the
+            // incoming cover's texture rasters **once** and the fade is a
+            // composite-only recomposite (no per-frame image re-raster).
+            // Generic glass (P4) sources its backdrop from the composite of
+            // the layers below it, so the glass still blurs the dissolving
+            // result. `blur_source` keeps the (still per-frame, inherent)
+            // backdrop blur firing while the composite changes.
             root.image_bound((), v.backdrop_curr.clone())
                 .abs(0.0, 0.0)
                 .w(Len::Fill)
                 .h(Len::Fill)
                 .blur_source()
-                .color(fade_in_alpha(v.crossfade_t));
+                .layer_opacity(v.crossfade_t.clone())
+                .color(OPAQUE_TINT);
             // Frosted-glass overlay: heavy blur + dark tint = the dimmed
             // ambient look. Always present in Home — before any art it
             // just blurs the dark BG (reads the same), and keeping it
@@ -185,7 +215,7 @@ pub fn build(s: &mut Scene, icons: &IconSet, home: &HomeData, art: &ArtMap, v: &
                 .pad(t::SP_2)
                 .gap(t::SP_0)
                 .child(|b| {
-                    sidebar(b, icons, home, art, v.sidebar_w, v.accent);
+                    sidebar(b, icons, home, art, v);
                     crate::ui::splitter::splitter(
                         b,
                         crate::ui::splitter::SplitterProps {
@@ -198,7 +228,7 @@ pub fn build(s: &mut Scene, icons: &IconSet, home: &HomeData, art: &ArtMap, v: &
                             on_change: v.mark_dirty.clone(),
                         },
                     );
-                    main_area(b, icons, home, art, v.accent);
+                    main_pane(b, icons, home, art, v);
                     crate::ui::splitter::splitter(
                         b,
                         crate::ui::splitter::SplitterProps {
@@ -398,14 +428,8 @@ fn chrome_btn(
     });
 }
 
-fn sidebar(
-    s: &mut Scene,
-    icons: &IconSet,
-    home: &HomeData,
-    art: &ArtMap,
-    w: &Signal<f32>,
-    accent: &Signal<[f32; 4]>,
-) {
+fn sidebar(s: &mut Scene, icons: &IconSet, home: &HomeData, art: &ArtMap, v: &HomeView) {
+    let w = v.sidebar_w;
     s.col("sidebar")
         .width_px_bind(w.clone())
         .h(Len::Fill)
@@ -417,7 +441,8 @@ fn sidebar(
         .overflow_x(Overflow::Hidden)
         .child(|c| {
             // Header row — collapses to 0 height in icon-only mode so
-            // the text "Your Library" doesn't truncate.
+            // the text "Your Library" doesn't truncate. The Home
+            // icon+label is a click target back to the Home feed.
             c.row(())
                 .w(Len::Fill)
                 .height_px_bind(collapsed_height(w, t::ROW_H_LG))
@@ -426,8 +451,17 @@ fn sidebar(
                 .align(Align::Center)
                 .overflow_y(Overflow::Hidden)
                 .child(|h| {
-                    icons.render(h, Icon::Home, t::ICON_MD, t::TEXT);
-                    h.text((), "Your Library", 14.0).color(t::TEXT);
+                    let nav = v.on_navigate.clone();
+                    h.row(())
+                        .h(Len::Fill)
+                        .gap(t::SP_2)
+                        .align(Align::Center)
+                        .hover_opacity(0.7)
+                        .on_click(move |ctx| nav(ctx, MainNav::Home))
+                        .child(|hl| {
+                            icons.render(hl, Icon::Home, t::ICON_MD, t::TEXT);
+                            hl.text((), "Your Library", 14.0).color(t::TEXT);
+                        });
                     h.row(()).push_end().child(|r| {
                         icons.render(r, Icon::Plus, t::ICON_MD, t::TEXT_DIM);
                     });
@@ -441,9 +475,9 @@ fn sidebar(
                 .align(Align::Center)
                 .overflow_y(Overflow::Hidden)
                 .child(|chips| {
-                    chip(chips, "Playlists", true, accent);
-                    chip(chips, "Artists", false, accent);
-                    chip(chips, "Albums", false, accent);
+                    chip(chips, "Playlists", true, v.accent);
+                    chip(chips, "Artists", false, v.accent);
+                    chip(chips, "Albums", false, v.accent);
                 });
             c.col(())
                 .w(Len::Fill)
@@ -451,60 +485,143 @@ fn sidebar(
                 .pad_xy(t::SP_1_5, t::SP_1_5)
                 .gap(t::SP_1)
                 .scroll_y()
+                // Compositor scroll layer (frostify-gfx P3 2a): the library
+                // list rasters once into a content-sized texture; scrolling
+                // moves the composite window, not the rows. Glass-free.
+                .layer()
                 // Auto-hide so the right edge of the collapsed sidebar
                 // reads as a clean panel border, not a reserved scroll
                 // gutter. Reappears on hover/drag like Spotify.
                 .scrollbar(|s| s.auto_hide(true).margin(t::SP_0_5).thickness(t::SP_1))
                 .child(|c| {
+                    // Liked Songs — pinned first. It's the saved-tracks
+                    // collection, which Spotify doesn't surface via
+                    // /me/playlists, so it's synthesised here.
+                    library_row(
+                        c,
+                        icons,
+                        "Liked Songs",
+                        "Playlist",
+                        None,
+                        true,
+                        nav_is(v.nav, crate::api::LIKED_SONGS_ID),
+                        w,
+                        MainNav::Playlist {
+                            id: crate::api::LIKED_SONGS_ID.to_string(),
+                            liked: true,
+                        },
+                        &v.on_navigate,
+                    );
                     for p in &home.playlists {
+                        // Sidebar icons use the tiny (64 px) cover tier; the
+                        // home "Made For You" tile uses the full-res
+                        // `image_url`. Different scdn key → coexist in the
+                        // ArtMap.
                         let sig = p
-                            .image_url
+                            .image_url_small
                             .as_ref()
                             .and_then(|u| art.get(&album_art::cache_key(u)).cloned());
-                        playlist_row(c, &p.name, "Playlist", sig, w);
+                        library_row(
+                            c,
+                            icons,
+                            &p.name,
+                            "Playlist",
+                            sig,
+                            false,
+                            nav_is(v.nav, &p.id),
+                            w,
+                            MainNav::Playlist {
+                                id: p.id.clone(),
+                                liked: false,
+                            },
+                            &v.on_navigate,
+                        );
                     }
                 });
         });
 }
 
-fn playlist_row(
+/// Is the centre pane currently showing the playlist with this `id`?
+fn nav_is(nav: &MainNav, id: &str) -> bool {
+    matches!(nav, MainNav::Playlist { id: nid, .. } if nid == id)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn library_row(
     s: &mut Scene,
+    icons: &IconSet,
     title: &str,
     subtitle: &str,
     art: Option<Signal<Option<ImageHandle>>>,
+    liked: bool,
+    selected: bool,
     sidebar_w: &Signal<f32>,
+    nav_target: MainNav,
+    on_navigate: &NavFn,
 ) {
-    s.row(())
-        .w(Len::Fill)
+    let nav = on_navigate.clone();
+    let mut row = s.row(());
+    row.w(Len::Fill)
         .h_px(t::SP_16)
         .pad_xy(t::SP_1_5, t::SP_1_5)
         .gap(t::SP_0)
         .align(Align::Center)
-        .hover_color(t::HOVER_LIFT_SUBTLE)
         .radius(t::R_MD)
-        .child(|r| {
+        .on_click(move |ctx| nav(ctx, nav_target.clone()));
+    // Selected row sits on the panel-highlight fill; others stay
+    // transparent and just lift on hover.
+    if selected {
+        row.rgba(t::PANEL_HI[0], t::PANEL_HI[1], t::PANEL_HI[2], 1.0);
+    } else {
+        row.hover_color(t::HOVER_LIFT_SUBTLE);
+    }
+    row.child(|r| {
+        if liked {
+            liked_thumb(r, icons, t::THUMB_LG, t::R_SM);
+        } else {
             thumb(r, art, t::THUMB_LG, t::R_SM);
-            // Reactive spacer — replaces `gap` so the trailing space
-            // vanishes when collapsed. `gap()` is fixed at layout time
-            // and would leave dead space next to the thumb otherwise.
-            r.rect(())
-                .width_px_bind(collapsed_spacer(sidebar_w))
-                .h_px(t::SP_PX)
-                .rgba(0.0, 0.0, 0.0, 0.0);
-            // Text col — width also collapses to 0 so the row's natural
-            // size matches `SIDEBAR_COLLAPSED` exactly. Overflow_x clips
-            // the still-laid-out glyphs out of the 0-width box.
-            r.col(())
-                .gap(t::SP_0_5)
-                .h(Len::Fill)
-                .justify(Justify::Center)
-                .width_px_bind(collapsed_text_width(sidebar_w))
-                .overflow_x(Overflow::Hidden)
-                .child(|m| {
-                    m.text((), title, 13.0).color(t::TEXT).max_width_px(240.0);
-                    m.text((), subtitle, 11.0).color(t::TEXT_DIM);
-                });
-        });
+        }
+        // Reactive spacer — replaces `gap` so the trailing space
+        // vanishes when collapsed. `gap()` is fixed at layout time
+        // and would leave dead space next to the thumb otherwise.
+        r.rect(())
+            .width_px_bind(collapsed_spacer(sidebar_w))
+            .h_px(t::SP_PX)
+            .rgba(0.0, 0.0, 0.0, 0.0);
+        // Text col — width also collapses to 0 so the row's natural
+        // size matches `SIDEBAR_COLLAPSED` exactly. Overflow_x clips
+        // the still-laid-out glyphs out of the 0-width box.
+        r.col(())
+            .gap(t::SP_0_5)
+            .h(Len::Fill)
+            .justify(Justify::Center)
+            .width_px_bind(collapsed_text_width(sidebar_w))
+            .overflow_x(Overflow::Hidden)
+            .child(|m| {
+                m.text((), title, 13.0).color(t::TEXT).max_width_px(240.0);
+                m.text((), subtitle, 11.0).color(t::TEXT_DIM);
+            });
+    });
+}
+
+/// The signature purple Liked-Songs tile (a gradient stand-in + heart).
+fn liked_thumb(s: &mut Scene, icons: &IconSet, size: f32, radius: f32) {
+    s.col(()).w_px(size).h_px(size).child(|b| {
+        b.rect(())
+            .abs(0.0, 0.0)
+            .w(Len::Fill)
+            .h(Len::Fill)
+            .rgba(0.36, 0.20, 0.78, 1.0)
+            .radius(radius);
+        b.row(())
+            .abs(0.0, 0.0)
+            .w(Len::Fill)
+            .h(Len::Fill)
+            .center()
+            .child(|c| {
+                icons.render(c, Icon::Heart, t::ICON_SM, t::TEXT);
+            });
+    });
 }
 
 /// Fixed-size square thumbnail. Renders the resolved cover when the
@@ -534,8 +651,54 @@ fn thumb(s: &mut Scene, art: Option<Signal<Option<ImageHandle>>>, size: f32, rad
 /// Content filter tabs shown across the top of the main pane.
 const FILTERS: &[&str] = &["All", "Music", "Podcasts", "Audiobooks"];
 
-fn main_area(
-    s: &mut Scene,
+/// The centre pane: a constant panel (background + clip) wrapping a
+/// slide/fade transition layer whose content swaps between the Home feed
+/// and a playlist page. The panel itself never transitions — only its
+/// inner content — so nav changes read as the content sliding up + fading
+/// in, not the whole pane flickering.
+fn main_pane(s: &mut Scene, icons: &Rc<IconSet>, home: &HomeData, art: &ArtMap, v: &HomeView) {
+    s.col("main_area")
+        .w(Len::Fill)
+        .h(Len::Fill)
+        .rgba(t::PANEL[0], t::PANEL[1], t::PANEL[2], 0.75)
+        .radius(t::R_LG)
+        .clip()
+        .child(|outer| {
+            // Transition wrapper — abs-fill so the slide offset doesn't
+            // disturb flow. `main_t` 0→1 drives a subtle upward slide +
+            // opacity fade-in on every nav change (timeline-tweened in
+            // `main.rs::navigate`). Steady state (`main_t == 1`) parks at
+            // offset 0, fully opaque.
+            let slide = Computed::new((v.main_t.clone(),), |(tt,)| {
+                [0.0, (1.0 - tt.clamp(0.0, 1.0)) * 14.0]
+            });
+            let fade = Computed::new((v.main_t.clone(),), |(tt,)| tt.clamp(0.0, 1.0));
+            outer
+                .col("main_content")
+                .pos(slide)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .opacity_bind(fade)
+                .child(|content| match v.nav {
+                    MainNav::Home => home_content(content, icons, home, art, v.accent),
+                    MainNav::Playlist { .. } => {
+                        if let Some(pv) = v.playlist {
+                            crate::ui::playlist::view(
+                                content,
+                                icons,
+                                pv,
+                                v.accent,
+                                v.on_play.clone(),
+                                v.on_navigate.clone(),
+                            );
+                        }
+                    }
+                });
+        });
+}
+
+fn home_content(
+    content: &mut Scene,
     icons: &IconSet,
     home: &HomeData,
     art: &ArtMap,
@@ -549,65 +712,60 @@ fn main_area(
         Some(p) if !p.display_name.is_empty() => format!("Made For {}", p.display_name),
         _ => "Made For You".to_string(),
     };
-    s.col("main_area")
+    // Filter chips pinned at the top of the pane.
+    content
+        .row(())
+        .w(Len::Fill)
+        .h(Len::Auto)
+        .pad_ltrb(t::SP_6, t::SP_4, t::SP_6, t::SP_0)
+        .gap(t::SP_2)
+        .align(Align::Center)
+        .child(|chips| {
+            for (i, label) in FILTERS.iter().enumerate() {
+                chip(chips, label, i == 0, accent);
+            }
+        });
+    // Scrolling content body — all sections hit real endpoints.
+    content
+        .col(())
         .w(Len::Fill)
         .h(Len::Fill)
-        .rgba(t::PANEL[0], t::PANEL[1], t::PANEL[2], 0.75)
-        .radius(t::R_LG)
-        .clip()
-        .child(|outer| {
-            // Filter chips pinned at the top of the pane.
-            outer
-                .row(())
-                .w(Len::Fill)
-                .h(Len::Auto)
-                .pad_ltrb(t::SP_6, t::SP_4, t::SP_6, t::SP_0)
-                .gap(t::SP_2)
-                .align(Align::Center)
-                .child(|chips| {
-                    for (i, label) in FILTERS.iter().enumerate() {
-                        chip(chips, label, i == 0, accent);
-                    }
-                });
-            // Scrolling content body — all sections hit real endpoints.
-            outer
-                .col(())
-                .w(Len::Fill)
-                .h(Len::Fill)
-                .pad_xy(t::SP_6, t::SP_2)
-                .gap(t::SP_5)
-                .scroll_y()
-                .child(|c| {
-                    c.text((), greeting, 26.0)
-                        .color(t::TEXT)
-                        .max_width_px(520.0);
+        .pad_xy(t::SP_6, t::SP_2)
+        .gap(t::SP_5)
+        .scroll_y()
+        // Compositor scroll layer (frostify-gfx P3 2a): the home-feed body
+        // rasters once into a content-sized texture; scrolling recomposites
+        // the window. Glass-free. (Inner tile-row x-scrollers stay merged —
+        // non-nested promotion collapses them into this layer.)
+        .layer()
+        .child(|c| {
+            c.text((), greeting, 26.0).color(t::TEXT).max_width_px(520.0);
 
-                    // Spotlit new release (newest album from #1 top artist).
-                    if let Some(rel) = home.latest_release.as_ref() {
-                        section_header(c, &format!("New release from {}", rel.artist));
-                        new_release_card(c, icons, rel, art, accent);
-                    }
+            // Spotlit new release (newest album from #1 top artist).
+            if let Some(rel) = home.latest_release.as_ref() {
+                section_header(c, &format!("New release from {}", rel.artist));
+                new_release_card(c, icons, rel, art, accent);
+            }
 
-                    section_header(c, "Recently played");
-                    tile_row(c, home.recent.iter().take(5), art, |t| {
-                        (t.name.clone(), t.artist.clone(), t.album_image_url.clone())
-                    });
+            section_header(c, "Recently played");
+            tile_row(c, home.recent.iter().take(5), art, |t| {
+                (t.name.clone(), t.artist.clone(), t.album_image_url.clone())
+            });
 
-                    section_header(c, "Your top artists");
-                    tile_row(c, home.top_artists.iter().take(5), art, |a| {
-                        (a.name.clone(), "Artist".to_string(), a.image_url.clone())
-                    });
+            section_header(c, "Your top artists");
+            tile_row(c, home.top_artists.iter().take(5), art, |a| {
+                (a.name.clone(), "Artist".to_string(), a.image_url.clone())
+            });
 
-                    section_header(c, "Your top tracks");
-                    tile_row(c, home.top_tracks.iter().take(5), art, |t| {
-                        (t.name.clone(), t.artist.clone(), t.album_image_url.clone())
-                    });
+            section_header(c, "Your top tracks");
+            tile_row(c, home.top_tracks.iter().take(5), art, |t| {
+                (t.name.clone(), t.artist.clone(), t.album_image_url.clone())
+            });
 
-                    section_header(c, &made_for);
-                    tile_row(c, home.playlists.iter().take(5), art, |p| {
-                        (p.name.clone(), "Playlist".to_string(), p.image_url.clone())
-                    });
-                });
+            section_header(c, &made_for);
+            tile_row(c, home.playlists.iter().take(5), art, |p| {
+                (p.name.clone(), "Playlist".to_string(), p.image_url.clone())
+            });
         });
 }
 

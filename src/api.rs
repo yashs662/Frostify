@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
 
@@ -18,7 +18,12 @@ pub struct Profile {
 pub struct PlaylistRef {
     pub id: String,
     pub name: String,
+    /// Full-res (640 px) cover — the "Made For You" home tile.
     pub image_url: Option<String>,
+    /// Tiny (64 px) cover — the sidebar library icon. Same album, smaller
+    /// scdn tier (sidebar rows are ~48 logical px); kept separate so the
+    /// two consumers don't share one over- or under-sized fetch.
+    pub image_url_small: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +57,38 @@ pub struct AlbumRef {
     pub image_url: Option<String>,
     /// `YYYY-MM-DD`, `YYYY-MM`, or `YYYY` — Spotify's precision varies.
     pub release_date: String,
+}
+
+/// A single track inside a playlist (or the Liked Songs collection).
+/// `uri` is the `spotify:track:…` form Web API playback needs; `id` is
+/// the bare hex (album-art cache keys etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistTrack {
+    pub id: String,
+    pub uri: String,
+    pub name: String,
+    pub artist: String,
+    pub album: String,
+    pub album_image_url: Option<String>,
+    pub duration_ms: u64,
+}
+
+/// A fully-loaded playlist (metadata + first page of tracks). Liked
+/// Songs is modelled as one of these with a synthetic name/owner and
+/// `context_uri = None` (it has no playable context URI on the Web API,
+/// so playback falls back to an explicit `uris` list — see [`PlayTarget`]).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistDetail {
+    pub id: String,
+    pub name: String,
+    pub owner: String,
+    pub image_url: Option<String>,
+    /// `spotify:playlist:…` for real playlists; `None` for Liked Songs.
+    pub context_uri: Option<String>,
+    pub tracks: Vec<PlaylistTrack>,
+    /// Total tracks reported by Spotify (may exceed `tracks.len()` since
+    /// we only load the first page).
+    pub total: u32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -116,16 +153,12 @@ pub async fn get_me(token: &str) -> Result<Profile, AuthError> {
         #[serde(default)]
         display_name: String,
         #[serde(default)]
-        images: Vec<Img>,
-    }
-    #[derive(Deserialize)]
-    struct Img {
-        url: String,
+        images: Vec<RawImg>,
     }
     let r: R = get_json(token, &format!("{API}/me")).await?;
     Ok(Profile {
         display_name: r.display_name,
-        avatar_url: r.images.into_iter().next().map(|i| i.url),
+        avatar_url: pick_thumb(&r.images),
     })
 }
 
@@ -140,11 +173,7 @@ pub async fn get_playlists(token: &str) -> Result<Vec<PlaylistRef>, AuthError> {
         #[serde(default)]
         name: String,
         #[serde(default)]
-        images: Vec<Img>,
-    }
-    #[derive(Deserialize)]
-    struct Img {
-        url: String,
+        images: Vec<RawImg>,
     }
     let r: R = get_json(token, &format!("{API}/me/playlists?limit=20")).await?;
     Ok(r.items
@@ -152,9 +181,228 @@ pub async fn get_playlists(token: &str) -> Result<Vec<PlaylistRef>, AuthError> {
         .map(|p| PlaylistRef {
             id: p.id,
             name: p.name,
-            image_url: p.images.into_iter().next().map(|i| i.url),
+            // Full res for the "Made For You" home tile; tiny for the
+            // sidebar library icon — same album, two scdn tiers.
+            image_url: pick_full(&p.images),
+            image_url_small: pick_tiny(&p.images),
         })
         .collect())
+}
+
+/// Sentinel id used everywhere (nav state, cache key) to mean the Liked
+/// Songs collection rather than a real playlist.
+pub const LIKED_SONGS_ID: &str = "__liked__";
+
+// Shared deserialize shapes for the playlist + saved-tracks endpoints —
+// both wrap items in `{ track: <RawTrack> }`, so one set of structs maps
+// both.
+#[derive(Deserialize)]
+struct RawItem {
+    track: Option<RawTrack>,
+}
+#[derive(Deserialize)]
+struct RawTrack {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    uri: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    duration_ms: u64,
+    #[serde(default)]
+    artists: Vec<RawArtist>,
+    #[serde(default)]
+    album: RawAlbum,
+}
+#[derive(Deserialize)]
+struct RawArtist {
+    #[serde(default)]
+    name: String,
+}
+#[derive(Deserialize, Default)]
+struct RawAlbum {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    images: Vec<RawImg>,
+}
+#[derive(Deserialize)]
+struct RawImg {
+    url: String,
+    /// Spotify reports each image's pixel width (`null` for some sources).
+    #[serde(default)]
+    width: Option<u32>,
+}
+
+/// Pick the **smallest** image whose width is ≥ `min_w`. Spotify returns
+/// a widest-first `[640, 300, 64]` array per album/artist. Matching the
+/// fetched resolution to the on-screen display size is a big win: a
+/// playlist row thumb shows at ~40 logical px (~80 physical at 2× DPI),
+/// so the 640 px cover is ~250× the pixels drawn — decoding + uploading
+/// 640² (1.6 MB) per row is what stalls a fast scroll over a large list.
+/// The ~300 px variant is crisp at every thumb/tile size here and ~5×
+/// cheaper to fetch + decode + upload. Falls back to the first (largest)
+/// entry when nothing meets `min_w` or width metadata is absent.
+fn pick_image_at_least(images: &[RawImg], min_w: u32) -> Option<String> {
+    let mut best: Option<(u32, &str)> = None;
+    let mut any: Option<&str> = None;
+    for img in images {
+        if any.is_none() {
+            any = Some(&img.url);
+        }
+        if let Some(w) = img.width
+            && w >= min_w
+            && best.as_ref().map(|(bw, _)| w < *bw).unwrap_or(true)
+        {
+            best = Some((w, &img.url));
+        }
+    }
+    best.map(|(_, u)| u).or(any).map(str::to_string)
+}
+
+// Spotify album art comes in three fixed tiers — **640 / 300 / 64 px**
+// (640 is the ceiling; there is no higher variant via the API). Match the
+// fetched tier to the on-screen display box (× 2 for DPI) so images are
+// crisp without over-fetching:
+//
+//   • now-playing cover, home tiles, "new release" card, playlist header
+//     — display ≥ ~160 logical px (≥ 320 physical) → the **640** tier
+//     (300 upscaled into a 320 px box reads slightly soft).
+//   • playlist track rows — ~40 logical px, but there are 1000s of them,
+//     so the **300** tier keeps fast-scroll fetch/decode/upload cheap.
+//   • sidebar library rows — tiny (~48 logical px) and few, so the **64**
+//     tier is plenty and lightest.
+
+/// Playlist-row thumbs (~300 px): smallest variant ≥ this.
+const ROW_MIN_W: u32 = 160;
+/// Sidebar library icons (~64 px): smallest variant ≥ this.
+const SIDEBAR_MIN_W: u32 = 48;
+
+/// Row-thumb pick (≈ 300 px) — for the virtualized playlist track list.
+fn pick_thumb(images: &[RawImg]) -> Option<String> {
+    pick_image_at_least(images, ROW_MIN_W)
+}
+
+/// Tiny pick (≈ 64 px) — sidebar library icons.
+fn pick_tiny(images: &[RawImg]) -> Option<String> {
+    pick_image_at_least(images, SIDEBAR_MIN_W)
+}
+
+/// Full-resolution pick: the largest (640 px) variant. Now-playing cover,
+/// home tiles, "new release" card, playlist header — anything shown large
+/// enough that 300 px upscales visibly.
+fn pick_full(images: &[RawImg]) -> Option<String> {
+    pick_image_at_least(images, u32::MAX)
+}
+
+impl RawTrack {
+    fn into_track(self) -> PlaylistTrack {
+        PlaylistTrack {
+            id: self.id,
+            uri: self.uri,
+            name: self.name,
+            artist: self.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
+            album: self.album.name,
+            album_image_url: pick_thumb(&self.album.images),
+            duration_ms: self.duration_ms,
+        }
+    }
+}
+
+fn tracks_from_items(items: Vec<RawItem>) -> Vec<PlaylistTrack> {
+    items
+        .into_iter()
+        .filter_map(|i| i.track)
+        .filter(|t| !t.id.is_empty())
+        .map(RawTrack::into_track)
+        .collect()
+}
+
+/// Page size for the streaming track loads. Playlist-tracks endpoint
+/// caps at 100; saved-tracks (`/me/tracks`) caps at 50.
+pub const PLAYLIST_PAGE: u32 = 100;
+pub const LIKED_PAGE: u32 = 50;
+
+/// Lightweight playlist metadata (no tracks) — fetched first so the
+/// header + scrollbar length appear before any track page lands.
+#[derive(Debug, Clone)]
+pub struct PlaylistMeta {
+    pub name: String,
+    pub owner: String,
+    pub image_url: Option<String>,
+    pub total: u32,
+}
+
+pub async fn playlist_meta(token: &str, playlist_id: &str) -> Result<PlaylistMeta, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        owner: Owner,
+        #[serde(default)]
+        images: Vec<RawImg>,
+        #[serde(default)]
+        tracks: TotalOnly,
+    }
+    #[derive(Deserialize, Default)]
+    struct Owner {
+        #[serde(default)]
+        display_name: String,
+    }
+    #[derive(Deserialize, Default)]
+    struct TotalOnly {
+        #[serde(default)]
+        total: u32,
+    }
+    let fields = "name,owner(display_name),images,tracks.total";
+    let r: R = get_json(token, &format!("{API}/playlists/{playlist_id}?fields={fields}")).await?;
+    Ok(PlaylistMeta {
+        name: r.name,
+        owner: r.owner.display_name,
+        // Playlist header cover (large) — full res.
+        image_url: pick_full(&r.images),
+        total: r.tracks.total,
+    })
+}
+
+/// One page of tracks plus the endpoint's reported `total` and the raw
+/// item count (incl. nulls — needed to detect the last page when some
+/// entries get filtered out).
+#[derive(Debug, Clone)]
+pub struct TracksPage {
+    pub tracks: Vec<PlaylistTrack>,
+    pub total: u32,
+    pub raw_count: u32,
+}
+
+pub async fn fetch_tracks_page(token: &str, url: &str) -> Result<TracksPage, AuthError> {
+    #[derive(Deserialize)]
+    struct Page {
+        #[serde(default)]
+        total: u32,
+        #[serde(default)]
+        items: Vec<RawItem>,
+    }
+    let page: Page = get_json(token, url).await?;
+    let raw_count = page.items.len() as u32;
+    Ok(TracksPage {
+        tracks: tracks_from_items(page.items),
+        total: page.total,
+        raw_count,
+    })
+}
+
+/// URL for a page of a real playlist's tracks (fields-masked).
+pub fn playlist_tracks_url(playlist_id: &str, offset: u32, limit: u32) -> String {
+    let fields = "total,items(track(id,uri,name,duration_ms,artists(name),album(name,images)))";
+    format!("{API}/playlists/{playlist_id}/tracks?limit={limit}&offset={offset}&fields={fields}")
+}
+
+/// URL for a page of the saved-tracks (Liked Songs) collection.
+pub fn liked_tracks_url(offset: u32, limit: u32) -> String {
+    format!("{API}/me/tracks?limit={limit}&offset={offset}")
 }
 
 pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthError> {
@@ -184,11 +432,7 @@ pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthEr
     #[derive(Deserialize)]
     struct Album {
         #[serde(default)]
-        images: Vec<Img>,
-    }
-    #[derive(Deserialize)]
-    struct Img {
-        url: String,
+        images: Vec<RawImg>,
     }
     let r: R = get_json(token, &format!("{API}/me/player/recently-played?limit=10")).await?;
     Ok(r.items
@@ -203,7 +447,8 @@ pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthEr
                 .next()
                 .map(|a| a.name)
                 .unwrap_or_default(),
-            album_image_url: i.track.album.images.into_iter().next().map(|i| i.url),
+            // Home "Recently played" tiles (TILE_THUMB ≈ 320 px physical).
+            album_image_url: pick_full(&i.track.album.images),
         })
         .collect())
 }
@@ -222,11 +467,7 @@ pub async fn get_top_artists(token: &str, limit: u32) -> Result<Vec<ArtistRef>, 
         #[serde(default)]
         name: String,
         #[serde(default)]
-        images: Vec<Img>,
-    }
-    #[derive(Deserialize)]
-    struct Img {
-        url: String,
+        images: Vec<RawImg>,
     }
     let url = format!("{API}/me/top/artists?time_range=short_term&limit={limit}");
     let r: R = get_json(token, &url).await?;
@@ -235,7 +476,8 @@ pub async fn get_top_artists(token: &str, limit: u32) -> Result<Vec<ArtistRef>, 
         .map(|a| ArtistRef {
             id: a.id,
             name: a.name,
-            image_url: a.images.into_iter().next().map(|i| i.url),
+            // Home "Your top artists" tiles.
+            image_url: pick_full(&a.images),
         })
         .collect())
 }
@@ -264,11 +506,7 @@ pub async fn get_top_tracks(token: &str, limit: u32) -> Result<Vec<TrackRef>, Au
     #[derive(Deserialize)]
     struct Album {
         #[serde(default)]
-        images: Vec<Img>,
-    }
-    #[derive(Deserialize)]
-    struct Img {
-        url: String,
+        images: Vec<RawImg>,
     }
     let url = format!("{API}/me/top/tracks?time_range=short_term&limit={limit}");
     let r: R = get_json(token, &url).await?;
@@ -278,7 +516,8 @@ pub async fn get_top_tracks(token: &str, limit: u32) -> Result<Vec<TrackRef>, Au
             id: t.id,
             name: t.name,
             artist: t.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
-            album_image_url: t.album.images.into_iter().next().map(|i| i.url),
+            // Home "Your top tracks" tiles.
+            album_image_url: pick_full(&t.album.images),
         })
         .collect())
 }
@@ -305,7 +544,7 @@ pub async fn get_artist_albums(
         #[serde(default)]
         artists: Vec<Artist>,
         #[serde(default)]
-        images: Vec<Img>,
+        images: Vec<RawImg>,
         #[serde(default)]
         release_date: String,
     }
@@ -313,10 +552,6 @@ pub async fn get_artist_albums(
     struct Artist {
         #[serde(default)]
         name: String,
-    }
-    #[derive(Deserialize)]
-    struct Img {
-        url: String,
     }
     let url = format!(
         "{API}/artists/{artist_id}/albums?include_groups=album,single&limit={limit}"
@@ -329,7 +564,8 @@ pub async fn get_artist_albums(
             id: a.id,
             name: a.name,
             artist: a.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
-            image_url: a.images.into_iter().next().map(|i| i.url),
+            // "New release" spotlight card (THUMB_XL) — full res.
+            image_url: pick_full(&a.images),
             release_date: a.release_date,
         })
         .collect();
@@ -359,17 +595,14 @@ pub async fn get_track(token: &str, track_id: &str) -> Result<TrackDetails, Auth
     #[derive(Deserialize, Default)]
     struct Album {
         #[serde(default)]
-        images: Vec<Img>,
-    }
-    #[derive(Deserialize)]
-    struct Img {
-        url: String,
+        images: Vec<RawImg>,
     }
     let r: R = get_json(token, &format!("{API}/tracks/{track_id}")).await?;
     Ok(TrackDetails {
         track_id: r.id,
         artist: r.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
-        album_image_url: r.album.images.into_iter().next().map(|i| i.url),
+        // Now-playing cover (large + full-window blurred backdrop) — full res.
+        album_image_url: pick_full(&r.album.images),
     })
 }
 
@@ -420,11 +653,7 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
     #[derive(Deserialize, Default)]
     struct Album {
         #[serde(default)]
-        images: Vec<Img>,
-    }
-    #[derive(Deserialize)]
-    struct Img {
-        url: String,
+        images: Vec<RawImg>,
     }
 
     let res = reqwest::Client::new()
@@ -451,7 +680,8 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
         track_id: item.id,
         name: item.name,
         artist: item.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
-        album_image_url: item.album.images.into_iter().next().map(|i| i.url),
+        // Now-playing cover — full res (large + blurred backdrop).
+        album_image_url: pick_full(&item.album.images),
         is_playing: r.is_playing,
         progress_ms: r.progress_ms,
         progress_anchor: Instant::now(),
@@ -496,6 +726,45 @@ async fn player_command(
 
 pub async fn play(token: &str) -> Result<(), AuthError> {
     player_command(token, reqwest::Method::PUT, "/me/player/play").await
+}
+
+/// What to start playing on the active device. Real playlists/albums use
+/// a `context_uri` (so Spotify queues the whole context); the Liked
+/// Songs collection has no playable context URI, so it ships an explicit
+/// `uris` list. Both carry an `offset` = the index to start at.
+#[derive(Debug, Clone)]
+pub enum PlayTarget {
+    Context { context_uri: String, offset: u32 },
+    Uris { uris: Vec<String>, offset: u32 },
+}
+
+/// Start playback of a context (playlist/album) or explicit track list
+/// on the user's active Connect device. Body shape mirrors the official
+/// client's `PUT /me/player/play`. A `404` (no active device) surfaces
+/// as `AuthError::Api` for the caller to log.
+pub async fn play_context(token: &str, target: PlayTarget) -> Result<(), AuthError> {
+    let body = match target {
+        PlayTarget::Context { context_uri, offset } => serde_json::json!({
+            "context_uri": context_uri,
+            "offset": { "position": offset },
+        }),
+        PlayTarget::Uris { uris, offset } => serde_json::json!({
+            "uris": uris,
+            "offset": { "position": offset },
+        }),
+    };
+    let res = reqwest::Client::new()
+        .put(format!("{API}/me/player/play"))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await?;
+    let status = res.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = res.text().await.unwrap_or_default();
+    Err(AuthError::Api(body, Some(status.as_u16())))
 }
 
 pub async fn pause(token: &str) -> Result<(), AuthError> {

@@ -38,6 +38,13 @@ pub enum WorkerCommand {
     /// on whatever device is active.
     SeedPlayerState { access_token: String },
     FetchTrackDetails { access_token: String, track_id: String },
+    /// Load a playlist's tracks (or the Liked Songs collection when
+    /// `liked` is set). Result flows back as `PlaylistLoaded`.
+    FetchPlaylist {
+        access_token: String,
+        id: String,
+        liked: bool,
+    },
     FetchAlbumArt { url: String, key: String },
     /// Fetch Spotify's own extracted accent colour for a cover, via the
     /// librespot session's extended-metadata endpoint. `image_hex` is the
@@ -62,6 +69,9 @@ pub enum PlaybackCmd {
     Prev,
     Shuffle(bool),
     Repeat(RepeatMode),
+    /// Start a playlist/album context (or explicit track list) at an
+    /// offset on the active device.
+    PlayContext(api::PlayTarget),
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +84,19 @@ pub enum WorkerResponse {
     HomeData { data: HomeData },
     PlayerState { player: Option<CurrentlyPlaying> },
     TrackDetails { details: TrackDetails },
+    /// First response for a playlist open: metadata + the first track
+    /// page (or the *full* set when `complete`, e.g. a disk-cache hit or
+    /// single-page playlist). The UI rebuilds once here to mount the
+    /// header + full-length virtualised list.
+    PlaylistOpened { detail: api::PlaylistDetail, complete: bool },
+    /// A subsequent streamed track page appended to the open playlist's
+    /// live buffer — no rebuild; the virtualised list reads it on scroll.
+    PlaylistTracks {
+        id: String,
+        tracks: Vec<api::PlaylistTrack>,
+        done: bool,
+    },
+    PlaylistFailed { id: String, error: String },
     AlbumArtReady {
         key: String,
         handle: ImageHandle,
@@ -139,6 +162,11 @@ impl Worker {
                             access_token,
                             track_id,
                         } => spawn_fetch_track_details(resp.clone(), access_token, track_id),
+                        WorkerCommand::FetchPlaylist {
+                            access_token,
+                            id,
+                            liked,
+                        } => spawn_fetch_playlist(resp.clone(), access_token, id, liked),
                         WorkerCommand::FetchAlbumArt { url, key } => spawn_fetch_album_art(
                             resp.clone(),
                             uploader.clone(),
@@ -184,6 +212,13 @@ impl Worker {
         let _ = self.cmd_tx.send(WorkerCommand::FetchTrackDetails {
             access_token,
             track_id,
+        });
+    }
+    pub fn fetch_playlist(&self, access_token: String, id: String, liked: bool) {
+        let _ = self.cmd_tx.send(WorkerCommand::FetchPlaylist {
+            access_token,
+            id,
+            liked,
         });
     }
     pub fn fetch_album_art(&self, url: String, key: String) {
@@ -360,6 +395,7 @@ fn spawn_playback(access_token: String, cmd: PlaybackCmd) {
             PlaybackCmd::Prev => api::previous_track(&access_token).await,
             PlaybackCmd::Shuffle(on) => api::set_shuffle(&access_token, on).await,
             PlaybackCmd::Repeat(mode) => api::set_repeat(&access_token, mode).await,
+            PlaybackCmd::PlayContext(target) => api::play_context(&access_token, target).await,
         };
         match result {
             Ok(()) => debug!("playback cmd {cmd:?} ok"),
@@ -376,6 +412,133 @@ fn spawn_fetch_track_details(resp: Responder, access_token: String, track_id: St
         match api::get_track(&access_token, &track_id).await {
             Ok(details) => resp.send(WorkerResponse::TrackDetails { details }),
             Err(e) => warn!("get_track({track_id}) failed: {e}"),
+        }
+    });
+}
+
+/// Disk-cache TTL for playlist track listings. Longer than the UI's
+/// in-memory cache (which covers within-session re-opens) so a relaunch
+/// re-opening a big playlist skips re-paging the whole thing from the
+/// Web API, but short enough that edits made elsewhere surface within
+/// the hour. Listings are mutable, so unlike album art this is hours,
+/// not days.
+const PLAYLIST_DISK_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 30);
+
+/// Hard ceiling on streamed tracks — guards against a pathological
+/// `total` driving an unbounded loop. 10k covers every realistic
+/// library; the windowed-play UX matters more than completeness beyond.
+const MAX_STREAM_TRACKS: usize = 10_000;
+
+fn spawn_fetch_playlist(resp: Responder, access_token: String, id: String, liked: bool) {
+    tokio::spawn(async move {
+        // 1. Disk cache first — a fresh hit delivers the whole listing in
+        //    one `complete` response (no re-paging the CDN/API).
+        let key = id.clone();
+        let cached = tokio::task::spawn_blocking(move || {
+            disk_cache::read_json::<api::PlaylistDetail>(&key, PLAYLIST_DISK_TTL)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(detail) = cached {
+            info!("playlist '{}' disk-cache hit: {} tracks", detail.name, detail.tracks.len());
+            resp.send(WorkerResponse::PlaylistOpened { detail, complete: true });
+            return;
+        }
+
+        // 2. Metadata first (playlists only — Liked Songs gets its total
+        //    from the first page) so the header + scrollbar appear before
+        //    any track page lands.
+        let (name, owner, image_url, context_uri) = if liked {
+            ("Liked Songs".to_string(), String::new(), None, None)
+        } else {
+            match api::playlist_meta(&access_token, &id).await {
+                Ok(m) => (
+                    m.name,
+                    m.owner,
+                    m.image_url,
+                    Some(format!("spotify:playlist:{id}")),
+                ),
+                Err(e) => {
+                    warn!("playlist_meta({id}) failed: {e}");
+                    resp.send(WorkerResponse::PlaylistFailed { id, error: e.to_string() });
+                    return;
+                }
+            }
+        };
+
+        // 3. Stream track pages. The first page rides a `PlaylistOpened`
+        //    (mounts the list); the rest are `PlaylistTracks` appended to
+        //    the live buffer with no rebuild.
+        let page_size = if liked { api::LIKED_PAGE } else { api::PLAYLIST_PAGE };
+        let mut offset = 0u32;
+        let mut first = true;
+        let mut total = 0u32;
+        let mut accumulated: Vec<api::PlaylistTrack> = Vec::new();
+        loop {
+            let url = if liked {
+                api::liked_tracks_url(offset, page_size)
+            } else {
+                api::playlist_tracks_url(&id, offset, page_size)
+            };
+            let page = match api::fetch_tracks_page(&access_token, &url).await {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!("fetch_tracks_page({id} @{offset}) failed: {e}");
+                    if first {
+                        resp.send(WorkerResponse::PlaylistFailed {
+                            id: id.clone(),
+                            error: e.to_string(),
+                        });
+                    }
+                    break;
+                }
+            };
+            total = page.total;
+            let next = offset + page_size;
+            let done = page.raw_count < page_size
+                || page.raw_count == 0
+                || (total > 0 && next >= total)
+                || accumulated.len() + page.tracks.len() >= MAX_STREAM_TRACKS;
+            accumulated.extend(page.tracks.iter().cloned());
+            if first {
+                let detail = api::PlaylistDetail {
+                    id: id.clone(),
+                    name: name.clone(),
+                    owner: owner.clone(),
+                    image_url: image_url.clone(),
+                    context_uri: context_uri.clone(),
+                    tracks: page.tracks,
+                    total,
+                };
+                resp.send(WorkerResponse::PlaylistOpened { detail, complete: done });
+                first = false;
+            } else {
+                resp.send(WorkerResponse::PlaylistTracks {
+                    id: id.clone(),
+                    tracks: page.tracks,
+                    done,
+                });
+            }
+            if done {
+                break;
+            }
+            offset = next;
+        }
+
+        // 4. Write the assembled listing to disk for instant re-opens.
+        if !first {
+            let detail = api::PlaylistDetail {
+                id: id.clone(),
+                name,
+                owner,
+                image_url,
+                context_uri,
+                tracks: accumulated,
+                total,
+            };
+            let key = id.clone();
+            tokio::task::spawn_blocking(move || disk_cache::write_json(&key, &detail));
         }
     });
 }
