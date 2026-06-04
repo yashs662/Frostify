@@ -12,17 +12,21 @@ mod constants;
 mod debug_config;
 mod disk_cache;
 mod errors;
+mod canvas;
 mod extracted_color;
 mod null_sink;
 mod prefs;
 mod spirc_bootstrap;
 mod spotify_session;
 mod ui;
+mod video;
 mod worker;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use frostify_gfx::{App, Curve, ImageHandle, Overlay, Signal, TextSignal, Timeline};
@@ -90,6 +94,49 @@ struct AppState {
     /// on every nav change (see `navigate`). Parks at 1.0 (settled).
     main_t: Signal<f32>,
     player: RefCell<Option<CurrentlyPlaying>>,
+    /// Resolved + cached Spotify Canvas video for the current track:
+    /// `(track_id, cached_mp4_path)`. Set by `CanvasReady`, cleared on
+    /// track change / `CanvasNone`. The decoder task (stage 3+) reads it.
+    canvas_path: RefCell<Option<(String, std::path::PathBuf)>>,
+    /// Engine handle for pushing decoded Canvas frames onto the
+    /// now-playing `.external()` node. Set once after the `App` is built
+    /// (the engine owns it), so it's `None` until then.
+    frame_sink: RefCell<Option<Arc<frostify_gfx::FrameSink>>>,
+    /// Live `NodeId` of the now-playing canvas node, refreshed from the
+    /// scene each frame so the decode thread targets the correct node
+    /// across scene rebuilds (the id is not stable). Shared with the
+    /// decode thread; `None` when the node isn't in the current tree.
+    canvas_node: Arc<Mutex<Option<frostify_gfx::node::NodeId>>>,
+    /// Set true by the decode thread once it produces its first frame,
+    /// cleared on stop. `on_frame` mirrors this into [`Self::canvas_active`]
+    /// and triggers a rebuild so the now-playing layout switches between
+    /// album-art and full-bleed video only when video is actually flowing.
+    canvas_has_video: Arc<AtomicBool>,
+    /// UI-thread mirror of [`Self::canvas_has_video`], read at scene-build
+    /// time to choose the now-playing layout. Cell (not Signal): the swap
+    /// is a deliberate rebuild, not a reactive bind.
+    canvas_active: Cell<bool>,
+    /// Hover state of the now-playing Canvas video (set by `.on_hover`).
+    canvas_hover: Signal<bool>,
+    /// Last observed `canvas_hover` value, so `on_frame` only (re)starts the
+    /// brightness tween on a hover *transition*.
+    canvas_hover_last: Cell<bool>,
+    /// Alpha of the dark overlay over the Canvas video — dimmed at rest,
+    /// tweened to 0 (full brightness) on hover. Bound to the overlay's color.
+    canvas_dim: Signal<f32>,
+    /// Staged black dim gradient (opaque top → transparent over the bottom,
+    /// matching the video's edge fade) drawn over the Canvas video, tinted
+    /// by [`Self::canvas_dim`]. Built once at startup.
+    canvas_dim_grad: Cell<Option<ImageHandle>>,
+    /// Active Canvas decode session (the track being decoded + its stop
+    /// flag). Replaced on track change; `None` when nothing is decoding.
+    canvas_decode: RefCell<Option<CanvasSession>>,
+    /// Folder picked by the (off-thread, blocking) cache-relocation dialog,
+    /// awaiting pickup on the UI thread in `on_frame`.
+    pending_cache_dir: Arc<Mutex<Option<std::path::PathBuf>>>,
+    /// Last-measured on-disk cache usage, shown in the settings storage bar.
+    /// Recomputed when the settings modal opens / cache is cleared / moved.
+    cache_usage: Cell<disk_cache::CacheUsage>,
     /// `/v1/tracks/{id}` results keyed by bare track ID. Cluster
     /// updates carry only `artist_uri`, not the resolved name, so we
     /// fetch+cache once per track and overlay onto the player view.
@@ -219,6 +266,18 @@ impl AppState {
             open_playlist: RefCell::default(),
             main_t: Signal::new(1.0),
             player: RefCell::default(),
+            canvas_path: RefCell::default(),
+            frame_sink: RefCell::default(),
+            canvas_node: Arc::new(Mutex::new(None)),
+            canvas_has_video: Arc::new(AtomicBool::new(false)),
+            canvas_active: Cell::new(false),
+            canvas_hover: Signal::new(false),
+            canvas_hover_last: Cell::new(false),
+            canvas_dim: Signal::new(CANVAS_DIM_ALPHA),
+            canvas_dim_grad: Cell::new(None),
+            canvas_decode: RefCell::default(),
+            pending_cache_dir: Arc::new(Mutex::new(None)),
+            cache_usage: Cell::new(disk_cache::CacheUsage::default()),
             track_details: RefCell::default(),
             art_inflight: RefCell::default(),
             shown_art_key: RefCell::default(),
@@ -273,6 +332,29 @@ const CROSSFADE_DURATION: Duration = Duration::from_millis(1500);
 /// big blurred backdrop + accent catch up behind them.
 const PANEL_CROSSFADE_DURATION: Duration = Duration::from_millis(450);
 
+/// Resting alpha of the dark overlay over the Canvas video (dimmed until
+/// hovered). 0 = no dim.
+const CANVAS_DIM_ALPHA: f32 = 0.5;
+
+/// Brightness tween duration when the Canvas video is hovered / un-hovered.
+const CANVAS_DIM_DURATION: Duration = Duration::from_millis(280);
+
+
+/// Register the platform-native credential store as keyring-core's default.
+/// Must run before any `keyring_core::Entry` is created.
+fn init_credential_store() {
+    #[cfg(windows)]
+    let store = windows_native_keyring_store::Store::new();
+    #[cfg(target_os = "macos")]
+    let store = apple_native_keyring_store::keychain::Store::new();
+    #[cfg(target_os = "linux")]
+    let store = linux_keyutils_keyring_store::Store::new();
+
+    match store {
+        Ok(s) => keyring_core::set_default_store(s),
+        Err(e) => log::warn!("credential store init failed, tokens won't persist: {e}"),
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Debug-only launch config (REMOVABLE — `automation` feature). Parsed
@@ -293,10 +375,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filter = default_filter.to_string();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(filter)).init();
 
+    // keyring-core has no built-in store: register the OS-native one once,
+    // before any Entry use (token load below). Fail-soft — a registration
+    // error just means later token I/O surfaces a keyring error.
+    init_credential_store();
+
     // Load persisted preferences before any window work — initial size
     // + panel widths come from here. Fail-soft: a missing or malformed
     // file yields defaults so first launch always boots.
     let mut prefs = UserPreferences::load();
+    // Point the disk cache at the user-chosen directory (if any) before any
+    // fetch can touch it.
+    disk_cache::set_root(prefs.cache_dir.as_ref().map(std::path::PathBuf::from));
     // Snap any out-of-range panel widths back into a valid state —
     // handles corrupted JSON, schema additions where MIN/MAX moved past
     // a saved value, and the float-drift edge cases. Values close to
@@ -339,6 +429,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rebuild = app.rebuild_token();
     let worker = Rc::new(Worker::new(app.wake_handle(), app.uploader()));
     worker.try_load_tokens();
+    // Hand the state the engine's frame sink so the Canvas decode thread
+    // can push video frames onto the now-playing external node.
+    *state.frame_sink.borrow_mut() = Some(app.frame_sink());
+    // Stage the Canvas dim gradient: solid black over the top, fading to
+    // transparent across the bottom 35% so it matches the video's own
+    // `fade_bottom(0.35)` edge fade. Tinted at draw time by `canvas_dim`.
+    {
+        let (gw, gh) = (4u32, 256u32);
+        let fade_start = 0.65f32;
+        let mut px = Vec::with_capacity((gw * gh * 4) as usize);
+        for y in 0..gh {
+            let f = y as f32 / (gh - 1) as f32;
+            let a = if f < fade_start {
+                1.0
+            } else {
+                ((1.0 - f) / (1.0 - fade_start)).clamp(0.0, 1.0)
+            };
+            let a = (a * 255.0) as u8;
+            for _ in 0..gw {
+                px.extend_from_slice(&[0, 0, 0, a]);
+            }
+        }
+        state.canvas_dim_grad.set(Some(app.stage_image_rgba(gw, gh, px)));
+    }
 
     // Re-hydrate the album-art backdrop from the persisted last track —
     // the disk cache makes this near-instant on relaunch, so the
@@ -349,7 +463,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let key = album_art::cache_key(url);
         state.art_inflight.borrow_mut().insert(key.clone());
-        worker.fetch_album_art(url.clone(), key);
+        worker.fetch_album_art(url.clone(), key.clone());
+        // Also re-hydrate Spotify's extracted accent (disk-cache hit →
+        // instant), not just the pixel-average — otherwise the launch
+        // backdrop tints with the washed-out art average until the first
+        // live track change re-fetches the real accent.
+        worker.fetch_accent(key);
     }
 
     let on_login: Rc<dyn Fn()> = {
@@ -414,7 +533,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Persist after the canvas toggle flips (debounced).
     let on_canvas_change: Rc<dyn Fn()> = {
         let state = state.clone();
-        Rc::new(move || mark_prefs_dirty(&state, Instant::now()))
+        let worker = worker.clone();
+        Rc::new(move || {
+            mark_prefs_dirty(&state, Instant::now());
+            if state.show_canvas.get() {
+                // Turned on mid-track: decode the cached clip if we have
+                // it, else fetch it for the current track.
+                let cached = state.canvas_path.borrow().clone();
+                match cached {
+                    Some((track_id, path)) => start_canvas_decode(&state, track_id, path),
+                    None => {
+                        if let Some(p) = state.player.borrow().as_ref()
+                            && let Some(id) = track_id_from_uri(&p.track_id)
+                        {
+                            worker.fetch_canvas(p.track_id.clone(), id.to_string());
+                        }
+                    }
+                }
+            } else {
+                // Turned off: stop decoding + drop the video texture.
+                stop_canvas_decode(&state);
+            }
+        })
     };
     let sign_out: Rc<dyn Fn()> = {
         let state = state.clone();
@@ -429,6 +569,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.settings.reset();
             state.view.set(View::Login);
             rebuild.set(true);
+        })
+    };
+
+    // Measure cache usage when the settings modal opens, into state, then
+    // rebuild so the storage bar shows fresh numbers (opening is just an
+    // opacity tween — it wouldn't otherwise re-run the scene build).
+    let on_settings_open: Rc<dyn Fn()> = {
+        let state = state.clone();
+        let rebuild = rebuild.clone();
+        Rc::new(move || {
+            state.cache_usage.set(disk_cache::usage());
+            rebuild.set(true);
+        })
+    };
+
+    // Wipe every cached file (album art, Canvas videos, API JSON). Runs on
+    // the UI thread — fast for the capped cache — then refreshes the usage
+    // + rebuilds so the storage bar reflects the freed space.
+    let on_clear_cache: Rc<dyn Fn()> = {
+        let state = state.clone();
+        let rebuild = rebuild.clone();
+        Rc::new(move || {
+            let freed = disk_cache::clear();
+            log::info!("cleared disk cache (freed {freed} bytes)");
+            state.cache_usage.set(disk_cache::usage());
+            rebuild.set(true);
+        })
+    };
+
+    // Relocate the cache: open a native folder picker on a worker thread
+    // (the dialog blocks), stashing the chosen path for `on_frame` to apply
+    // on the UI thread.
+    let on_change_cache_dir: Rc<dyn Fn()> = {
+        let pending = state.pending_cache_dir.clone();
+        let wake = app.wake_handle();
+        Rc::new(move || {
+            let pending = pending.clone();
+            let wake = wake.clone();
+            std::thread::spawn(move || {
+                if let Some(dir) = rfd::FileDialog::new()
+                    .set_title("Choose cache folder")
+                    .pick_folder()
+                {
+                    *pending.lock().unwrap() = Some(dir);
+                    wake.wake();
+                }
+            });
         })
     };
 
@@ -472,6 +659,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let on_action = on_action.clone();
         let on_canvas_change = on_canvas_change.clone();
         let sign_out = sign_out.clone();
+        let on_clear_cache = on_clear_cache.clone();
+        let on_change_cache_dir = on_change_cache_dir.clone();
+        let on_settings_open = on_settings_open.clone();
         let on_navigate = on_navigate.clone();
         let on_play = on_play.clone();
         let request_cover = request_cover.clone();
@@ -539,7 +729,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     settings: &state.settings,
                     show_canvas: &state.show_canvas,
                     on_canvas_change: on_canvas_change.clone(),
+                    canvas_active: state.canvas_active.get(),
+                    canvas_hover: &state.canvas_hover,
+                    canvas_dim: &state.canvas_dim,
+                    canvas_dim_grad: state.canvas_dim_grad.get(),
                     sign_out: sign_out.clone(),
+                    // Measured on settings-open (not per build — a dir walk).
+                    cache_usage: state.cache_usage.get(),
+                    cache_path: disk_cache::root_dir()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                    on_clear_cache: on_clear_cache.clone(),
+                    on_change_cache_dir: on_change_cache_dir.clone(),
+                    on_settings_open: on_settings_open.clone(),
                 };
                 ui::home::build(s, &icons, &state.home.borrow(), &state.home_art.borrow(), &view)
             }
@@ -549,7 +751,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state_for_frame = state.clone();
     let worker_for_frame = worker.clone();
     let rebuild_for_frame = rebuild.clone();
-    let app = app.on_frame(move |_ctx, tl, now| {
+    let app = app.on_frame(move |ctx, tl, now| {
+        // Keep the live canvas node id in sync so the decode thread
+        // targets the correct node even after a scene rebuild.
+        let resolved = ctx.node("now_playing_canvas");
+        {
+            let mut slot = state_for_frame.canvas_node.lock().unwrap();
+            if slot.is_none() && resolved.is_some() {
+                log::debug!("canvas node resolved: {resolved:?}");
+            }
+            *slot = resolved;
+        }
+        // Apply a cache relocation picked by the folder dialog: point the
+        // disk cache at the new dir, persist it, and rebuild so the storage
+        // bar refreshes. (The old cache is left in place — only the active
+        // dir changes; the user can clear the old one manually.)
+        if let Some(dir) = state_for_frame.pending_cache_dir.lock().unwrap().take() {
+            disk_cache::set_root(Some(dir.clone()));
+            state_for_frame.prefs.borrow_mut().cache_dir = Some(dir.display().to_string());
+            state_for_frame.cache_usage.set(disk_cache::usage());
+            mark_prefs_dirty(&state_for_frame, now);
+            rebuild_for_frame.set(true);
+            log::info!("cache relocated to {}", dir.display());
+        }
+        // Hide the base background fill once the album-art backdrop fully
+        // covers it (opaque + crossfade settled): the art layer is
+        // full-surface opaque, so the bg behind it is dead pixels. Hiding
+        // it drops the instance + its composite layer entirely. Re-shown
+        // when there's no art or a crossfade is mid-flight (the fading art
+        // is still translucent, so the base shows through).
+        if let Some(bg) = ctx.node("home_bg") {
+            let covered = state_for_frame.backdrop_curr.get().is_some()
+                && state_for_frame.crossfade_t.get() >= 1.0;
+            ctx.tree.set_visible(bg, !covered);
+        }
+        // Mirror the decode thread's "video is flowing" flag into the
+        // build-time layout flag; on a change, rebuild so the now-playing
+        // pane swaps between album-art and full-bleed video.
+        let want_video = state_for_frame.canvas_has_video.load(Ordering::Relaxed);
+        if want_video != state_for_frame.canvas_active.get() {
+            state_for_frame.canvas_active.set(want_video);
+            rebuild_for_frame.set(true);
+        }
+        // Smoothly tween the Canvas dim overlay on hover transitions:
+        // bright (0) while hovered, dimmed at rest.
+        let hov = state_for_frame.canvas_hover.get();
+        if hov != state_for_frame.canvas_hover_last.get() {
+            state_for_frame.canvas_hover_last.set(hov);
+            let target = if hov { 0.0 } else { CANVAS_DIM_ALPHA };
+            tl.animate(
+                &state_for_frame.canvas_dim,
+                target,
+                Curve::EaseInOut,
+                CANVAS_DIM_DURATION,
+                now,
+            );
+        }
         while let Some(resp) = worker_for_frame.poll() {
             handle_worker_response(
                 &state_for_frame,
@@ -619,6 +876,113 @@ fn snapshot_player_into_prefs(state: &AppState) {
 /// during the drag.
 fn mark_prefs_dirty(state: &AppState, now: Instant) {
     state.prefs_dirty_since.set(Some(now));
+}
+
+/// A running Canvas-video decode: the track it's decoding and the flag
+/// the decode thread polls so a track change (or canvas-off) can stop it.
+struct CanvasSession {
+    track_id: String,
+    stop: Arc<AtomicBool>,
+}
+
+/// Spawn (or replace) the Canvas decode thread for `track_id`, reading the
+/// cached MP4 at `path`. Any prior session is stopped first. The thread
+/// decodes frames in a loop, sleeping each frame's display duration, and
+/// pushes them to the now-playing `.external()` node via the engine's
+/// [`FrameSink`]. It targets `state.canvas_node` read fresh each frame so
+/// it follows scene rebuilds, and exits when its stop flag is set or the
+/// clip fails to decode. No-op if the frame sink isn't installed yet.
+fn start_canvas_decode(state: &AppState, track_id: String, path: std::path::PathBuf) {
+    // Already decoding this exact track — don't restart (avoids a visible
+    // hitch when e.g. the canvas toggle fires while it's already playing).
+    if state
+        .canvas_decode
+        .borrow()
+        .as_ref()
+        .map(|s| s.track_id == track_id)
+        .unwrap_or(false)
+    {
+        return;
+    }
+    log::debug!("start_canvas_decode {track_id}");
+    stop_canvas_decode(state);
+    let Some(sink) = state.frame_sink.borrow().clone() else {
+        return;
+    };
+    let node = state.canvas_node.clone();
+    let has_video = state.canvas_has_video.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = stop.clone();
+    let spawned = std::thread::Builder::new()
+        .name("canvas-decode".into())
+        .spawn(move || {
+            let Ok(bytes) = std::fs::read(&path) else {
+                log::warn!("canvas decode: failed to read {}", path.display());
+                return;
+            };
+            let Some(mut video) = crate::video::CanvasVideo::open(&bytes) else {
+                log::warn!("canvas decode: {} is not a decodable AVC clip", path.display());
+                return;
+            };
+            log::debug!("canvas decode: {} samples", video.frame_count());
+            let mut first = true;
+            // Present each frame at a running deadline rather than sleeping
+            // a full frame interval *after* decoding — otherwise every
+            // frame costs `decode_time + interval`, dropping the effective
+            // rate well below the clip's native fps (the visible chop).
+            let mut next_at = std::time::Instant::now();
+            while !stop_thread.load(Ordering::Relaxed) {
+                let Some(frame) = video.next_frame() else {
+                    log::warn!("canvas decode: stopped — clip yielded no decodable frame");
+                    break;
+                };
+                if first {
+                    log::debug!("canvas decode: {}x{} @ {:?}", frame.width, frame.height, frame.duration);
+                    first = false;
+                    // First real frame → mark active so the UI swaps to the
+                    // full-bleed video layout (sink.submit wakes the loop).
+                    has_video.store(true, Ordering::Relaxed);
+                }
+                let dur = frame.duration;
+                if let Some(id) = *node.lock().unwrap() {
+                    sink.submit(id, frame.width, frame.height, frame.rgba);
+                }
+                // Sleep only the remainder of this frame's interval. If
+                // decode already overran it, present immediately and
+                // re-anchor so we don't accumulate lag.
+                next_at += dur;
+                let now = std::time::Instant::now();
+                if next_at > now {
+                    std::thread::sleep(next_at - now);
+                } else {
+                    next_at = now;
+                }
+            }
+        });
+    match spawned {
+        Ok(_) => {
+            state
+                .canvas_decode
+                .borrow_mut()
+                .replace(CanvasSession { track_id, stop });
+        }
+        Err(e) => log::warn!("canvas decode: failed to spawn thread: {e}"),
+    }
+}
+
+/// Stop the active Canvas decode (if any) and clear the now-playing
+/// external texture so the UI falls back to album art.
+fn stop_canvas_decode(state: &AppState) {
+    if let Some(old) = state.canvas_decode.borrow_mut().take() {
+        old.stop.store(true, Ordering::Relaxed);
+    }
+    state.canvas_has_video.store(false, Ordering::Relaxed);
+    if let (Some(sink), Some(node)) = (
+        state.frame_sink.borrow().clone(),
+        *state.canvas_node.lock().unwrap(),
+    ) {
+        sink.clear(node);
+    }
 }
 
 /// Run from `on_frame`. When prefs have been dirty for at least
@@ -914,7 +1278,12 @@ fn promote_backdrop(
         );
     }
     if let Some(c) = accent {
-        timeline.animate(&state.accent, c, Curve::EaseInOut, CROSSFADE_DURATION, now);
+        // Accent rides the *fast* panel-cover crossfade, not the slow
+        // backdrop one — the accent tints foreground chrome (play pill,
+        // chips) that swaps with the now-playing cover, so a 1.5s lag here
+        // reads as "the new song still has the previous accent". The big
+        // blurred backdrop still lags deliberately on `crossfade_t`.
+        timeline.animate(&state.accent, c, Curve::EaseInOut, PANEL_CROSSFADE_DURATION, now);
     }
 }
 
@@ -1012,11 +1381,39 @@ fn handle_worker_response(
                     if !already_shown && !inflight {
                         state.art_inflight.borrow_mut().insert(key.clone());
                         worker.fetch_album_art(url.clone(), key.clone());
-                        // Spotify's own accent for this cover (authoritative
-                        // over the pixel-average extracted on art decode).
-                        if !state.spotify_accent.borrow().contains_key(&key) {
-                            worker.fetch_accent(key);
-                        }
+                    }
+                    // Spotify's own accent for this cover (authoritative over
+                    // the pixel-average extracted on art decode). Dispatched
+                    // **independently of the art dedup** — otherwise a cover
+                    // whose art is already shown / in flight would never get
+                    // its accent fetched, leaving the *previous* track's
+                    // accent on screen. Gated once per cover (disk-cached).
+                    if !state.spotify_accent.borrow().contains_key(&key) {
+                        worker.fetch_accent(key);
+                    }
+                }
+                // Canvas video: fetch on a real track change (not a
+                // progress tick). Gate on the cached canvas not already
+                // matching this track id; clear any stale canvas first so
+                // the UI falls back to art until the new one resolves.
+                if let Some(id) = track_id_from_uri(&p.track_id) {
+                    let have = state
+                        .canvas_path
+                        .borrow()
+                        .as_ref()
+                        .map(|(t, _)| t == id)
+                        .unwrap_or(false);
+                    log::debug!(
+                        "canvas gate: track={id} have={have} show={}",
+                        state.show_canvas.get()
+                    );
+                    if !have && state.show_canvas.get() {
+                        state.canvas_path.borrow_mut().take();
+                        // Stop the previous track's video now so it doesn't
+                        // linger over the new track's art until the new
+                        // Canvas (if any) resolves.
+                        stop_canvas_decode(state);
+                        worker.fetch_canvas(p.track_id.clone(), id.to_string());
                     }
                 }
             }
@@ -1150,8 +1547,31 @@ fn handle_worker_response(
                     .map(|k| k == key)
                     .unwrap_or(false);
             if is_current {
-                timeline.animate(&state.accent, accent, Curve::EaseInOut, CROSSFADE_DURATION, now);
+                timeline.animate(&state.accent, accent, Curve::EaseInOut, PANEL_CROSSFADE_DURATION, now);
             }
+        }
+        WorkerResponse::CanvasReady { track_id, path } => {
+            // Stage 1-2: the Canvas MP4 is fetched + cached. Frame decode
+            // + texture pump (stages 3-4) and the now-playing UI swap
+            // (stage 5) land next; for now record the cached path so the
+            // decoder task can pick it up.
+            log::info!("canvas ready for {track_id}: {}", path.display());
+            state.canvas_path.borrow_mut().replace((track_id.clone(), path.clone()));
+            // Only decode if still wanted (canvas enabled). A late arrival
+            // for a track the user already skipped past is harmless — the
+            // next track change stops/replaces this session.
+            if state.show_canvas.get() {
+                start_canvas_decode(state, track_id, path);
+            }
+        }
+        WorkerResponse::CanvasNone { track_id } => {
+            log::debug!("no canvas for {track_id} — album art fallback");
+            if state.canvas_path.borrow().as_ref().map(|(t, _)| t == &track_id).unwrap_or(false) {
+                state.canvas_path.borrow_mut().take();
+            }
+            // No Canvas for this track → stop any running decode + fall
+            // back to art.
+            stop_canvas_decode(state);
         }
         WorkerResponse::PlaylistOpened { detail, complete } => {
             let id = detail.id.clone();

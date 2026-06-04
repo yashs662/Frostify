@@ -39,10 +39,32 @@ const MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// don't repack on every single write once full.
 const EVICT_TARGET: u64 = 200 * 1024 * 1024;
 
-/// `<os-cache-dir>/frostify/art`, created on first use. `None` if the
-/// platform has no cache dir or the directory can't be created.
+/// User-chosen cache root override. `None` → the OS cache dir. Set once
+/// at startup from prefs via [`set_root`]; read under a lock so a settings
+/// change can relocate the cache live.
+static CACHE_ROOT: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
+/// Override the cache root directory (the parent of `art/` + `json/`).
+/// `None` restores the OS default. Pass an absolute directory.
+pub fn set_root(dir: Option<PathBuf>) {
+    if let Ok(mut g) = CACHE_ROOT.write() {
+        *g = dir;
+    }
+}
+
+/// The active cache root (`<override>/frostify` or `<os-cache>/frostify`).
+fn root() -> Option<PathBuf> {
+    let over = CACHE_ROOT.read().ok().and_then(|g| g.clone());
+    match over {
+        Some(d) => Some(d.join("frostify")),
+        None => dirs::cache_dir().map(|d| d.join("frostify")),
+    }
+}
+
+/// `<root>/art`, created on first use. `None` if no root or the directory
+/// can't be created.
 fn cache_dir() -> Option<PathBuf> {
-    let dir = dirs::cache_dir()?.join("frostify").join("art");
+    let dir = root()?.join("art");
     fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }
@@ -59,6 +81,28 @@ fn entry_path(key: &str) -> Option<PathBuf> {
         return None;
     }
     cache_dir().map(|d| d.join(key))
+}
+
+/// On-disk path for `key` if a (non-expired) entry exists — for
+/// consumers that need a file path rather than bytes (e.g. an MP4 the
+/// video decoder reads directly). Refreshes mtime like [`read`] so the
+/// entry stays LRU-hot. `None` on miss / expiry / unsafe key.
+pub fn path(key: &str) -> Option<PathBuf> {
+    let path = entry_path(key)?;
+    let meta = fs::metadata(&path).ok()?;
+    let age = meta
+        .modified()
+        .ok()
+        .and_then(|m| SystemTime::now().duration_since(m).ok())
+        .unwrap_or(Duration::ZERO);
+    if age > TTL {
+        let _ = fs::remove_file(&path);
+        return None;
+    }
+    if let Ok(f) = fs::OpenOptions::new().write(true).open(&path) {
+        let _ = f.set_modified(SystemTime::now());
+    }
+    Some(path)
 }
 
 /// Read cached bytes for `key`, or `None` on miss / expiry / IO error.
@@ -140,9 +184,9 @@ fn enforce_cap() {
 const JSON_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const JSON_EVICT_TARGET: u64 = 48 * 1024 * 1024;
 
-/// `<os-cache-dir>/frostify/json`, created on first use.
+/// `<root>/json`, created on first use.
 fn json_dir() -> Option<PathBuf> {
-    let dir = dirs::cache_dir()?.join("frostify").join("json");
+    let dir = root()?.join("json");
     fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }
@@ -217,4 +261,98 @@ fn evict_dir(dir: &PathBuf, max_bytes: u64, target: u64) {
             total = total.saturating_sub(len);
         }
     }
+}
+
+// ============================================================================
+// Usage reporting + management (for the settings cache UI)
+// ============================================================================
+
+/// Filename prefix Canvas video files carry in the `art/` dir (`canvas_…`),
+/// so usage can split them out from album-art bytes.
+const CANVAS_PREFIX: &str = "canvas_";
+
+/// On-disk byte usage per cache category, for the settings breakdown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CacheUsage {
+    /// Album-art image bytes (`art/`, non-`canvas_` files).
+    pub art: u64,
+    /// Canvas video bytes (`art/canvas_*`).
+    pub canvas: u64,
+    /// Cached API JSON + canvas metadata (`json/`).
+    pub json: u64,
+}
+
+impl CacheUsage {
+    pub fn total(&self) -> u64 {
+        self.art + self.canvas + self.json
+    }
+}
+
+/// Sum the byte size of every file directly under `dir`.
+fn dir_bytes(dir: Option<PathBuf>) -> u64 {
+    let Some(dir) = dir else { return 0 };
+    let Ok(rd) = fs::read_dir(&dir) else { return 0 };
+    rd.flatten()
+        .filter_map(|e| e.metadata().ok())
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
+        .sum()
+}
+
+/// Split the `art/` dir into (album-art, Canvas-video) byte totals by the
+/// `canvas_` filename prefix.
+fn art_canvas_bytes(dir: Option<PathBuf>) -> (u64, u64) {
+    let Some(dir) = dir else { return (0, 0) };
+    let Ok(rd) = fs::read_dir(&dir) else { return (0, 0) };
+    let (mut art, mut canvas) = (0u64, 0u64);
+    for e in rd.flatten() {
+        let Ok(meta) = e.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let is_canvas = e
+            .file_name()
+            .to_str()
+            .map(|n| n.starts_with(CANVAS_PREFIX))
+            .unwrap_or(false);
+        if is_canvas {
+            canvas += meta.len();
+        } else {
+            art += meta.len();
+        }
+    }
+    (art, canvas)
+}
+
+/// Current on-disk cache usage. Blocking (walks the dirs) — call from
+/// `spawn_blocking`, not an async task or the UI hot path.
+pub fn usage() -> CacheUsage {
+    let (art, canvas) = art_canvas_bytes(cache_dir());
+    CacheUsage {
+        art,
+        canvas,
+        json: dir_bytes(json_dir()),
+    }
+}
+
+/// The active cache root directory (for display in settings). `None` if no
+/// cache dir is available on this platform.
+pub fn root_dir() -> Option<PathBuf> {
+    root()
+}
+
+/// Delete every cached file (art + json). Best-effort; returns the number
+/// of bytes freed. Blocking — call from `spawn_blocking`.
+pub fn clear() -> u64 {
+    let before = usage().total();
+    for dir in [cache_dir(), json_dir()].into_iter().flatten() {
+        if let Ok(rd) = fs::read_dir(&dir) {
+            for e in rd.flatten() {
+                if e.metadata().map(|m| m.is_file()).unwrap_or(false) {
+                    let _ = fs::remove_file(e.path());
+                }
+            }
+        }
+    }
+    before.saturating_sub(usage().total())
 }

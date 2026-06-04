@@ -637,6 +637,8 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
         #[serde(default)]
         id: String,
         #[serde(default)]
+        uri: String,
+        #[serde(default)]
         name: String,
         #[serde(default)]
         duration_ms: u64,
@@ -677,7 +679,14 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
         _ => RepeatMode::Off,
     };
     Ok(Some(CurrentlyPlaying {
-        track_id: item.id,
+        // Use the full `spotify:track:…` URI to match the cluster path
+        // (the rest of the app — canvas fetch, track-id parsing — expects
+        // the URI form, not the bare id).
+        track_id: if item.uri.is_empty() {
+            format!("spotify:track:{}", item.id)
+        } else {
+            item.uri
+        },
         name: item.name,
         artist: item.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
         // Now-playing cover — full res (large + blurred backdrop).

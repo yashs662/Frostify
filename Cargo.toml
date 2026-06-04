@@ -11,23 +11,25 @@ automation = ["frostify-gfx/automation"]
 
 [dependencies]
 frostify-gfx = { path = "../frostify-gfx" }
-log = "0.4"
+log = "0.4.31"
 env_logger = "0.11"
 
 # Auth + HTTP
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "rustls"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = "1.0.150"
 url = "2"
 oauth2 = { version = "5", features = ["rustls-tls"], default-features = false }
 base64 = "0.22"
-sha2 = "0.10"
-rand = "0.9"
+sha2 = "0.11.0"
+rand = "0.10.1"
 webbrowser = "1"
 
-# Token persistence
-keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
+# Token persistence. keyring-core is the backend-agnostic API; the actual
+# OS credential store is a separate crate registered at startup via
+# `set_default_store` (see `init_credential_store` in main.rs).
+keyring-core = "1.0.0"
 
 # Spotify dealer + Connect device
 # Using git/dev — librespot 0.8.0 has a vergen build-script bug
@@ -38,7 +40,25 @@ librespot-oauth = { git = "https://github.com/librespot-org/librespot", branch =
 librespot-protocol = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
 librespot-connect = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
 librespot-playback = { git = "https://github.com/librespot-org/librespot", branch = "dev", default-features = false }
-protobuf = "3"
+# Must match the version librespot-protocol generates against (3.7.x);
+# protobuf 4.x reorganised the API + the generated code implements 3.x traits.
+protobuf = "3.7.2"
 futures = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
-dirs = "5"
+dirs = "6.0.0"
+rfd = "0.17.2"
+re_mp4 = "0.5.0"
+openh264 = "0.9.3"
+
+# OS-native credential stores for keyring-core, one per platform. Registered
+# at startup. NOTE: keyutils on Linux is process/session-scoped and does NOT
+# persist across reboot — same behaviour as keyring's old `linux-native`
+# feature. Swap to a secret-service store crate if reboot-persistence is wanted.
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = "1.1.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1.0.0", features = ["keychain"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+linux-keyutils-keyring-store = "1.0.0"

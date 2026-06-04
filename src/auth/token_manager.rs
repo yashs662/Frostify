@@ -1,7 +1,7 @@
 use crate::auth::oauth::SpotifyAuthResponse;
 use crate::constants::{CREDENTIAL_SERVICE_NAME, CREDENTIAL_USER_NAME};
 use crate::errors::AuthError;
-use keyring::Entry;
+use keyring_core::Entry;
 use log::debug;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};

@@ -51,6 +51,11 @@ pub struct UserPreferences {
     /// user's choice so it's honoured the moment canvas support lands.
     #[serde(default = "default_show_canvas")]
     pub show_canvas: bool,
+    /// User-chosen cache directory (parent of `frostify/art` + `json`).
+    /// `None` = the OS cache dir. Lets the user relocate the on-disk cache
+    /// (album art, Canvas videos, API JSON) to another drive/folder.
+    #[serde(default)]
+    pub cache_dir: Option<String>,
 }
 
 fn default_version() -> u32 {
@@ -70,6 +75,7 @@ impl Default for UserPreferences {
             audio: AudioPrefs::default(),
             last_player: None,
             show_canvas: default_show_canvas(),
+            cache_dir: None,
         }
     }
 }

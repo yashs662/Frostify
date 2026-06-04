@@ -8,7 +8,7 @@ pub enum AuthError {
     Api(String, Option<u16>),
     Http(reqwest::Error),
     Io(std::io::Error),
-    Keyring(keyring::Error),
+    Keyring(keyring_core::Error),
     Serde(serde_json::Error),
     Utf8(std::str::Utf8Error),
 }
@@ -37,8 +37,8 @@ impl From<reqwest::Error> for AuthError {
 impl From<std::io::Error> for AuthError {
     fn from(e: std::io::Error) -> Self { AuthError::Io(e) }
 }
-impl From<keyring::Error> for AuthError {
-    fn from(e: keyring::Error) -> Self { AuthError::Keyring(e) }
+impl From<keyring_core::Error> for AuthError {
+    fn from(e: keyring_core::Error) -> Self { AuthError::Keyring(e) }
 }
 impl From<serde_json::Error> for AuthError {
     fn from(e: serde_json::Error) -> Self { AuthError::Serde(e) }

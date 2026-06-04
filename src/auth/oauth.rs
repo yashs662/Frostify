@@ -4,7 +4,7 @@ use crate::constants::{
 use crate::errors::AuthError;
 use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
 use log::debug;
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 use tokio::{

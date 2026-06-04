@@ -50,6 +50,11 @@ pub enum WorkerCommand {
     /// librespot session's extended-metadata endpoint. `image_hex` is the
     /// `i.scdn.co/image/<hex>` trailing hash (our cache key).
     FetchAccent { image_hex: String },
+    /// Fetch the Spotify Canvas (looping video) URL for a track via the
+    /// librespot extended-metadata endpoint (`CANVAZ`). `track_uri` is the
+    /// `spotify:track:…` form; `track_id` echoes back so the UI can
+    /// confirm the response still matches the current track.
+    FetchCanvas { track_uri: String, track_id: String },
     ConnectSpotifySession { access_token: String },
     /// Transport control on the active Connect device (Web API).
     Playback { access_token: String, cmd: PlaybackCmd },
@@ -107,6 +112,13 @@ pub enum WorkerResponse {
     /// the UI can confirm it still matches the current track before
     /// applying it.
     AccentReady { key: String, accent: [f32; 4] },
+    /// A track's Canvas video resolved (URL fetched + MP4 downloaded to
+    /// the disk cache). `track_id` lets the UI confirm it still matches
+    /// the current track; `path` is the cached MP4 ready to decode.
+    CanvasReady { track_id: String, path: std::path::PathBuf },
+    /// No Canvas for the track (or fetch/download failed) — UI keeps the
+    /// album art.
+    CanvasNone { track_id: String },
     SpotifySessionConnected,
     SpotifySessionFailed { error: String },
 }
@@ -176,6 +188,9 @@ impl Worker {
                         WorkerCommand::FetchAccent { image_hex } => {
                             spawn_fetch_accent(resp.clone(), session.clone(), image_hex)
                         }
+                        WorkerCommand::FetchCanvas { track_uri, track_id } => {
+                            spawn_fetch_canvas(resp.clone(), session.clone(), track_uri, track_id)
+                        }
                         WorkerCommand::ConnectSpotifySession { access_token } => spawn_connect_session(
                             resp.clone(),
                             session.clone(),
@@ -226,6 +241,11 @@ impl Worker {
     }
     pub fn fetch_accent(&self, image_hex: String) {
         let _ = self.cmd_tx.send(WorkerCommand::FetchAccent { image_hex });
+    }
+    pub fn fetch_canvas(&self, track_uri: String, track_id: String) {
+        let _ = self
+            .cmd_tx
+            .send(WorkerCommand::FetchCanvas { track_uri, track_id });
     }
     pub fn connect_spotify_session(&self, access_token: String) {
         let _ = self
@@ -330,18 +350,36 @@ fn spawn_seed_player(resp: Responder, access_token: String) {
     });
 }
 
-/// Fetch Spotify's own extracted accent colour for a cover via the
-/// librespot session's `/extended-metadata` endpoint (`EXTRACTED_COLOR`
-/// extension). This is the exact colour the official client tints its
-/// now-playing UI with — far cleaner than our pixel-average fallback.
-/// No-ops silently if the session isn't up yet or the cover has no
-/// extracted colour (UI keeps the art-derived accent).
+/// How long a cover's extracted accent stays cached. The colour is
+/// immutable for a given cover (keyed by the image hash), so this is long
+/// — it just bounds growth, like the art cache.
+const ACCENT_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60 * 24 * 30);
+
+/// Resolve Spotify's own extracted accent colour for a cover. Checks the
+/// JSON disk cache first (instant, no session — kills the track-change
+/// window where the new art shows with the *previous* accent because the
+/// session round-trip lagged), then falls back to the `EXTRACTED_COLOR`
+/// extended-metadata query, caching the result. No-ops silently if there's
+/// no session yet and no cache (UI keeps the art-derived pixel average).
 fn spawn_fetch_accent(
     resp: Responder,
     session_slot: Arc<AsyncMutex<Option<Session>>>,
     image_hex: String,
 ) {
     tokio::spawn(async move {
+        let cache_key = format!("accent_{image_hex}");
+        // Cache hit → apply immediately, no session needed.
+        if let Some(accent) = tokio::task::spawn_blocking({
+            let cache_key = cache_key.clone();
+            move || disk_cache::read_json::<[f32; 4]>(&cache_key, ACCENT_TTL)
+        })
+        .await
+        .ok()
+        .flatten()
+        {
+            resp.send(WorkerResponse::AccentReady { key: image_hex, accent });
+            return;
+        }
         let session = { session_slot.lock().await.clone() };
         let Some(session) = session else {
             debug!("accent fetch skipped — no session yet ({image_hex})");
@@ -353,6 +391,9 @@ fn spawn_fetch_accent(
         match fetch_extracted_color(&session, &image_uri).await {
             Some(accent) => {
                 debug!("extracted color {image_hex} -> {accent:?}");
+                tokio::task::spawn_blocking(move || disk_cache::write_json(&cache_key, &accent))
+                    .await
+                    .ok();
                 resp.send(WorkerResponse::AccentReady { key: image_hex, accent });
             }
             None => debug!("no extracted color for {image_hex}"),
@@ -384,6 +425,166 @@ async fn fetch_extracted_color(session: &Session, image_uri: &str) -> Option<[f3
     let mut data = arr.extension_data.pop()?;
     let any = data.extension_data.take()?;
     crate::extracted_color::parse_color_dark(&any.value)
+}
+
+/// Per-track Canvas metadata persisted to the JSON disk cache so we don't
+/// re-hit Spotify's spclient (and don't need a live librespot session) for
+/// a track we've already resolved. An empty `url` is a **negative** cache
+/// entry — "this track has no video canvas" — so we don't re-query tracks
+/// that never had one. Keyed by `canvas_meta_<track_id>`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CanvasMeta {
+    /// Canvas video URL, or empty for "no video canvas".
+    url: String,
+}
+
+/// How long a track→canvas mapping stays valid. Canvas rarely changes for
+/// a given track, so this is generous; it bounds growth + lets a removed
+/// canvas eventually re-resolve, not catch same-day edits.
+const CANVAS_META_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60 * 24 * 7);
+
+/// Resolve + cache a track's Spotify Canvas video. Resolution order: first
+/// the per-track metadata cache (no session / no network needed), then the
+/// CANVAZ extended-metadata query (needs a live session). The resolved URL
+/// (or a negative marker) is written back to the metadata cache, and the
+/// MP4 bytes themselves are disk-cached separately. Responds `CanvasReady
+/// { path }` for a video canvas or `CanvasNone` otherwise (no canvas /
+/// image-only / fetch fail) so the UI falls back to album art.
+fn spawn_fetch_canvas(
+    resp: Responder,
+    session_slot: Arc<AsyncMutex<Option<Session>>>,
+    track_uri: String,
+    track_id: String,
+) {
+    tokio::spawn(async move {
+        let meta_key = format!("canvas_meta_{track_id}");
+        // 1. Metadata-cache hit → resolve without touching the session.
+        let cached = tokio::task::spawn_blocking({
+            let meta_key = meta_key.clone();
+            move || disk_cache::read_json::<CanvasMeta>(&meta_key, CANVAS_META_TTL)
+        })
+        .await
+        .ok()
+        .flatten();
+        let url = match cached {
+            Some(meta) if !meta.url.is_empty() => {
+                debug!("canvas meta-cache hit {track_id}");
+                meta.url
+            }
+            Some(_) => {
+                // Negative cache: known to have no video canvas.
+                debug!("canvas meta-cache hit (none) {track_id}");
+                resp.send(WorkerResponse::CanvasNone { track_id });
+                return;
+            }
+            None => {
+                // 2. Cache miss → query spclient (needs a session). Without
+                // one yet, bail *without* negative-caching so the retry
+                // after the session connects can still resolve it.
+                let session = { session_slot.lock().await.clone() };
+                let Some(session) = session else {
+                    debug!("canvas fetch deferred — no session yet ({track_id})");
+                    resp.send(WorkerResponse::CanvasNone { track_id });
+                    return;
+                };
+                let entry = fetch_canvas_entry(&session, &track_uri).await;
+                let video = entry.as_ref().map(|e| e.kind.is_video()).unwrap_or(false);
+                let url = if video {
+                    entry.map(|e| e.url).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                // Write back (positive or negative) so we don't re-query.
+                let write_url = url.clone();
+                tokio::task::spawn_blocking(move || {
+                    disk_cache::write_json(&meta_key, &CanvasMeta { url: write_url });
+                })
+                .await
+                .ok();
+                if url.is_empty() {
+                    debug!("no video canvas for {track_id}");
+                    resp.send(WorkerResponse::CanvasNone { track_id });
+                    return;
+                }
+                url
+            }
+        };
+        // Cache key = trailing path segment of the canvas URL (a stable
+        // hash + `.mp4`), prefixed so it never collides with art keys.
+        let key = format!("canvas_{}", canvas_cache_key(&url));
+        // Disk-cache hit → skip the network.
+        if let Some(path) = tokio::task::spawn_blocking({
+            let key = key.clone();
+            move || disk_cache::path(&key)
+        })
+        .await
+        .ok()
+        .flatten()
+        {
+            debug!("canvas disk-cache hit {track_id}");
+            resp.send(WorkerResponse::CanvasReady { track_id, path });
+            return;
+        }
+        let Some(bytes) = fetch_art_bytes(&url).await else {
+            warn!("canvas download failed ({url})");
+            resp.send(WorkerResponse::CanvasNone { track_id });
+            return;
+        };
+        let path = tokio::task::spawn_blocking(move || {
+            disk_cache::write(&key, &bytes);
+            disk_cache::path(&key)
+        })
+        .await
+        .ok()
+        .flatten();
+        match path {
+            Some(path) => {
+                debug!("canvas cached {track_id} ({} bytes)", path.display());
+                resp.send(WorkerResponse::CanvasReady { track_id, path });
+            }
+            None => resp.send(WorkerResponse::CanvasNone { track_id }),
+        }
+    });
+}
+
+/// Trailing filename of a canvas URL (a stable hash), filesystem-safe.
+fn canvas_cache_key(url: &str) -> String {
+    url.rsplit('/').next().unwrap_or(url).replace(['?', '&', '='], "_")
+}
+
+async fn fetch_canvas_entry(session: &Session, track_uri: &str) -> Option<crate::canvas::CanvasEntry> {
+    let req = BatchedEntityRequest {
+        entity_request: vec![EntityRequest {
+            entity_uri: track_uri.to_string(),
+            query: vec![ExtensionQuery {
+                extension_kind: EnumOrUnknown::new(ExtensionKind::CANVAZ),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut res = match session.spclient().get_extended_metadata(req).await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("canvas request failed ({track_uri}): {e}");
+            return None;
+        }
+    };
+    debug!(
+        "canvas xmeta {track_uri}: outer={} entries",
+        res.extended_metadata.len()
+    );
+    let mut arr = res.extended_metadata.pop()?;
+    debug!("canvas xmeta inner={} entries", arr.extension_data.len());
+    let mut data = arr.extension_data.pop()?;
+    let any = data.extension_data.take()?;
+    debug!(
+        "canvas xmeta type_url={:?} value_len={}",
+        any.type_url,
+        any.value.len()
+    );
+    crate::canvas::parse_canvas(&any.value)
 }
 
 fn spawn_playback(access_token: String, cmd: PlaybackCmd) {

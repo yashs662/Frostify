@@ -13,8 +13,16 @@ use std::time::Duration;
 use frostify_gfx::{Align, Computed, Curve, Len, Overlay, Scene, Signal};
 
 use crate::api::Profile;
+use crate::disk_cache::CacheUsage;
 use crate::ui::icon::{Icon, IconSet};
 use crate::ui::tokens as t;
+
+/// Colour of the album-art segment in the cache usage bar.
+const CACHE_ART_COL: [f32; 4] = [0.36, 0.7, 0.95, 1.0];
+/// Colour of the Canvas-video segment in the cache usage bar.
+const CACHE_CANVAS_COL: [f32; 4] = [0.78, 0.5, 0.95, 1.0];
+/// Colour of the API-JSON segment in the cache usage bar.
+const CACHE_JSON_COL: [f32; 4] = [0.55, 0.82, 0.55, 1.0];
 
 // Animated toggle dimensions (logical px). The knob slides `TRAVEL` px
 // between the two pad-inset ends of the track.
@@ -43,6 +51,14 @@ pub struct SettingsProps<'a> {
     pub sign_out: Rc<dyn Fn()>,
     /// Persist after the canvas toggle flips (debounced prefs save).
     pub on_canvas_change: Rc<dyn Fn()>,
+    /// On-disk cache usage breakdown (art vs JSON), for the storage bar.
+    pub cache_usage: CacheUsage,
+    /// Current cache directory, shown next to the relocate button.
+    pub cache_path: String,
+    /// Delete all cached files.
+    pub on_clear_cache: Rc<dyn Fn()>,
+    /// Open a folder picker to relocate the cache.
+    pub on_change_cache_dir: Rc<dyn Fn()>,
 }
 
 /// Build the settings panel interior. Called by the `Overlay` with the
@@ -71,7 +87,148 @@ pub fn panel(s: &mut Scene, icons: &IconSet, p: SettingsProps) {
                 .w(Len::Fill)
                 .h_px(t::SP_PX)
                 .rgba(1.0, 1.0, 1.0, 0.06);
+            cache_section(
+                panel,
+                p.cache_usage,
+                &p.cache_path,
+                p.on_clear_cache.clone(),
+                p.on_change_cache_dir.clone(),
+            );
+            panel
+                .rect(())
+                .w(Len::Fill)
+                .h_px(t::SP_PX)
+                .rgba(1.0, 1.0, 1.0, 0.06);
             account(panel, p.profile, p.sign_out.clone());
+        });
+}
+
+/// Human-readable byte size (e.g. `1.2 GB`, `340 MB`, `12 KB`).
+fn fmt_bytes(b: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let f = b as f64;
+    if f >= GB {
+        format!("{:.2} GB", f / GB)
+    } else if f >= MB {
+        format!("{:.1} MB", f / MB)
+    } else if f >= KB {
+        format!("{:.0} KB", f / KB)
+    } else {
+        format!("{b} B")
+    }
+}
+
+/// Cache management: a usage-breakdown bar (album-art/Canvas vs API JSON),
+/// the on-disk location with a relocate button, and a clear-cache button.
+fn cache_section(
+    s: &mut Scene,
+    usage: CacheUsage,
+    path: &str,
+    on_clear: Rc<dyn Fn()>,
+    on_change_dir: Rc<dyn Fn()>,
+) {
+    let total = usage.total();
+    let frac = |b: u64| if total > 0 { b as f32 / total as f32 } else { 0.0 };
+    // Non-zero segments in draw order, for the proportional bar. End caps
+    // are rounded by rounding the first segment's left + last's right.
+    let segments: Vec<(f32, [f32; 4])> = [
+        (frac(usage.art), CACHE_ART_COL),
+        (frac(usage.canvas), CACHE_CANVAS_COL),
+        (frac(usage.json), CACHE_JSON_COL),
+    ]
+    .into_iter()
+    .filter(|(f, _)| *f > 0.0)
+    .collect();
+    let total_label = fmt_bytes(total);
+    let art_label = format!("Album art  {}", fmt_bytes(usage.art));
+    let canvas_label = format!("Canvas  {}", fmt_bytes(usage.canvas));
+    let json_label = format!("Metadata  {}", fmt_bytes(usage.json));
+    let path = path.to_string();
+    s.col(()).w(Len::Fill).gap(t::SP_2).child(move |c| {
+        c.row(())
+            .w(Len::Fill)
+            .align(Align::Center)
+            .child(|h| {
+                h.text((), "Storage", t::TEXT_SM).color(t::TEXT_DIM);
+                h.row(())
+                    .push_end()
+                    .child(|e| {
+                        e.text((), &total_label, t::TEXT_SM).color(t::TEXT);
+                    });
+            });
+        // Proportional usage bar. Coloured segments fill it by each
+        // category's share; the rounded track clips them (rounded overflow
+        // clipping), so the whole bar reads as a clean pill with rounded
+        // caps regardless of how thin the end segment is.
+        c.row(())
+            .w(Len::Fill)
+            .h_px(t::SP_2)
+            .radius(t::R_FULL)
+            .rgba(1.0, 1.0, 1.0, 0.08)
+            .overflow(frostify_gfx::Overflow::Hidden, frostify_gfx::Overflow::Hidden)
+            .child(move |bar| {
+                for (f, col) in &segments {
+                    bar.rect(()).w(Len::Pct(*f)).h(Len::Fill).color(*col);
+                }
+            });
+        // Legend.
+        c.row(())
+            .w(Len::Fill)
+            .gap(t::SP_4)
+            .child(move |lg| {
+                legend_dot(lg, CACHE_ART_COL, &art_label);
+                legend_dot(lg, CACHE_CANVAS_COL, &canvas_label);
+                legend_dot(lg, CACHE_JSON_COL, &json_label);
+            });
+        // Location + relocate.
+        c.row(())
+            .w(Len::Fill)
+            .align(Align::Center)
+            .gap(t::SP_2)
+            .child(move |loc| {
+                loc.col(())
+                    .child(|p| {
+                        p.text((), "Location", t::TEXT_XS).color(t::TEXT_DIM);
+                        p.text((), &path, t::TEXT_XS).color(t::TEXT).max_width_px(240.0);
+                    });
+                loc.row(())
+                    .push_end()
+                    .h_px(t::SP_8)
+                    .pad_xy(t::SP_3, 0.0)
+                    .radius(t::R_FULL)
+                    .border(1.0, t::BORDER)
+                    .center()
+                    .hover_color(t::BTN_HOVER)
+                    .on_click(move |_| on_change_dir())
+                    .child(|b| {
+                        b.text((), "Change\u{2026}", t::TEXT_SM).color(t::TEXT);
+                    });
+            });
+        // Clear — full width to match the section.
+        c.row(())
+            .w(Len::Fill)
+            .h_px(t::SP_9)
+            .radius(t::R_FULL)
+            .border(1.0, t::BORDER)
+            .center()
+            .hover_color(t::BTN_HOVER)
+            .on_click(move |_| on_clear())
+            .child(|b| {
+                b.text((), "Clear cache", t::TEXT_SM).color(t::TEXT);
+            });
+    });
+}
+
+/// A small coloured dot + label, for the cache-bar legend.
+fn legend_dot(s: &mut Scene, color: [f32; 4], label: &str) {
+    s.row(())
+        .align(Align::Center)
+        .gap(t::SP_1)
+        .child(|d| {
+            d.rect(()).w_px(t::SP_2).h_px(t::SP_2).radius(t::R_FULL).color(color);
+            d.text((), label, t::TEXT_XS).color(t::TEXT_DIM);
         });
 }
 

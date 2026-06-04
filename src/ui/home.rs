@@ -41,6 +41,24 @@ fn fade_in_alpha(crossfade_t: &Signal<f32>) -> Computed<[f32; 4]> {
 /// Fully-opaque white tint for the outgoing (under) crossfade layer.
 const OPAQUE_TINT: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
+/// Foreground colour (icon/text) that contrasts with the live accent: a
+/// dark accent gets light text, a light accent gets dark text. Spotify's
+/// `color_dark` accent is dark-vibrant so this is usually white, but it
+/// keeps contrast correct for any accent (so accent buttons never read as
+/// black-on-dark). Reactive — follows the accent crossfade.
+fn accent_fg(accent: &Signal<[f32; 4]>) -> Computed<[f32; 4]> {
+    Computed::new((accent.clone(),), |(a,)| {
+        // Perceived luminance (Rec. 601 weights). Below the threshold the
+        // accent is dark → light foreground; above → dark foreground.
+        let lum = 0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2];
+        if lum < 0.6 {
+            [1.0, 1.0, 1.0, 1.0]
+        } else {
+            [0.08, 0.08, 0.08, 1.0]
+        }
+    })
+}
+
 /// Progress-bar quantization steps across its full width. The fill only
 /// redraws when `round(progress * STEPS)` changes — ~1 step ≈ 1 px on a
 /// ~600 px bar, so the bar redraws a few times a second instead of 60,
@@ -158,25 +176,62 @@ pub struct HomeView<'a> {
     pub show_canvas: &'a Signal<bool>,
     /// Persist after the canvas toggle flips.
     pub on_canvas_change: std::rc::Rc<dyn Fn()>,
+    /// True while a Canvas video is decoding for the current track — swaps
+    /// the now-playing pane to the full-bleed video layout.
+    pub canvas_active: bool,
+    /// Hover state of the Canvas video, set by `.on_hover` on the video box.
+    pub canvas_hover: &'a Signal<bool>,
+    /// Alpha of the dark overlay over the video (dimmed at rest → 0 hover).
+    pub canvas_dim: &'a Signal<f32>,
+    /// Staged black dim gradient (fades over the bottom to match the video).
+    pub canvas_dim_grad: Option<ImageHandle>,
     /// Clear the stored token and return to Login.
     pub sign_out: std::rc::Rc<dyn Fn()>,
+    /// On-disk cache usage (art vs JSON) for the settings storage bar.
+    pub cache_usage: crate::disk_cache::CacheUsage,
+    /// Current cache directory path (display).
+    pub cache_path: String,
+    /// Delete all cached files.
+    pub on_clear_cache: std::rc::Rc<dyn Fn()>,
+    /// Relocate the cache (opens a folder picker).
+    pub on_change_cache_dir: std::rc::Rc<dyn Fn()>,
+    /// Measure cache usage + rebuild when the settings modal opens.
+    pub on_settings_open: std::rc::Rc<dyn Fn()>,
 }
 
 pub fn build(s: &mut Scene, icons: &Rc<IconSet>, home: &HomeData, art: &ArtMap, v: &HomeView) {
+    // `home_root` itself is transparent (emits no instance — the
+    // transparency skip drops it), so the back-most composite layer is the
+    // `home_bg` fill below, which `main.rs` hides once the opaque album-art
+    // backdrop fully covers it (no wasted full-screen draw behind the art).
     s.col("home_root")
         .fill()
-        .rgba(t::BG[0], t::BG[1], t::BG[2], 1.0)
         .child(|root| {
+            // Base background fill. Toggled off (→ no instance, no layer) by
+            // `tick_canvas_dim`/the backdrop watcher once the art covers it.
+            root.rect("home_bg")
+                .abs(0.0, 0.0)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .rgba(t::BG[0], t::BG[1], t::BG[2], 1.0);
             // Outgoing layer: previous cover, held fully opaque so the
             // incoming layer dissolves over solid coverage (no background
             // bleed at the midpoint — see `fade_in_alpha`). Bound to the
             // signal via `image_bound`, so `promote_backdrop` swaps the
             // handle with no scene rebuild; `None` renders nothing (the
             // first track has no previous cover).
-            root.image_bound((), v.backdrop_prev.clone())
+            // Gate the outgoing layer to `None` once the crossfade settles
+            // (`crossfade_t == 1`): the incoming cover is then fully opaque
+            // and covers it, so drawing it is a wasted per-frame draw call.
+            let backdrop_prev_gated = Computed::new(
+                (v.backdrop_prev.clone(), v.crossfade_t.clone()),
+                |(p, t)| if t >= 1.0 { None } else { p },
+            );
+            root.image_bound((), backdrop_prev_gated)
                 .abs(0.0, 0.0)
                 .w(Len::Fill)
                 .h(Len::Fill)
+                .image_cover()
                 .blur_source()
                 .color(OPAQUE_TINT);
             // Incoming layer: current cover, fading in over the outgoing
@@ -194,6 +249,7 @@ pub fn build(s: &mut Scene, icons: &Rc<IconSet>, home: &HomeData, art: &ArtMap, 
                 .abs(0.0, 0.0)
                 .w(Len::Fill)
                 .h(Len::Fill)
+                .image_cover()
                 .blur_source()
                 .layer_opacity(v.crossfade_t.clone())
                 .color(OPAQUE_TINT);
@@ -208,7 +264,7 @@ pub fn build(s: &mut Scene, icons: &Rc<IconSet>, home: &HomeData, art: &ArtMap, 
                 .h(Len::Fill)
                 .blur(80.0)
                 .rgba(0.0, 0.0, 0.0, 0.25);
-            top_bar(root, icons, v.settings.clone());
+            top_bar(root, icons, v.settings.clone(), v.on_settings_open.clone());
             root.row(())
                 .w(Len::Fill)
                 .h(Len::Fill)
@@ -258,6 +314,10 @@ pub fn build(s: &mut Scene, icons: &Rc<IconSet>, home: &HomeData, art: &ArtMap, 
                         accent: v.accent,
                         sign_out: v.sign_out.clone(),
                         on_canvas_change: v.on_canvas_change.clone(),
+                        cache_usage: v.cache_usage,
+                        cache_path: v.cache_path.clone(),
+                        on_clear_cache: v.on_clear_cache.clone(),
+                        on_change_cache_dir: v.on_change_cache_dir.clone(),
                     },
                 )
             });
@@ -301,7 +361,7 @@ fn crossfaded_art(
         .color(fade_in_alpha(crossfade_t));
 }
 
-fn top_bar(s: &mut Scene, icons: &IconSet, settings: Overlay) {
+fn top_bar(s: &mut Scene, icons: &IconSet, settings: Overlay, on_settings_open: Rc<dyn Fn()>) {
     s.row("topbar")
         .w(Len::Fill)
         .h(Len::Auto)
@@ -338,7 +398,8 @@ fn top_bar(s: &mut Scene, icons: &IconSet, settings: Overlay) {
                 });
 
             topbar_icon_btn_click(t_row, icons, Icon::Settings, move |ctx| {
-                settings.open(ctx.timeline, ctx.now)
+                settings.open(ctx.timeline, ctx.now);
+                on_settings_open();
             });
             topbar_icon_btn(t_row, icons, Icon::Bell);
 
@@ -815,7 +876,7 @@ fn chip(s: &mut Scene, label: &str, selected: bool, accent: &Signal<[f32; 4]>) {
         .radius(t::R_FULL);
     if selected {
         row.color(accent.clone()).hover_opacity(0.9).child(|c| {
-            c.text((), label, 13.0).color(t::BG);
+            c.text((), label, 13.0).color(accent_fg(accent));
         });
     } else {
         row.color(t::PANEL_HI).hover_opacity(0.8).child(|c| {
@@ -920,12 +981,25 @@ fn new_release_card(
                 .hover_opacity(0.85)
                 .radius(t::R_FULL)
                 .child(|p| {
-                    icons.render(p, Icon::Play, t::ICON_MD, [0.0, 0.0, 0.0, 1.0]);
+                    icons.render(p, Icon::Play, t::ICON_MD, accent_fg(accent));
                 });
         });
 }
 
 fn now_playing(s: &mut Scene, v: &HomeView) {
+    if v.canvas_active {
+        now_playing_canvas(s, v);
+    } else {
+        now_playing_art(s, v);
+    }
+}
+
+/// Default now-playing layout: square album art that crossfades on track
+/// change, with the title/artist below. The `now_playing_canvas` external
+/// node is kept here (transparent, overlaying the art) so its `NodeId`
+/// always resolves — the decode thread needs a live target to push its
+/// first frame, which is what flips the layout to [`now_playing_canvas`].
+fn now_playing_art(s: &mut Scene, v: &HomeView) {
     s.col("now_playing")
         .width_px_bind(v.now_playing_w.clone())
         .h(Len::Fill)
@@ -936,11 +1010,6 @@ fn now_playing(s: &mut Scene, v: &HomeView) {
         .overflow_x(Overflow::Hidden)
         .child(|c| {
             c.text((), "Now playing", 16.0).color(t::TEXT);
-            // Square art container — `.square()` is an aspect-ratio
-            // constraint enforced by the layout: width is whatever flex
-            // resolves (here `Fill` against the panel's inner width),
-            // height is rewritten to match. Stays square at every
-            // splitter position, no per-axis Computed needed.
             c.col(()).w(Len::Fill).square().child(|b| {
                 crossfaded_art(
                     b,
@@ -948,7 +1017,13 @@ fn now_playing(s: &mut Scene, v: &HomeView) {
                     v.backdrop_curr,
                     v.panel_crossfade_t,
                     t::R_LG,
-                )
+                );
+                b.rect("now_playing_canvas")
+                    .external()
+                    .abs(0.0, 0.0)
+                    .w(Len::Fill)
+                    .h(Len::Fill)
+                    .radius(t::R_LG);
             });
             c.text_bound((), v.title.clone(), 14.0)
                 .color(t::TEXT)
@@ -956,6 +1031,73 @@ fn now_playing(s: &mut Scene, v: &HomeView) {
             c.text_bound((), v.artist.clone(), 12.0)
                 .color(t::TEXT_DIM)
                 .max_width_px(300.0);
+        });
+}
+
+/// Canvas-active layout: the video fills the pane width at its native 9:16
+/// aspect as a full-bleed background, with the title/artist overlaid at the
+/// bottom over a black→transparent gradient (Spotify's now-playing Canvas
+/// look). No padding so the video reaches the pane edges; corners are
+/// clipped by the pane radius.
+fn now_playing_canvas(s: &mut Scene, v: &HomeView) {
+    s.col("now_playing")
+        .width_px_bind(v.now_playing_w.clone())
+        .h(Len::Fill)
+        .rgba(t::PANEL[0], t::PANEL[1], t::PANEL[2], 0.75)
+        .radius(t::R_LG)
+        .overflow(Overflow::Hidden, Overflow::Hidden)
+        .child(|c| {
+            // Video block: full pane width, 9:16 tall (Spotify Canvas).
+            // The video alpha-fades over its bottom third so it dissolves
+            // into the panel instead of ending on a hard edge.
+            c.col(())
+                .w(Len::Fill)
+                .aspect_ratio(9.0 / 16.0)
+                .on_hover(v.canvas_hover.clone())
+                .child(|b| {
+                    b.rect("now_playing_canvas")
+                        .external()
+                        .radius(t::R_LG)
+                        .fade_bottom(0.35)
+                        .abs(0.0, 0.0)
+                        .w(Len::Fill)
+                        .h(Len::Fill);
+                    // Dim overlay, painted *after* the external node so it
+                    // composites on top of the video layer. A black gradient
+                    // image (solid top → transparent over the bottom 35%) so
+                    // it fades out exactly like the video's `fade_bottom`,
+                    // tinted by `canvas_dim` (tweens to 0 on hover = full
+                    // brightness, dimmed at rest).
+                    if let Some(g) = v.canvas_dim_grad {
+                        let dim = v.canvas_dim.clone();
+                        b.image((), g)
+                            .abs(0.0, 0.0)
+                            .w(Len::Fill)
+                            .h(Len::Fill)
+                            .color(Computed::new((dim,), |(d,)| [1.0, 1.0, 1.0, d]));
+                    }
+                    // Title/artist over the faded lower area (no gradient —
+                    // the video's own fade provides the contrast backdrop).
+                    b.col(())
+                        .abs(0.0, 0.0)
+                        .w(Len::Fill)
+                        .h(Len::Fill)
+                        .justify(Justify::End)
+                        .child(|ov| {
+                            ov.col(())
+                                .w(Len::Fill)
+                                .pad_xy(t::SP_4, t::SP_5)
+                                .gap(t::SP_1)
+                                .child(|tx| {
+                                    tx.text_bound((), v.title.clone(), 22.0)
+                                        .color(t::TEXT)
+                                        .max_width_px(300.0);
+                                    tx.text_bound((), v.artist.clone(), 14.0)
+                                        .color(t::TEXT)
+                                        .max_width_px(300.0);
+                                });
+                        });
+                });
         });
 }
 
@@ -1044,7 +1186,7 @@ fn player_bar(s: &mut Scene, icons: &IconSet, v: &HomeView) {
                                     p.image_bound((), play_glyph)
                                         .w_px(t::SP_4)
                                         .h_px(t::SP_4)
-                                        .color([0.0, 0.0, 0.0, 1.0]);
+                                        .color(accent_fg(v.accent));
                                 });
                             transport_btn(tr, icons, Icon::SkipForward, t::ICON_LG, t::TEXT, {
                                 let act = v.on_action.clone();
