@@ -83,7 +83,6 @@ pub fn load_tokens() -> Result<StoredTokens, AuthError> {
     Ok(serde_json::from_str(s)?)
 }
 
-#[allow(dead_code)]
 pub fn delete_tokens() -> Result<(), AuthError> {
     let entry = Entry::new(CREDENTIAL_SERVICE_NAME, CREDENTIAL_USER_NAME)?;
     entry.delete_credential()?;

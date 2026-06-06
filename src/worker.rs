@@ -58,8 +58,6 @@ pub enum WorkerCommand {
     ConnectSpotifySession { access_token: String },
     /// Transport control on the active Connect device (Web API).
     Playback { access_token: String, cmd: PlaybackCmd },
-    #[allow(dead_code)]
-    Shutdown,
 }
 
 /// A transport intent dispatched from a player-bar button. Resolved to
@@ -74,6 +72,8 @@ pub enum PlaybackCmd {
     Prev,
     Shuffle(bool),
     Repeat(RepeatMode),
+    /// Seek the active device to an absolute position (ms).
+    Seek(u32),
     /// Start a playlist/album context (or explicit track list) at an
     /// offset on the active device.
     PlayContext(api::PlayTarget),
@@ -126,8 +126,6 @@ pub enum WorkerResponse {
 pub struct Worker {
     cmd_tx: UnboundedSender<WorkerCommand>,
     resp_rx: Receiver<WorkerResponse>,
-    #[allow(dead_code)]
-    handle: Option<thread::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -149,7 +147,7 @@ impl Worker {
         let (resp_tx, resp_rx): (Sender<WorkerResponse>, Receiver<WorkerResponse>) = channel();
         let resp = Responder { tx: resp_tx, wake };
 
-        let handle = thread::spawn(move || {
+        thread::spawn(move || {
             let rt = Runtime::new().unwrap();
             // Long-lived librespot session — held on the worker so its
             // background tasks (AP socket, dealer) stay alive across
@@ -200,13 +198,12 @@ impl Worker {
                         WorkerCommand::Playback { access_token, cmd } => {
                             spawn_playback(access_token, cmd)
                         }
-                        WorkerCommand::Shutdown => break,
                     }
                 }
             });
         });
 
-        Self { cmd_tx, resp_rx, handle: Some(handle) }
+        Self { cmd_tx, resp_rx }
     }
 
     pub fn start_oauth(&self) {
@@ -259,11 +256,6 @@ impl Worker {
     }
     pub fn poll(&self) -> Option<WorkerResponse> {
         self.resp_rx.try_recv().ok()
-    }
-    #[allow(dead_code)]
-    pub fn shutdown(mut self) {
-        let _ = self.cmd_tx.send(WorkerCommand::Shutdown);
-        if let Some(h) = self.handle.take() { let _ = h.join(); }
     }
 }
 
@@ -596,6 +588,7 @@ fn spawn_playback(access_token: String, cmd: PlaybackCmd) {
             PlaybackCmd::Prev => api::previous_track(&access_token).await,
             PlaybackCmd::Shuffle(on) => api::set_shuffle(&access_token, on).await,
             PlaybackCmd::Repeat(mode) => api::set_repeat(&access_token, mode).await,
+            PlaybackCmd::Seek(ms) => api::seek(&access_token, ms).await,
             PlaybackCmd::PlayContext(target) => api::play_context(&access_token, target).await,
         };
         match result {

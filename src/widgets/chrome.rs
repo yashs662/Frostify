@@ -1,7 +1,7 @@
 use frostify_gfx::{Align, Len, Scene, WindowAction};
 
-use crate::ui::icon::{Icon, IconSet};
-use crate::ui::tokens;
+use crate::widgets::icon::{Icon, IconSet};
+use crate::widgets::tokens;
 
 pub fn title_bar(s: &mut Scene, icons: &IconSet, title: &str) {
     s.row(())

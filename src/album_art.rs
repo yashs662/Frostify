@@ -5,7 +5,7 @@
 //! cache key. Decode → RGBA → frostify-gfx atlas via
 //! `frostify_gfx::Uploader::upload_rgba` from the worker thread.
 
-use crate::ui::tokens;
+use crate::widgets::tokens;
 use image::ImageReader;
 use std::io::Cursor;
 

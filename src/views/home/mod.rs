@@ -1,0 +1,447 @@
+//! The Home view — the main shell (top bar, sidebar, centre pane,
+//! now-playing pane, player bar, settings modal). `build` assembles the
+//! ambient backdrop + glass + splitter row and dispatches to the six
+//! sub-component `.view()`s; each component owns its own slice.
+
+pub mod main_pane;
+pub mod now_playing;
+pub mod player_bar;
+pub mod playlist;
+pub mod settings;
+pub mod sidebar;
+pub mod top_bar;
+
+use std::cell::Cell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Instant;
+
+use frostify_gfx::{Computed, EventCtx, ImageHandle, Len, Scene, Signal, WakeHandle};
+
+use crate::album_art;
+use crate::api::PlayTarget;
+use crate::app::AppState;
+use crate::app::cx::Cx;
+use crate::views::{MainNav, View};
+use crate::widgets::component::Component;
+use crate::widgets::crossfade::OPAQUE_TINT;
+use crate::widgets::icon::IconSet;
+use crate::widgets::tokens as t;
+use crate::worker::{PlaybackCmd, Worker};
+
+/// Per-URL reactive cover handles for Home tiles. Keyed by cache_key
+/// (trailing CDN hex). `None` until the worker resolves the fetch.
+pub type ArtMap = HashMap<String, Signal<Option<ImageHandle>>>;
+
+/// Centre-pane navigation callback — opens a playlist or returns Home.
+/// Takes the `EventCtx` so it can start the entrance transition tween at
+/// click time.
+pub type NavFn = Rc<dyn Fn(&mut EventCtx, MainNav)>;
+
+/// Playback-start callback — hands a resolved [`PlayTarget`] up to the
+/// consumer (which adds the token + dispatches the worker command).
+pub type PlayFn = Rc<dyn Fn(PlayTarget)>;
+
+/// A transport intent raised by a player-bar button click. The consumer
+/// (main.rs) maps these to optimistic signal flips + worker commands;
+/// the UI layer stays ignorant of tokens and the Web API.
+#[derive(Debug, Clone, Copy)]
+pub enum PlayerAction {
+    PlayPause,
+    Next,
+    Prev,
+    ToggleShuffle,
+    CycleRepeat,
+}
+
+/// Per-build layout inputs — the ambient backdrop signals + splitter
+/// widths the shell `render` binds, plus refs to the constructed
+/// sub-components. Built fresh each rebuild by [`HomeView::build`].
+struct Layout<'a> {
+    pub backdrop_prev: &'a Signal<Option<ImageHandle>>,
+    pub backdrop_curr: &'a Signal<Option<ImageHandle>>,
+    /// Slow backdrop + accent crossfade progress.
+    pub crossfade_t: &'a Signal<f32>,
+    /// Resizable panel widths (driven by splitters via `width_px_bind`).
+    pub sidebar_w: &'a Signal<f32>,
+    pub now_playing_w: &'a Signal<f32>,
+    /// Called by the splitters after every committed width change.
+    /// Wired by the consumer to debounced prefs persistence.
+    pub mark_dirty: std::rc::Rc<dyn Fn()>,
+    /// The now-playing pane, a self-rendering [`Component`] reading its
+    /// own backdrop/player/canvas slices.
+    pub now_playing: &'a crate::views::home::now_playing::NowPlaying<'a>,
+    /// The left "Your Library" sidebar, a self-rendering [`Component`].
+    pub sidebar: &'a crate::views::home::sidebar::Sidebar<'a>,
+    /// The bottom player bar, a self-rendering [`Component`].
+    pub player_bar: &'a crate::views::home::player_bar::PlayerBar<'a>,
+    /// The top chrome bar (search + window controls), a [`Component`].
+    pub top_bar: &'a crate::views::home::top_bar::TopBar<'a>,
+    /// The centre pane (Home feed / playlist page), a [`Component`].
+    pub main_pane: &'a crate::views::home::main_pane::MainPane<'a>,
+    /// The settings modal, a [`Component`] owning its `Overlay` wrapper.
+    pub settings_panel: &'a crate::views::home::settings::SettingsPanel<'a>,
+}
+
+fn render(s: &mut Scene, v: &Layout) {
+    // `home_root` itself is transparent (emits no instance — the
+    // transparency skip drops it), so the back-most composite layer is the
+    // `home_bg` fill below, which `main.rs` hides once the opaque album-art
+    // backdrop fully covers it (no wasted full-screen draw behind the art).
+    s.col("home_root")
+        .fill()
+        .child(|root| {
+            // Base background fill. Toggled off (→ no instance, no layer) by
+            // `tick_canvas_dim`/the backdrop watcher once the art covers it.
+            root.rect("home_bg")
+                .abs(0.0, 0.0)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .rgba(t::BG[0], t::BG[1], t::BG[2], 1.0);
+            // Outgoing layer: previous cover, held fully opaque so the
+            // incoming layer dissolves over solid coverage (no background
+            // bleed at the midpoint — see `fade_in_alpha`). Bound to the
+            // signal via `image_bound`, so `promote_backdrop` swaps the
+            // handle with no scene rebuild; `None` renders nothing (the
+            // first track has no previous cover).
+            // Gate the outgoing layer to `None` once the crossfade settles
+            // (`crossfade_t == 1`): the incoming cover is then fully opaque
+            // and covers it, so drawing it is a wasted per-frame draw call.
+            let backdrop_prev_gated = Computed::new(
+                (v.backdrop_prev.clone(), v.crossfade_t.clone()),
+                |(p, t)| if t >= 1.0 { None } else { p },
+            );
+            root.image_bound((), backdrop_prev_gated)
+                .abs(0.0, 0.0)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .image_cover()
+                .blur_source()
+                .color(OPAQUE_TINT);
+            // Incoming layer: current cover, fading in over the outgoing
+            // one. **Composite-opacity crossfade (compositor P4):** the
+            // image is held opaque (`OPAQUE_TINT`) and promoted to its own
+            // layer via `.layer_opacity(crossfade_t)` — the lib drives the
+            // layer's *composite* opacity from the tween each frame, so the
+            // incoming cover's texture rasters **once** and the fade is a
+            // composite-only recomposite (no per-frame image re-raster).
+            // Generic glass (P4) sources its backdrop from the composite of
+            // the layers below it, so the glass still blurs the dissolving
+            // result. `blur_source` keeps the (still per-frame, inherent)
+            // backdrop blur firing while the composite changes.
+            root.image_bound((), v.backdrop_curr.clone())
+                .abs(0.0, 0.0)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .image_cover()
+                .blur_source()
+                .layer_opacity(v.crossfade_t.clone())
+                .color(OPAQUE_TINT);
+            // Frosted-glass overlay: heavy blur + dark tint = the dimmed
+            // ambient look. Always present in Home — before any art it
+            // just blurs the dark BG (reads the same), and keeping it
+            // unconditional means the first cover appears *under* the
+            // glass without needing a rebuild to introduce it.
+            root.glass(())
+                .abs(0.0, 0.0)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .blur(80.0)
+                .rgba(0.0, 0.0, 0.0, 0.25);
+            v.top_bar.view(root);
+            root.row(())
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .pad(t::SP_2)
+                .gap(t::SP_0)
+                .child(|b| {
+                    v.sidebar.view(b);
+                    crate::widgets::splitter::splitter(
+                        b,
+                        crate::widgets::splitter::SplitterProps {
+                            name: "split_sidebar",
+                            width: v.sidebar_w.clone(),
+                            side: crate::widgets::splitter::PanelSide::Left,
+                            min: t::SIDEBAR_MIN,
+                            max: t::SIDEBAR_MAX,
+                            collapsed: t::SIDEBAR_COLLAPSED,
+                            on_change: v.mark_dirty.clone(),
+                        },
+                    );
+                    v.main_pane.view(b);
+                    crate::widgets::splitter::splitter(
+                        b,
+                        crate::widgets::splitter::SplitterProps {
+                            name: "split_now_playing",
+                            width: v.now_playing_w.clone(),
+                            side: crate::widgets::splitter::PanelSide::Right,
+                            min: t::NOW_PLAYING_MIN,
+                            max: t::NOW_PLAYING_MAX,
+                            collapsed: t::SP_0,
+                            on_change: v.mark_dirty.clone(),
+                        },
+                    );
+                    v.now_playing.view(b);
+                });
+            v.player_bar.view(root);
+            // Settings modal — rendered last (layers on top), a component
+            // that owns its Overlay wrapper. Skipped entirely when closed.
+            v.settings_panel.view(root);
+        });
+}
+
+/// The Home view controller — owns the callbacks (built once in
+/// [`HomeView::new`]) and, on each rebuild, constructs the sub-components
+/// and assembles the scene ([`HomeView::build`]). This is the composition
+/// that used to live in `main`.
+pub struct HomeView {
+    state: Rc<AppState>,
+    icons: Rc<IconSet>,
+    on_action: Rc<dyn Fn(PlayerAction)>,
+    on_canvas_change: Rc<dyn Fn()>,
+    sign_out: Rc<dyn Fn()>,
+    on_settings_open: Rc<dyn Fn()>,
+    on_clear_cache: Rc<dyn Fn()>,
+    on_change_cache_dir: Rc<dyn Fn()>,
+    on_navigate: NavFn,
+    on_play: PlayFn,
+    request_cover: playlist::CoverFn,
+    mark_dirty: Rc<dyn Fn()>,
+}
+
+impl HomeView {
+    /// Build the view + all its event callbacks once. The callbacks
+    /// capture `Rc` clones of the shared state/worker/rebuild so they
+    /// outlive any single rebuild; `wake` lets the folder-picker thread
+    /// re-run the loop.
+    pub fn new(
+        state: Rc<AppState>,
+        worker: Rc<Worker>,
+        rebuild: Rc<Cell<bool>>,
+        icons: Rc<IconSet>,
+        wake: Arc<WakeHandle>,
+    ) -> Self {
+        // Transport dispatcher: optimistic model flip + the worker command.
+        let on_action: Rc<dyn Fn(PlayerAction)> = {
+            let state = state.clone();
+            let worker = worker.clone();
+            Rc::new(move |action| {
+                let Some(token) = state.auth.token() else {
+                    log::warn!("playback action ignored — no auth token");
+                    return;
+                };
+                let cmd = match action {
+                    PlayerAction::PlayPause => {
+                        if state.player_ui.toggle_play() {
+                            PlaybackCmd::Pause
+                        } else {
+                            PlaybackCmd::Play
+                        }
+                    }
+                    PlayerAction::Next => PlaybackCmd::Next,
+                    PlayerAction::Prev => PlaybackCmd::Prev,
+                    PlayerAction::ToggleShuffle => {
+                        PlaybackCmd::Shuffle(state.player_ui.toggle_shuffle())
+                    }
+                    PlayerAction::CycleRepeat => PlaybackCmd::Repeat(state.player_ui.cycle_repeat()),
+                };
+                worker.playback(token, cmd);
+            })
+        };
+        let on_canvas_change: Rc<dyn Fn()> = {
+            let state = state.clone();
+            let worker = worker.clone();
+            Rc::new(move || {
+                state.prefs.mark_dirty(Instant::now());
+                state.canvas.on_toggle(state.player_ui.snapshot.borrow().as_ref(), &worker);
+            })
+        };
+        let sign_out: Rc<dyn Fn()> = {
+            let state = state.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move || {
+                state.auth.sign_out();
+                // Leaving Home — snap the modal shut so it isn't up next sign-in.
+                state.settings.overlay.reset();
+                state.router.view.set(View::Login);
+                rebuild.set(true);
+            })
+        };
+        let on_settings_open: Rc<dyn Fn()> = {
+            let state = state.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move || {
+                state.settings.refresh_usage();
+                rebuild.set(true);
+            })
+        };
+        let on_clear_cache: Rc<dyn Fn()> = {
+            let state = state.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move || {
+                let freed = state.settings.clear_cache();
+                log::info!("cleared disk cache (freed {freed} bytes)");
+                rebuild.set(true);
+            })
+        };
+        let on_change_cache_dir: Rc<dyn Fn()> = {
+            let state = state.clone();
+            Rc::new(move || state.settings.pick_cache_dir(wake.clone()))
+        };
+        let on_navigate: NavFn = {
+            let state = state.clone();
+            let worker = worker.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move |ctx, nav| {
+                let mut cx = Cx::new(ctx.timeline, ctx.now, &rebuild);
+                navigate(&state, &mut cx, &worker, nav);
+            })
+        };
+        let request_cover: playlist::CoverFn = {
+            let state = state.clone();
+            let worker = worker.clone();
+            Rc::new(move |url| state.art.dispatch_cover(&worker, url))
+        };
+        let on_play: PlayFn = {
+            let state = state.clone();
+            let worker = worker.clone();
+            Rc::new(move |target| {
+                let Some(token) = state.auth.token() else {
+                    log::warn!("play ignored — no auth token");
+                    return;
+                };
+                state.player_ui.is_playing.set(true);
+                worker.playback(token, PlaybackCmd::PlayContext(target));
+            })
+        };
+        let mark_dirty: Rc<dyn Fn()> = {
+            let state = state.clone();
+            Rc::new(move || state.prefs.mark_dirty(Instant::now()))
+        };
+        Self {
+            state,
+            icons,
+            on_action,
+            on_canvas_change,
+            sign_out,
+            on_settings_open,
+            on_clear_cache,
+            on_change_cache_dir,
+            on_navigate,
+            on_play,
+            request_cover,
+            mark_dirty,
+        }
+    }
+
+    /// Assemble the Home scene: build the view data + sub-components from
+    /// the live model and hand them to the shell `render`.
+    pub fn build(&self, s: &mut Scene) {
+        let state = &self.state;
+        let icons = &self.icons;
+        let nav = state.router.nav.borrow();
+        // Hold the home + art borrows for the whole build — sidebar/main
+        // pane + the shell all read them.
+        let home_ref = state.library.home.borrow();
+        let art_ref = state.art.home_art.borrow();
+        let playlist: Option<playlist::PlaylistViewData> = match &*nav {
+            MainNav::Playlist { .. } => state.library.open_playlist.borrow().as_ref().map(|o| {
+                let cover = o
+                    .image_url
+                    .as_ref()
+                    .and_then(|u| state.art.signal(&album_art::cache_key(u)));
+                playlist::PlaylistViewData {
+                    name: o.name.clone(),
+                    owner: o.owner.clone(),
+                    total: o.total,
+                    liked: o.liked,
+                    loading: o.loading,
+                    cover,
+                    context_uri: o.context_uri.clone(),
+                    rows: o.rows.clone(),
+                    request_cover: self.request_cover.clone(),
+                }
+            }),
+            MainNav::Home => None,
+        };
+        let now_playing = now_playing::NowPlaying {
+            backdrop: &state.backdrop,
+            player: &state.player_ui,
+            canvas: &state.canvas,
+            width: &state.prefs.now_playing_w,
+        };
+        let player_bar = player_bar::PlayerBar {
+            backdrop: &state.backdrop,
+            player: &state.player_ui,
+            on_action: self.on_action.clone(),
+            icons,
+        };
+        let sidebar = sidebar::Sidebar {
+            width: &state.prefs.sidebar_w,
+            accent: &state.backdrop.accent,
+            nav: &nav,
+            on_navigate: self.on_navigate.clone(),
+            home: &home_ref,
+            art: &art_ref,
+            icons,
+        };
+        let top_bar = top_bar::TopBar {
+            settings: &state.settings.overlay,
+            on_settings_open: self.on_settings_open.clone(),
+            icons,
+        };
+        let main_pane = main_pane::MainPane {
+            icons,
+            home: &home_ref,
+            art: &art_ref,
+            accent: &state.backdrop.accent,
+            nav: &nav,
+            playlist: playlist.as_ref(),
+            main_t: &state.router.main_t,
+            on_play: self.on_play.clone(),
+            on_navigate: self.on_navigate.clone(),
+        };
+        let settings_panel = settings::SettingsPanel {
+            settings: &state.settings,
+            canvas: &state.canvas,
+            backdrop: &state.backdrop,
+            profile: home_ref.profile.as_ref(),
+            icons,
+            sign_out: self.sign_out.clone(),
+            on_canvas_change: self.on_canvas_change.clone(),
+            on_clear_cache: self.on_clear_cache.clone(),
+            on_change_cache_dir: self.on_change_cache_dir.clone(),
+        };
+        let layout = Layout {
+            backdrop_prev: &state.backdrop.prev,
+            backdrop_curr: &state.backdrop.curr,
+            crossfade_t: &state.backdrop.crossfade_t,
+            sidebar_w: &state.prefs.sidebar_w,
+            now_playing_w: &state.prefs.now_playing_w,
+            mark_dirty: self.mark_dirty.clone(),
+            now_playing: &now_playing,
+            player_bar: &player_bar,
+            sidebar: &sidebar,
+            top_bar: &top_bar,
+            main_pane: &main_pane,
+            settings_panel: &settings_panel,
+        };
+        render(s, &layout);
+    }
+}
+
+/// Switch the centre pane to `nav`. Ensures the target playlist is loaded
+/// (TTL cache → fetch on miss/stale) via the library slice, flips the nav
+/// state + entrance transition via the router, and requests the one scene
+/// rebuild that swaps the pane content.
+fn navigate(state: &Rc<AppState>, cx: &mut Cx, worker: &Worker, nav: MainNav) {
+    match &nav {
+        MainNav::Playlist { id, liked } => {
+            state.library.open_for(&state.art, worker, state.auth.token(), id, *liked)
+        }
+        MainNav::Home => *state.library.open_playlist.borrow_mut() = None,
+    }
+    state.router.go(nav, cx.tl, cx.now);
+    cx.rebuild();
+}

@@ -19,10 +19,10 @@ use std::rc::Rc;
 use frostify_gfx::{Align, ImageHandle, Justify, Len, Overflow, Scene, Signal};
 
 use crate::api::PlayTarget;
-use crate::ui::MainNav;
-use crate::ui::home::{NavFn, PlayFn};
-use crate::ui::icon::{Icon, IconSet};
-use crate::ui::tokens as t;
+use crate::views::MainNav;
+use crate::views::home::{NavFn, PlayFn};
+use crate::widgets::icon::{Icon, IconSet};
+use crate::widgets::tokens as t;
 
 /// Track-row height. Thumb (40) + breathing room.
 const ROW_H: f32 = t::SP_14;

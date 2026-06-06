@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Design tokens for the whole UI — every padding, gap, height, radius,
 //! font size, and colour referenced anywhere in the views resolves
 //! through here. Anchoring on a single scale (Tailwind's 4 px grid)
@@ -17,6 +16,12 @@
 //!    section. Keep alpha at the end (`rgba` tuple order).
 //! 3. If you reach for a value that doesn't exist on the scale, your
 //!    layout is wrong, not the scale.
+//!
+//! `dead_code` is allowed module-wide on purpose: a design system keeps
+//! the *whole* scale defined (every step + semantic alias) so a layout
+//! can reach for the right token without re-deriving it — unused steps
+//! are the palette, not rot.
+#![allow(dead_code)]
 
 // ============================================================================
 // Spacing scale (Tailwind 4 px grid)

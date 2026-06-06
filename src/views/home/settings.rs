@@ -13,9 +13,11 @@ use std::time::Duration;
 use frostify_gfx::{Align, Computed, Curve, Len, Overlay, Scene, Signal};
 
 use crate::api::Profile;
-use crate::disk_cache::CacheUsage;
-use crate::ui::icon::{Icon, IconSet};
-use crate::ui::tokens as t;
+use crate::disk_cache::{self, CacheUsage};
+use crate::model::{BackdropModel, CanvasModel, SettingsModel};
+use crate::widgets::component::Component;
+use crate::widgets::icon::{Icon, IconSet};
+use crate::widgets::tokens as t;
 
 /// Colour of the album-art segment in the cache usage bar.
 const CACHE_ART_COL: [f32; 4] = [0.36, 0.7, 0.95, 1.0];
@@ -41,66 +43,65 @@ const TOGGLE_MS: u64 = 160;
 const PANEL_W: f32 = 420.0;
 const SIGN_OUT_W: f32 = 116.0;
 
-pub struct SettingsProps<'a> {
-    /// The modal widget — so the header ✕ can close it.
-    pub overlay: Overlay,
+/// The settings modal — a [`Component`]. Reads its toggle/accent/cache
+/// slices off the models directly; owns the [`Overlay`] render wrapper
+/// (the overlay supplies the scrim, centring, fade and dismissal, so the
+/// body here only styles + fills the panel). Costs nothing when closed.
+pub struct SettingsPanel<'a> {
+    pub settings: &'a SettingsModel,
+    pub canvas: &'a CanvasModel,
+    pub backdrop: &'a BackdropModel,
     pub profile: Option<&'a Profile>,
-    pub show_canvas: &'a Signal<bool>,
-    pub accent: &'a Signal<[f32; 4]>,
+    pub icons: &'a Rc<IconSet>,
     /// Clear the stored token + return to Login.
     pub sign_out: Rc<dyn Fn()>,
     /// Persist after the canvas toggle flips (debounced prefs save).
     pub on_canvas_change: Rc<dyn Fn()>,
-    /// On-disk cache usage breakdown (art vs JSON), for the storage bar.
-    pub cache_usage: CacheUsage,
-    /// Current cache directory, shown next to the relocate button.
-    pub cache_path: String,
     /// Delete all cached files.
     pub on_clear_cache: Rc<dyn Fn()>,
     /// Open a folder picker to relocate the cache.
     pub on_change_cache_dir: Rc<dyn Fn()>,
 }
 
-/// Build the settings panel interior. Called by the `Overlay` with the
-/// panel host as `s`; the overlay supplies the scrim, centring, fade and
-/// dismissal, so here we only style + fill the panel.
-pub fn panel(s: &mut Scene, icons: &IconSet, p: SettingsProps) {
-    s.col("settings_panel")
-        .w_px(PANEL_W)
-        .rgba(t::PANEL[0], t::PANEL[1], t::PANEL[2], 0.98)
-        .radius(t::R_XL)
-        .border(1.0, t::BORDER)
-        .pad(t::SP_6)
-        .gap(t::SP_5)
-        .child(|panel| {
-            header(panel, icons, p.overlay.clone());
-            setting_row(
-                panel,
-                "Show canvas video",
-                "Looping artist visual in the now-playing pane",
-                p.show_canvas,
-                p.accent,
-                p.on_canvas_change.clone(),
-            );
-            panel
-                .rect(())
-                .w(Len::Fill)
-                .h_px(t::SP_PX)
-                .rgba(1.0, 1.0, 1.0, 0.06);
-            cache_section(
-                panel,
-                p.cache_usage,
-                &p.cache_path,
-                p.on_clear_cache.clone(),
-                p.on_change_cache_dir.clone(),
-            );
-            panel
-                .rect(())
-                .w(Len::Fill)
-                .h_px(t::SP_PX)
-                .rgba(1.0, 1.0, 1.0, 0.06);
-            account(panel, p.profile, p.sign_out.clone());
+impl Component for SettingsPanel<'_> {
+    fn view(&self, s: &mut Scene) {
+        let icons = self.icons;
+        // Measured on settings-open (a dir walk), not per build.
+        let cache_usage = self.settings.cache_usage.get();
+        let cache_path = disk_cache::root_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        self.settings.overlay.render(s, t::SCRIM, |host| {
+            host.col("settings_panel")
+                .w_px(PANEL_W)
+                .rgba(t::PANEL[0], t::PANEL[1], t::PANEL[2], 0.98)
+                .radius(t::R_XL)
+                .border(1.0, t::BORDER)
+                .pad(t::SP_6)
+                .gap(t::SP_5)
+                .child(|panel| {
+                    header(panel, icons, self.settings.overlay.clone());
+                    setting_row(
+                        panel,
+                        "Show canvas video",
+                        "Looping artist visual in the now-playing pane",
+                        &self.canvas.show,
+                        &self.backdrop.accent,
+                        self.on_canvas_change.clone(),
+                    );
+                    panel.rect(()).w(Len::Fill).h_px(t::SP_PX).rgba(1.0, 1.0, 1.0, 0.06);
+                    cache_section(
+                        panel,
+                        cache_usage,
+                        &cache_path,
+                        self.on_clear_cache.clone(),
+                        self.on_change_cache_dir.clone(),
+                    );
+                    panel.rect(()).w(Len::Fill).h_px(t::SP_PX).rgba(1.0, 1.0, 1.0, 0.06);
+                    account(panel, self.profile, self.sign_out.clone());
+                });
         });
+    }
 }
 
 /// Human-readable byte size (e.g. `1.2 GB`, `340 MB`, `12 KB`).

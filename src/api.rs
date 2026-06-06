@@ -1,3 +1,10 @@
+//! Spotify Web API bindings + the app's domain structs parsed from them.
+//!
+//! `dead_code` is allowed module-wide on purpose: this is a data-binding
+//! layer that captures the full shape of each entity (ids, totals, avatar
+//! URLs, …) even where the UI doesn't consume every field *yet*. Those
+//! fields are wired up as features land (clickable tiles need `id`, the
+//! profile chip needs `avatar_url`, etc.) — they are scaffolding, not rot.
 #![allow(dead_code)]
 
 use std::time::Instant;
@@ -801,6 +808,9 @@ pub async fn set_repeat(token: &str, mode: RepeatMode) -> Result<(), AuthError> 
     player_command(token, reqwest::Method::PUT, &format!("/me/player/repeat?state={state}")).await
 }
 
+/// Seek the active Connect device to `position_ms`. Used by the
+/// (in-progress) scrubbable progress bar — drag/click to seek, with a
+/// hover preview of the target timestamp.
 pub async fn seek(token: &str, position_ms: u32) -> Result<(), AuthError> {
     player_command(
         token,
