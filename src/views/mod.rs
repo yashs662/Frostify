@@ -30,4 +30,22 @@ pub enum MainNav {
     /// A playlist detail page. `id` is the Spotify playlist id, or
     /// [`crate::api::LIKED_SONGS_ID`] when `liked` is set.
     Playlist { id: String, liked: bool },
+    /// An album detail page. `id` is the Spotify album id. Reuses the
+    /// playlist track-list machinery (an album has a `context_uri` + tracks).
+    Album { id: String },
+    /// An artist page. `id` is the Spotify artist id. Shows the artist hero
+    /// + a discography grid of album tiles (each opens an [`Self::Album`]).
+    Artist { id: String },
+    /// A full-width "Show all" list for a home-feed section. Renders from the
+    /// already-loaded `HomeData` (no fetch); rows open the matching detail.
+    ShowAll { section: HomeSection },
+}
+
+/// Which home-feed section a [`MainNav::ShowAll`] page expands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HomeSection {
+    Recent,
+    TopArtists,
+    TopTracks,
+    Playlists,
 }

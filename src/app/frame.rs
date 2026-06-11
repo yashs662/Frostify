@@ -27,9 +27,37 @@ pub fn tick(
     now: Instant,
 ) {
     let mut cx = Cx::new(tl, now, rebuild);
+    // A hot-patch landed since the last tick: rebuild so the patched
+    // `Component::view` bodies run. No-op unless the `hotreload` feature is on.
+    if crate::hotreload::take_patched() {
+        cx.rebuild();
+    }
     // Keep the live canvas node id in sync so the decode thread targets the
     // correct node even after a scene rebuild.
     state.canvas.sync_node(ctx.node("now_playing_canvas"));
+    // Drive the collapsing detail-page header from its scroll offset. Runs
+    // every active (scroll) frame; only sets a Signal — the sticky bar's
+    // position/opacity binds pick it up with no rebuild. Absent node (Home
+    // feed) settles it back to 0.
+    {
+        use crate::views::home::playlist as pl;
+        if let Some(id) = ctx.node(pl::SCROLL_NODE) {
+            // scroll offset is physical px; collapse range is logical.
+            let off = ctx.tree.scroll_offset(id)[1] / ctx.scale.max(1.0);
+            let collapse = (off / pl::COLLAPSE_RANGE).clamp(0.0, 1.0);
+            if (state.router.detail_collapse.get() - collapse).abs() > 0.001 {
+                state.router.detail_collapse.set(collapse);
+            }
+            // Track the bar's top inset to the glass header as it slides in,
+            // so the bar shrinks/grows smoothly with the overlay (and is never
+            // hidden behind it). Derived from the header height — not hardcoded.
+            ctx.tree.with_scrollbar_style(id, |st| {
+                st.inset_start = collapse * (pl::BAR_H + pl::COLHEADER_H)
+            });
+        } else if state.router.detail_collapse.get() != 0.0 {
+            state.router.detail_collapse.set(0.0);
+        }
+    }
     // Apply a cache relocation picked by the folder dialog: point the disk
     // cache at the new dir, persist it, rebuild so the storage bar refreshes.
     if let Some(dir) = state.settings.take_pending_dir() {

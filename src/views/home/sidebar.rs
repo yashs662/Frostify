@@ -11,12 +11,13 @@ use frostify_gfx::{Align, Computed, ImageHandle, Justify, Len, Overflow, Scene, 
 
 use crate::album_art;
 use crate::api::{HomeData, LIKED_SONGS_ID};
+use crate::model::ArtModel;
 use crate::views::MainNav;
-use crate::widgets::component::Component;
-use crate::views::home::{ArtMap, NavFn};
+use crate::views::home::NavFn;
 use crate::widgets::chip::chip;
-use crate::widgets::thumb::thumb;
+use crate::widgets::component::Component;
 use crate::widgets::icon::{Icon, IconSet};
+use crate::widgets::thumb::thumb;
 use crate::widgets::tokens as t;
 
 pub struct Sidebar<'a> {
@@ -25,7 +26,9 @@ pub struct Sidebar<'a> {
     pub nav: &'a MainNav,
     pub on_navigate: NavFn,
     pub home: &'a HomeData,
-    pub art: &'a ArtMap,
+    /// The art model — narrow per-row lookups (`art.signal(key)`); no held
+    /// `home_art` borrow.
+    pub art: &'a ArtModel,
     pub icons: &'a Rc<IconSet>,
 }
 
@@ -108,17 +111,20 @@ impl Component for Sidebar<'_> {
                             true,
                             nav_is(self.nav, LIKED_SONGS_ID),
                             w,
-                            MainNav::Playlist { id: LIKED_SONGS_ID.to_string(), liked: true },
+                            MainNav::Playlist {
+                                id: LIKED_SONGS_ID.to_string(),
+                                liked: true,
+                            },
                             &self.on_navigate,
                         );
                         for p in &self.home.playlists {
                             // Sidebar icons use the tiny (64 px) cover tier;
                             // the home tile uses full-res — distinct scdn key,
-                            // so both coexist in the ArtMap.
+                            // so both coexist in the art map.
                             let sig = p
                                 .image_url_small
                                 .as_ref()
-                                .and_then(|u| self.art.get(&album_art::cache_key(u)).cloned());
+                                .and_then(|u| self.art.signal(&album_art::cache_key(u)));
                             library_row(
                                 c,
                                 icons,
@@ -128,7 +134,10 @@ impl Component for Sidebar<'_> {
                                 false,
                                 nav_is(self.nav, &p.id),
                                 w,
-                                MainNav::Playlist { id: p.id.clone(), liked: false },
+                                MainNav::Playlist {
+                                    id: p.id.clone(),
+                                    liked: false,
+                                },
                                 &self.on_navigate,
                             );
                         }
@@ -147,7 +156,11 @@ fn nav_is(nav: &MainNav, id: &str) -> bool {
 /// of the 0-px box instead of painting past).
 fn collapsed_height(sidebar_w: &Signal<f32>, expanded: f32) -> Computed<f32> {
     Computed::new((sidebar_w.clone(),), move |(w,)| {
-        if w < t::SIDEBAR_COLLAPSE_THRESHOLD { 0.0 } else { expanded }
+        if w < t::SIDEBAR_COLLAPSE_THRESHOLD {
+            0.0
+        } else {
+            expanded
+        }
     })
 }
 
@@ -157,7 +170,11 @@ fn collapsed_height(sidebar_w: &Signal<f32>, expanded: f32) -> Computed<f32> {
 /// space (a real `gap()` is fixed at layout time and would reserve it).
 fn collapsed_spacer(sidebar_w: &Signal<f32>) -> Computed<f32> {
     Computed::new((sidebar_w.clone(),), move |(w,)| {
-        if w < t::SIDEBAR_COLLAPSE_THRESHOLD { 0.0 } else { t::SIDEBAR_TEXT_SPACER }
+        if w < t::SIDEBAR_COLLAPSE_THRESHOLD {
+            0.0
+        } else {
+            t::SIDEBAR_TEXT_SPACER
+        }
     })
 }
 

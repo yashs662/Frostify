@@ -1,0 +1,211 @@
+//! Full-width "Show all" list page (Spotify "Recents"-style) rendered into
+//! the centre pane. Expands a home-feed section into a vertical list of
+//! full-width rows — thumb + title + subtitle + chevron — optionally split
+//! into day-labelled groups (Recently played). Built entirely from the
+//! already-loaded `HomeData`; each row opens its detail page.
+//!
+//! Lightweight (≤ ~20 rows), so it's a plain `scroll_y` column — no
+//! virtualised list, no collapsing header.
+
+use std::rc::Rc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use frostify_gfx::{Align, ImageHandle, Justify, Len, Overflow, Scene, Signal};
+
+use crate::views::MainNav;
+use crate::views::home::NavFn;
+use crate::widgets::icon::{Icon, IconSet};
+use crate::widgets::tokens as t;
+
+/// Full-width row height.
+const ROW_H: f32 = t::SP_14;
+
+/// One full-width list row.
+pub struct ShowAllRow {
+    pub title: String,
+    pub subtitle: String,
+    pub thumb: Option<Signal<Option<ImageHandle>>>,
+    /// Circular thumb (artists) vs rounded square (everything else).
+    pub round: bool,
+    /// Detail page opened on click.
+    pub nav: MainNav,
+}
+
+/// A run of rows under an optional header (day label for Recently played;
+/// `None` for the ungrouped sections).
+pub struct ShowAllGroup {
+    pub header: Option<String>,
+    pub rows: Vec<ShowAllRow>,
+}
+
+/// Everything the page needs for one render.
+pub struct ShowAllViewData {
+    pub title: String,
+    pub groups: Vec<ShowAllGroup>,
+}
+
+/// Render the Show-all page into `s` (the caller's transition wrapper).
+pub fn view(s: &mut Scene, icons: &Rc<IconSet>, data: &ShowAllViewData, on_navigate: NavFn) {
+    let nav_back = on_navigate.clone();
+    s.col(())
+        .w(Len::Fill)
+        .h(Len::Fill)
+        .pad_xy(t::SP_6, t::SP_2)
+        .gap(t::SP_3)
+        .scroll_y()
+        .layer()
+        .scrollbar(|sb| sb.auto_hide(true).margin(t::SP_0_5).thickness(t::SP_1))
+        .child(move |c| {
+            // Top bar: back chevron.
+            c.row(())
+                .w_px(t::TOPBAR_BTN)
+                .h_px(t::TOPBAR_BTN)
+                .rgba(0.0, 0.0, 0.0, 0.30)
+                .hover_color(t::PANEL_HI)
+                .radius(t::R_FULL)
+                .center()
+                .on_click(move |ctx| nav_back(ctx, MainNav::Home))
+                .child(|b| icons.render(b, Icon::ChevronLeft, t::ICON_MD, t::TEXT));
+
+            c.text((), &data.title, 28.0)
+                .color(t::TEXT)
+                .max_width_px(520.0);
+
+            for group in &data.groups {
+                if let Some(h) = &group.header {
+                    c.row(())
+                        .w(Len::Fill)
+                        .h_px(t::SP_8)
+                        .align(Align::End)
+                        .child(|r| {
+                            r.text((), h, 16.0).color(t::TEXT);
+                        });
+                }
+                for row in &group.rows {
+                    show_all_row(c, icons, row, &on_navigate);
+                }
+            }
+        });
+}
+
+/// One full-width row: thumb + title/subtitle + trailing chevron.
+fn show_all_row(s: &mut Scene, icons: &Rc<IconSet>, row: &ShowAllRow, nav: &NavFn) {
+    let target = row.nav.clone();
+    let nav = nav.clone();
+    let radius = if row.round { t::R_FULL } else { t::R_SM };
+    s.row(())
+        .w(Len::Fill)
+        .h_px(ROW_H)
+        .pad_xy(t::SP_2, t::SP_1)
+        .gap(t::SP_3)
+        .align(Align::Center)
+        .radius(t::R_MD)
+        .hover_color(t::HOVER_LIFT_SUBTLE)
+        .on_click(move |ctx| nav(ctx, target.clone()))
+        .child(|r| {
+            // Thumb.
+            r.col(()).w_px(t::THUMB_MD).h_px(t::THUMB_MD).child(|b| {
+                b.rect(())
+                    .abs(0.0, 0.0)
+                    .w(Len::Fill)
+                    .h(Len::Fill)
+                    .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
+                    .radius(radius);
+                if let Some(sig) = row.thumb.clone() {
+                    b.image_bound((), sig)
+                        .abs(0.0, 0.0)
+                        .w(Len::Fill)
+                        .h(Len::Fill)
+                        .radius(radius);
+                }
+            });
+            // Title + subtitle.
+            r.col(())
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .gap(t::SP_0_5)
+                .justify(Justify::Center)
+                .overflow_x(Overflow::Hidden)
+                .child(|m| {
+                    m.text((), &row.title, 14.0)
+                        .color(t::TEXT)
+                        .max_width_px(420.0);
+                    m.text((), &row.subtitle, 12.0)
+                        .color(t::TEXT_DIM)
+                        .max_width_px(420.0);
+                });
+            // Trailing chevron affordance.
+            r.row(()).push_end().w_px(t::SP_6).center().child(|c| {
+                icons.render(c, Icon::ChevronRight, t::ICON_MD, t::TEXT_DIM);
+            });
+        });
+}
+
+const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+/// Today's + yesterday's date as `YYYY-MM-DD` (UTC — matches Spotify's
+/// `played_at` which is UTC; good enough for day bucketing).
+pub fn today_yesterday() -> (String, String) {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = (secs / 86_400) as i64;
+    (date_string(days), date_string(days - 1))
+}
+
+/// Day-group label for a `played_at` timestamp: "Today" / "Yesterday" /
+/// "June 5" / a bare date fallback.
+pub fn day_label(played_at: &str, today: &str, yesterday: &str) -> String {
+    let date = played_at.get(..10).unwrap_or("");
+    if date == today {
+        "Today".to_string()
+    } else if date == yesterday {
+        "Yesterday".to_string()
+    } else if let Some((y, m, d)) = parse_ymd(date) {
+        let _ = y;
+        format!("{} {}", MONTHS[(m as usize).clamp(1, 12) - 1], d)
+    } else {
+        "Earlier".to_string()
+    }
+}
+
+fn parse_ymd(s: &str) -> Option<(i64, u32, u32)> {
+    let mut it = s.splitn(3, '-');
+    let y = it.next()?.parse().ok()?;
+    let m = it.next()?.parse().ok()?;
+    let d = it.next()?.parse().ok()?;
+    Some((y, m, d))
+}
+
+fn date_string(days_since_epoch: i64) -> String {
+    let (y, m, d) = civil_from_days(days_since_epoch);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Days-since-epoch → (year, month, day). Howard Hinnant's `civil_from_days`.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    (y + if m <= 2 { 1 } else { 0 }, m, d)
+}

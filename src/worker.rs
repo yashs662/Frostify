@@ -1,8 +1,8 @@
 use crate::album_art;
 use crate::api::{self, CurrentlyPlaying, HomeData, RepeatMode, TrackDetails};
-use crate::disk_cache;
 use crate::auth::oauth::{self, SpotifyAuthResponse, listen_for_callback, refresh_token};
 use crate::auth::token_manager::{self, StoredTokens};
+use crate::disk_cache;
 use crate::{cluster_listener, spirc_bootstrap, spotify_session};
 use frostify_gfx::{ImageHandle, Uploader, WakeHandle};
 use librespot_connect::Spirc;
@@ -31,13 +31,20 @@ const ALBUM_ART_MAX_DIM: u32 = 640;
 pub enum WorkerCommand {
     StartOAuth,
     TryLoadTokens,
-    FetchHome { access_token: String },
+    FetchHome {
+        access_token: String,
+    },
     /// One-shot `/v1/me/player` poll to seed the initial player state.
     /// Dealer cluster pushes only on transitions — without this seed,
     /// the UI is blank from launch until the user toggles play/pause
     /// on whatever device is active.
-    SeedPlayerState { access_token: String },
-    FetchTrackDetails { access_token: String, track_id: String },
+    SeedPlayerState {
+        access_token: String,
+    },
+    FetchTrackDetails {
+        access_token: String,
+        track_id: String,
+    },
     /// Load a playlist's tracks (or the Liked Songs collection when
     /// `liked` is set). Result flows back as `PlaylistLoaded`.
     FetchPlaylist {
@@ -45,19 +52,43 @@ pub enum WorkerCommand {
         id: String,
         liked: bool,
     },
-    FetchAlbumArt { url: String, key: String },
+    /// Load an album's tracks. Result flows back as `PlaylistOpened`
+    /// (albums reuse the playlist track-list pipeline).
+    FetchAlbum {
+        access_token: String,
+        id: String,
+    },
+    /// Load an artist page (profile + discography). Result: `ArtistOpened`.
+    FetchArtist {
+        access_token: String,
+        id: String,
+    },
+    FetchAlbumArt {
+        url: String,
+        key: String,
+    },
     /// Fetch Spotify's own extracted accent colour for a cover, via the
     /// librespot session's extended-metadata endpoint. `image_hex` is the
     /// `i.scdn.co/image/<hex>` trailing hash (our cache key).
-    FetchAccent { image_hex: String },
+    FetchAccent {
+        image_hex: String,
+    },
     /// Fetch the Spotify Canvas (looping video) URL for a track via the
     /// librespot extended-metadata endpoint (`CANVAZ`). `track_uri` is the
     /// `spotify:track:…` form; `track_id` echoes back so the UI can
     /// confirm the response still matches the current track.
-    FetchCanvas { track_uri: String, track_id: String },
-    ConnectSpotifySession { access_token: String },
+    FetchCanvas {
+        track_uri: String,
+        track_id: String,
+    },
+    ConnectSpotifySession {
+        access_token: String,
+    },
     /// Transport control on the active Connect device (Web API).
-    Playback { access_token: String, cmd: PlaybackCmd },
+    Playback {
+        access_token: String,
+        cmd: PlaybackCmd,
+    },
 }
 
 /// A transport intent dispatched from a player-bar button. Resolved to
@@ -81,19 +112,36 @@ pub enum PlaybackCmd {
 
 #[derive(Debug, Clone)]
 pub enum WorkerResponse {
-    OAuthStarted { auth_url: String },
-    OAuthComplete { auth: SpotifyAuthResponse },
-    OAuthFailed { error: String },
-    TokensLoaded { auth: SpotifyAuthResponse },
+    OAuthStarted {
+        auth_url: String,
+    },
+    OAuthComplete {
+        auth: SpotifyAuthResponse,
+    },
+    OAuthFailed {
+        error: String,
+    },
+    TokensLoaded {
+        auth: SpotifyAuthResponse,
+    },
     NoStoredTokens,
-    HomeData { data: HomeData },
-    PlayerState { player: Option<CurrentlyPlaying> },
-    TrackDetails { details: TrackDetails },
+    HomeData {
+        data: HomeData,
+    },
+    PlayerState {
+        player: Option<CurrentlyPlaying>,
+    },
+    TrackDetails {
+        details: TrackDetails,
+    },
     /// First response for a playlist open: metadata + the first track
     /// page (or the *full* set when `complete`, e.g. a disk-cache hit or
     /// single-page playlist). The UI rebuilds once here to mount the
     /// header + full-length virtualised list.
-    PlaylistOpened { detail: api::PlaylistDetail, complete: bool },
+    PlaylistOpened {
+        detail: api::PlaylistDetail,
+        complete: bool,
+    },
     /// A subsequent streamed track page appended to the open playlist's
     /// live buffer — no rebuild; the virtualised list reads it on scroll.
     PlaylistTracks {
@@ -101,26 +149,54 @@ pub enum WorkerResponse {
         tracks: Vec<api::PlaylistTrack>,
         done: bool,
     },
-    PlaylistFailed { id: String, error: String },
+    PlaylistFailed {
+        id: String,
+        error: String,
+    },
+    /// An artist page resolved: profile + popular tracks + discography.
+    ArtistOpened {
+        id: String,
+        name: String,
+        image_url: Option<String>,
+        followers: u64,
+        top_tracks: Vec<api::PlaylistTrack>,
+        albums: Vec<api::AlbumRef>,
+    },
+    ArtistFailed {
+        id: String,
+        error: String,
+    },
     AlbumArtReady {
         key: String,
         handle: ImageHandle,
         accent: [f32; 4],
     },
-    AlbumArtFailed { key: String },
+    AlbumArtFailed {
+        key: String,
+    },
     /// Spotify's extracted accent for a cover. `key` is the image hex so
     /// the UI can confirm it still matches the current track before
     /// applying it.
-    AccentReady { key: String, accent: [f32; 4] },
+    AccentReady {
+        key: String,
+        accent: [f32; 4],
+    },
     /// A track's Canvas video resolved (URL fetched + MP4 downloaded to
     /// the disk cache). `track_id` lets the UI confirm it still matches
     /// the current track; `path` is the cached MP4 ready to decode.
-    CanvasReady { track_id: String, path: std::path::PathBuf },
+    CanvasReady {
+        track_id: String,
+        path: std::path::PathBuf,
+    },
     /// No Canvas for the track (or fetch/download failed) — UI keeps the
     /// album art.
-    CanvasNone { track_id: String },
+    CanvasNone {
+        track_id: String,
+    },
     SpotifySessionConnected,
-    SpotifySessionFailed { error: String },
+    SpotifySessionFailed {
+        error: String,
+    },
 }
 
 pub struct Worker {
@@ -177,24 +253,30 @@ impl Worker {
                             id,
                             liked,
                         } => spawn_fetch_playlist(resp.clone(), access_token, id, liked),
-                        WorkerCommand::FetchAlbumArt { url, key } => spawn_fetch_album_art(
-                            resp.clone(),
-                            uploader.clone(),
-                            url,
-                            key,
-                        ),
+                        WorkerCommand::FetchAlbum { access_token, id } => {
+                            spawn_fetch_album(resp.clone(), access_token, id)
+                        }
+                        WorkerCommand::FetchArtist { access_token, id } => {
+                            spawn_fetch_artist(resp.clone(), access_token, id)
+                        }
+                        WorkerCommand::FetchAlbumArt { url, key } => {
+                            spawn_fetch_album_art(resp.clone(), uploader.clone(), url, key)
+                        }
                         WorkerCommand::FetchAccent { image_hex } => {
                             spawn_fetch_accent(resp.clone(), session.clone(), image_hex)
                         }
-                        WorkerCommand::FetchCanvas { track_uri, track_id } => {
-                            spawn_fetch_canvas(resp.clone(), session.clone(), track_uri, track_id)
+                        WorkerCommand::FetchCanvas {
+                            track_uri,
+                            track_id,
+                        } => spawn_fetch_canvas(resp.clone(), session.clone(), track_uri, track_id),
+                        WorkerCommand::ConnectSpotifySession { access_token } => {
+                            spawn_connect_session(
+                                resp.clone(),
+                                session.clone(),
+                                spirc.clone(),
+                                access_token,
+                            )
                         }
-                        WorkerCommand::ConnectSpotifySession { access_token } => spawn_connect_session(
-                            resp.clone(),
-                            session.clone(),
-                            spirc.clone(),
-                            access_token,
-                        ),
                         WorkerCommand::Playback { access_token, cmd } => {
                             spawn_playback(access_token, cmd)
                         }
@@ -233,6 +315,16 @@ impl Worker {
             liked,
         });
     }
+    pub fn fetch_album(&self, access_token: String, id: String) {
+        let _ = self
+            .cmd_tx
+            .send(WorkerCommand::FetchAlbum { access_token, id });
+    }
+    pub fn fetch_artist(&self, access_token: String, id: String) {
+        let _ = self
+            .cmd_tx
+            .send(WorkerCommand::FetchArtist { access_token, id });
+    }
     pub fn fetch_album_art(&self, url: String, key: String) {
         let _ = self.cmd_tx.send(WorkerCommand::FetchAlbumArt { url, key });
     }
@@ -240,9 +332,10 @@ impl Worker {
         let _ = self.cmd_tx.send(WorkerCommand::FetchAccent { image_hex });
     }
     pub fn fetch_canvas(&self, track_uri: String, track_id: String) {
-        let _ = self
-            .cmd_tx
-            .send(WorkerCommand::FetchCanvas { track_uri, track_id });
+        let _ = self.cmd_tx.send(WorkerCommand::FetchCanvas {
+            track_uri,
+            track_id,
+        });
     }
     pub fn connect_spotify_session(&self, access_token: String) {
         let _ = self
@@ -273,7 +366,9 @@ fn spawn_oauth(resp: Responder) {
                 resp.send(WorkerResponse::OAuthComplete { auth });
             }
             Err(e) => {
-                resp.send(WorkerResponse::OAuthFailed { error: e.to_string() });
+                resp.send(WorkerResponse::OAuthFailed {
+                    error: e.to_string(),
+                });
             }
         }
     });
@@ -285,8 +380,8 @@ fn spawn_fetch_home(resp: Responder, access_token: String) {
             api::get_me(&access_token),
             api::get_playlists(&access_token),
             api::get_recently_played(&access_token),
-            api::get_top_artists(&access_token, 10),
-            api::get_top_tracks(&access_token, 10),
+            api::get_top_artists(&access_token, 12),
+            api::get_top_tracks(&access_token, 12),
         );
         let mut data = HomeData::default();
         match profile {
@@ -334,7 +429,10 @@ fn spawn_seed_player(resp: Responder, access_token: String) {
     tokio::spawn(async move {
         match api::get_currently_playing(&access_token).await {
             Ok(player) => {
-                info!("seeded initial player state from /me/player: present={}", player.is_some());
+                info!(
+                    "seeded initial player state from /me/player: present={}",
+                    player.is_some()
+                );
                 resp.send(WorkerResponse::PlayerState { player });
             }
             Err(e) => warn!("seed /me/player failed: {e}"),
@@ -369,7 +467,10 @@ fn spawn_fetch_accent(
         .ok()
         .flatten()
         {
-            resp.send(WorkerResponse::AccentReady { key: image_hex, accent });
+            resp.send(WorkerResponse::AccentReady {
+                key: image_hex,
+                accent,
+            });
             return;
         }
         let session = { session_slot.lock().await.clone() };
@@ -386,7 +487,10 @@ fn spawn_fetch_accent(
                 tokio::task::spawn_blocking(move || disk_cache::write_json(&cache_key, &accent))
                     .await
                     .ok();
-                resp.send(WorkerResponse::AccentReady { key: image_hex, accent });
+                resp.send(WorkerResponse::AccentReady {
+                    key: image_hex,
+                    accent,
+                });
             }
             None => debug!("no extracted color for {image_hex}"),
         }
@@ -541,10 +645,16 @@ fn spawn_fetch_canvas(
 
 /// Trailing filename of a canvas URL (a stable hash), filesystem-safe.
 fn canvas_cache_key(url: &str) -> String {
-    url.rsplit('/').next().unwrap_or(url).replace(['?', '&', '='], "_")
+    url.rsplit('/')
+        .next()
+        .unwrap_or(url)
+        .replace(['?', '&', '='], "_")
 }
 
-async fn fetch_canvas_entry(session: &Session, track_uri: &str) -> Option<crate::canvas::CanvasEntry> {
+async fn fetch_canvas_entry(
+    session: &Session,
+    track_uri: &str,
+) -> Option<crate::canvas::CanvasEntry> {
     let req = BatchedEntityRequest {
         entity_request: vec![EntityRequest {
             entity_uri: track_uri.to_string(),
@@ -623,6 +733,81 @@ const PLAYLIST_DISK_TTL: std::time::Duration = std::time::Duration::from_secs(60
 /// library; the windowed-play UX matters more than completeness beyond.
 const MAX_STREAM_TRACKS: usize = 10_000;
 
+/// Load an album page. Albums fit in one request (≤ 50 tracks), so this is
+/// a single `PlaylistOpened { complete: true }` — no streaming. The disk
+/// cache (shared with playlists, keyed by id) makes re-opens instant.
+fn spawn_fetch_album(resp: Responder, access_token: String, id: String) {
+    tokio::spawn(async move {
+        let key = id.clone();
+        let cached = tokio::task::spawn_blocking(move || {
+            disk_cache::read_json::<api::PlaylistDetail>(&key, PLAYLIST_DISK_TTL)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(detail) = cached {
+            resp.send(WorkerResponse::PlaylistOpened {
+                detail,
+                complete: true,
+            });
+            return;
+        }
+        match api::get_album(&access_token, &id).await {
+            Ok(detail) => {
+                let key = id.clone();
+                let to_cache = detail.clone();
+                tokio::task::spawn_blocking(move || disk_cache::write_json(&key, &to_cache));
+                resp.send(WorkerResponse::PlaylistOpened {
+                    detail,
+                    complete: true,
+                });
+            }
+            Err(e) => {
+                warn!("get_album({id}) failed: {e}");
+                resp.send(WorkerResponse::PlaylistFailed {
+                    id,
+                    error: e.to_string(),
+                });
+            }
+        }
+    });
+}
+
+/// Load an artist page: profile + discography (newest-first albums), in
+/// parallel. `get_json`'s disk cache makes re-opens cheap.
+fn spawn_fetch_artist(resp: Responder, access_token: String, id: String) {
+    tokio::spawn(async move {
+        // The user's country is the `market` for top-tracks; `get_me` is
+        // disk-cached (SLOW), so this is near-free after the first call.
+        let market = api::get_me(&access_token)
+            .await
+            .map(|p| p.country)
+            .unwrap_or_default();
+        let (profile, top_tracks, albums) = tokio::join!(
+            api::get_artist(&access_token, &id),
+            api::get_artist_top_tracks(&access_token, &id, &market),
+            api::get_artist_albums(&access_token, &id, 20),
+        );
+        match profile {
+            Ok(p) => resp.send(WorkerResponse::ArtistOpened {
+                id,
+                name: p.name,
+                image_url: p.image_url,
+                followers: p.followers,
+                top_tracks: top_tracks.unwrap_or_default(),
+                albums: albums.unwrap_or_default(),
+            }),
+            Err(e) => {
+                warn!("get_artist({id}) failed: {e}");
+                resp.send(WorkerResponse::ArtistFailed {
+                    id,
+                    error: e.to_string(),
+                });
+            }
+        }
+    });
+}
+
 fn spawn_fetch_playlist(resp: Responder, access_token: String, id: String, liked: bool) {
     tokio::spawn(async move {
         // 1. Disk cache first — a fresh hit delivers the whole listing in
@@ -635,8 +820,15 @@ fn spawn_fetch_playlist(resp: Responder, access_token: String, id: String, liked
         .ok()
         .flatten();
         if let Some(detail) = cached {
-            info!("playlist '{}' disk-cache hit: {} tracks", detail.name, detail.tracks.len());
-            resp.send(WorkerResponse::PlaylistOpened { detail, complete: true });
+            info!(
+                "playlist '{}' disk-cache hit: {} tracks",
+                detail.name,
+                detail.tracks.len()
+            );
+            resp.send(WorkerResponse::PlaylistOpened {
+                detail,
+                complete: true,
+            });
             return;
         }
 
@@ -655,7 +847,10 @@ fn spawn_fetch_playlist(resp: Responder, access_token: String, id: String, liked
                 ),
                 Err(e) => {
                     warn!("playlist_meta({id}) failed: {e}");
-                    resp.send(WorkerResponse::PlaylistFailed { id, error: e.to_string() });
+                    resp.send(WorkerResponse::PlaylistFailed {
+                        id,
+                        error: e.to_string(),
+                    });
                     return;
                 }
             }
@@ -664,7 +859,11 @@ fn spawn_fetch_playlist(resp: Responder, access_token: String, id: String, liked
         // 3. Stream track pages. The first page rides a `PlaylistOpened`
         //    (mounts the list); the rest are `PlaylistTracks` appended to
         //    the live buffer with no rebuild.
-        let page_size = if liked { api::LIKED_PAGE } else { api::PLAYLIST_PAGE };
+        let page_size = if liked {
+            api::LIKED_PAGE
+        } else {
+            api::PLAYLIST_PAGE
+        };
         let mut offset = 0u32;
         let mut first = true;
         let mut total = 0u32;
@@ -705,7 +904,10 @@ fn spawn_fetch_playlist(resp: Responder, access_token: String, id: String, liked
                     tracks: page.tracks,
                     total,
                 };
-                resp.send(WorkerResponse::PlaylistOpened { detail, complete: done });
+                resp.send(WorkerResponse::PlaylistOpened {
+                    detail,
+                    complete: done,
+                });
                 first = false;
             } else {
                 resp.send(WorkerResponse::PlaylistTracks {
@@ -789,12 +991,7 @@ async fn fetch_art_bytes(url: &str) -> Option<Vec<u8>> {
     None
 }
 
-fn spawn_fetch_album_art(
-    resp: Responder,
-    uploader: Arc<Uploader>,
-    url: String,
-    key: String,
-) {
+fn spawn_fetch_album_art(resp: Responder, uploader: Arc<Uploader>, url: String, key: String) {
     tokio::spawn(async move {
         // 1. Disk cache first — a hit skips the network entirely, which
         //    is what kills the track-change "stuck on old art" window for
@@ -877,7 +1074,9 @@ fn spawn_connect_session(
             Ok(b) => b,
             Err(e) => {
                 error!("spirc bootstrap failed: {e}");
-                resp.send(WorkerResponse::SpotifySessionFailed { error: e.to_string() });
+                resp.send(WorkerResponse::SpotifySessionFailed {
+                    error: e.to_string(),
+                });
                 return;
             }
         };

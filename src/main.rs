@@ -7,14 +7,15 @@ mod album_art;
 mod api;
 mod app;
 mod auth;
+mod canvas;
 mod cluster_listener;
 mod constants;
 #[cfg(feature = "automation")]
 mod debug_config;
 mod disk_cache;
 mod errors;
-mod canvas;
 mod extracted_color;
+mod hotreload;
 mod model;
 mod null_sink;
 mod prefs;
@@ -126,6 +127,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .capture_from_env();
     let icons = std::rc::Rc::new(widgets::icon::load_all(&mut app));
     let rebuild = app.rebuild_token();
+    // Connect to the dx devserver for runtime hot-patching (no-op unless the
+    // `hotreload` feature is on). The patch handler latches a flag + wakes the
+    // loop; the per-frame tick drains it into a scene rebuild.
+    hotreload::connect(app.wake_handle());
     let worker = Rc::new(Worker::new(app.wake_handle(), app.uploader()));
     worker.try_load_tokens();
     // Hand the state the engine's frame sink so the Canvas decode thread
@@ -153,15 +158,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // (`state.router.view`) selects which one builds each scene rebuild —
     // `main` no longer composes any UI itself.
     let wake = app.wake_handle();
-    let home_view =
-        views::home::HomeView::new(state.clone(), worker.clone(), rebuild.clone(), icons.clone(), wake);
+    let home_view = views::home::HomeView::new(
+        state.clone(),
+        worker.clone(),
+        rebuild.clone(),
+        icons.clone(),
+        wake,
+    );
     let login_view = views::login::LoginView::new(state.clone(), worker.clone(), icons.clone());
 
     let app = {
         let state = state.clone();
-        app.scene(move |s| match state.router.view.get() {
-            View::Splash | View::Login => login_view.build(s),
-            View::Home => home_view.build(s),
+        // Route the build through `hotreload::call`: it's the subsecond
+        // re-entry point, so an applied patch re-runs the patched `view`
+        // bodies on the next rebuild. Plain call-through when the feature
+        // is off.
+        app.scene(move |s| {
+            hotreload::call(|| match state.router.view.get() {
+                View::Splash | View::Login => login_view.build(s),
+                View::Home => home_view.build(s),
+            })
         })
     };
 

@@ -9,6 +9,11 @@ edition = "2024"
 # script branch in `main.rs` (see `src/debug_config.rs`). Off by default.
 automation = ["frostify-gfx/automation"]
 
+# Runtime hot-patching of `Component::view` bodies via subsecond (Dioxus).
+# Dev-only — never ship it. Run with `dx serve --hotpatch --features hotreload`
+# (see `src/hotreload.rs`). Off by default; the call sites no-op without it.
+hotreload = ["dep:subsecond", "dep:dioxus-devtools"]
+
 [dependencies]
 frostify-gfx = { path = "../frostify-gfx" }
 log = "0.4.31"
@@ -49,6 +54,12 @@ dirs = "6.0.0"
 rfd = "0.17.2"
 re_mp4 = "0.5.0"
 openh264 = "0.9.3"
+
+# Hot-reload (dev-only, behind the `hotreload` feature). subsecond is the
+# hotpatch runtime; dioxus-devtools carries the devserver patch protocol.
+# Pin both to the same version as the `dx` CLI you run.
+subsecond = { version = "0.7.9", optional = true }
+dioxus-devtools = { version = "0.7.9", optional = true }
 
 # OS-native credential stores for keyring-core, one per platform. Registered
 # at startup. NOTE: keyutils on Linux is process/session-scoped and does NOT

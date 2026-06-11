@@ -28,6 +28,11 @@ pub struct RouterModel {
     /// 0 → 1 slide/fade progress for the centre-pane content, retween'd on
     /// every nav change. Parks at 1.0 (settled).
     pub main_t: Signal<f32>,
+    /// Detail-page header collapse, 0 (hero fully expanded) → 1 (collapsed
+    /// into the sticky bar). Driven each frame from the open detail page's
+    /// scroll offset (see `app::frame::tick`); the view slides + fades the
+    /// sticky bar from it. Reset to 0 on every nav.
+    pub detail_collapse: Signal<f32>,
 }
 
 impl RouterModel {
@@ -36,12 +41,23 @@ impl RouterModel {
             view: Cell::default(),
             nav: RefCell::default(),
             main_t: Signal::new(1.0),
+            detail_collapse: Signal::new(0.0),
         }
     }
 
-    /// Whether the centre pane is currently showing the playlist `id`.
-    pub fn nav_is_playlist(&self, id: &str) -> bool {
-        matches!(&*self.nav.borrow(), MainNav::Playlist { id: nid, .. } if nid == id)
+    /// Whether the centre pane is showing the detail page (playlist or album)
+    /// for `id`. Used by the reducer to decide if a `PlaylistOpened`/`Tracks`
+    /// response still applies to the open pane (albums reuse that response).
+    pub fn nav_is_open(&self, id: &str) -> bool {
+        match &*self.nav.borrow() {
+            MainNav::Playlist { id: nid, .. } | MainNav::Album { id: nid } => nid == id,
+            MainNav::Home | MainNav::Artist { .. } | MainNav::ShowAll { .. } => false,
+        }
+    }
+
+    /// Whether the centre pane is showing the artist page for `id`.
+    pub fn nav_is_artist(&self, id: &str) -> bool {
+        matches!(&*self.nav.borrow(), MainNav::Artist { id: nid } if nid == id)
     }
 
     /// Flip nav to `nav` and restart the entrance transition from 0 — the
@@ -49,6 +65,8 @@ impl RouterModel {
     /// over ~260 ms (timeline-pumped, no manual rebuild cadence).
     pub fn go(&self, nav: MainNav, tl: &mut Timeline, now: Instant) {
         *self.nav.borrow_mut() = nav;
+        // New page starts scrolled to top → header fully expanded.
+        self.detail_collapse.set(0.0);
         self.main_t.set(0.0);
         tl.animate(&self.main_t, 1.0, NAV_CURVE, MAIN_NAV_DURATION, now);
     }

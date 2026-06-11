@@ -7,18 +7,60 @@
 //! profile chip needs `avatar_url`, etc.) — they are scaffolding, not rot.
 #![allow(dead_code)]
 
-use std::time::Instant;
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::disk_cache;
 use crate::errors::AuthError;
 
 const API: &str = "https://api.spotify.com/v1";
+
+/// Cache TTLs per endpoint class — the single knob for "how long is a
+/// cached Web API response good for". Every [`get_json`] caller picks one;
+/// adding an endpoint is a one-line choice here, and the response is then
+/// cached on disk automatically (see [`get_json`]). Use [`ttl::NONE`] to
+/// bypass the cache for live/volatile reads.
+///
+/// Cache entries are keyed by URL only (query params included), not by the
+/// authenticated user — fine for this single-account app; sign-out clears
+/// the cache via the settings "Clear cache" button.
+pub mod ttl {
+    use std::time::Duration;
+    const HOUR: u64 = 3600;
+    const DAY: u64 = 24 * HOUR;
+    /// Immutable resources keyed by id (track + album metadata): never
+    /// change, so the long bound just caps growth.
+    pub const IMMUTABLE: Duration = Duration::from_secs(30 * DAY);
+    /// Slowly-changing user data: profile, top artists/tracks (recomputed
+    /// ~weekly), artist discography (catch new releases within a day).
+    pub const SLOW: Duration = Duration::from_secs(DAY);
+    /// User-editable collections: playlist list + metadata + track pages.
+    pub const MUTABLE: Duration = Duration::from_secs(6 * HOUR);
+    /// Volatile feeds: recently-played.
+    pub const VOLATILE: Duration = Duration::from_secs(10 * 60);
+    /// Bypass the cache entirely (live player state).
+    pub const NONE: Duration = Duration::ZERO;
+}
+
+/// Disk-cache key for a GET URL: a stable hash of the full URL (query
+/// params included, so each distinct request gets its own entry). The
+/// `DefaultHasher` seed is fixed, so the key is stable across runs. Bearer
+/// token lives in a header, not the URL, so token refresh never busts it.
+fn url_key(url: &str) -> String {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    url.hash(&mut h);
+    format!("api_{:016x}", h.finish())
+}
 
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub display_name: String,
     pub avatar_url: Option<String>,
+    /// ISO 3166-1 alpha-2 country (from `user-read-private`). Used as the
+    /// `market` for endpoints that require one (artist top-tracks).
+    pub country: String,
 }
 
 #[derive(Debug, Clone)]
@@ -38,7 +80,12 @@ pub struct RecentTrack {
     pub id: String,
     pub name: String,
     pub artist: String,
+    /// Album id — the tile opens this album's detail page.
+    pub album_id: String,
     pub album_image_url: Option<String>,
+    /// ISO-8601 `played_at` timestamp (`YYYY-MM-DDT…Z`); the leading date
+    /// drives the "Today/Yesterday/…" grouping on the Show-all page.
+    pub played_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +100,8 @@ pub struct TrackRef {
     pub id: String,
     pub name: String,
     pub artist: String,
+    /// Album id — the tile opens this album's detail page.
+    pub album_id: String,
     pub album_image_url: Option<String>,
 }
 
@@ -161,11 +210,14 @@ pub async fn get_me(token: &str) -> Result<Profile, AuthError> {
         display_name: String,
         #[serde(default)]
         images: Vec<RawImg>,
+        #[serde(default)]
+        country: String,
     }
-    let r: R = get_json(token, &format!("{API}/me")).await?;
+    let r: R = get_json(token, &format!("{API}/me"), ttl::SLOW).await?;
     Ok(Profile {
         display_name: r.display_name,
         avatar_url: pick_thumb(&r.images),
+        country: r.country,
     })
 }
 
@@ -182,7 +234,7 @@ pub async fn get_playlists(token: &str) -> Result<Vec<PlaylistRef>, AuthError> {
         #[serde(default)]
         images: Vec<RawImg>,
     }
-    let r: R = get_json(token, &format!("{API}/me/playlists?limit=20")).await?;
+    let r: R = get_json(token, &format!("{API}/me/playlists?limit=20"), ttl::MUTABLE).await?;
     Ok(r.items
         .into_iter()
         .map(|p| PlaylistRef {
@@ -309,7 +361,12 @@ impl RawTrack {
             id: self.id,
             uri: self.uri,
             name: self.name,
-            artist: self.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
+            artist: self
+                .artists
+                .into_iter()
+                .next()
+                .map(|a| a.name)
+                .unwrap_or_default(),
             album: self.album.name,
             album_image_url: pick_thumb(&self.album.images),
             duration_ms: self.duration_ms,
@@ -364,7 +421,12 @@ pub async fn playlist_meta(token: &str, playlist_id: &str) -> Result<PlaylistMet
         total: u32,
     }
     let fields = "name,owner(display_name),images,tracks.total";
-    let r: R = get_json(token, &format!("{API}/playlists/{playlist_id}?fields={fields}")).await?;
+    let r: R = get_json(
+        token,
+        &format!("{API}/playlists/{playlist_id}?fields={fields}"),
+        ttl::MUTABLE,
+    )
+    .await?;
     Ok(PlaylistMeta {
         name: r.name,
         owner: r.owner.display_name,
@@ -392,7 +454,7 @@ pub async fn fetch_tracks_page(token: &str, url: &str) -> Result<TracksPage, Aut
         #[serde(default)]
         items: Vec<RawItem>,
     }
-    let page: Page = get_json(token, url).await?;
+    let page: Page = get_json(token, url, ttl::MUTABLE).await?;
     let raw_count = page.items.len() as u32;
     Ok(TracksPage {
         tracks: tracks_from_items(page.items),
@@ -420,6 +482,8 @@ pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthEr
     #[derive(Deserialize)]
     struct Item {
         track: Track,
+        #[serde(default)]
+        played_at: String,
     }
     #[derive(Deserialize)]
     struct Track {
@@ -439,9 +503,16 @@ pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthEr
     #[derive(Deserialize)]
     struct Album {
         #[serde(default)]
+        id: String,
+        #[serde(default)]
         images: Vec<RawImg>,
     }
-    let r: R = get_json(token, &format!("{API}/me/player/recently-played?limit=10")).await?;
+    let r: R = get_json(
+        token,
+        &format!("{API}/me/player/recently-played?limit=12"),
+        ttl::VOLATILE,
+    )
+    .await?;
     Ok(r.items
         .into_iter()
         .map(|i| RecentTrack {
@@ -454,8 +525,10 @@ pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthEr
                 .next()
                 .map(|a| a.name)
                 .unwrap_or_default(),
+            album_id: i.track.album.id,
             // Home "Recently played" tiles (TILE_THUMB ≈ 320 px physical).
             album_image_url: pick_full(&i.track.album.images),
+            played_at: i.played_at,
         })
         .collect())
 }
@@ -477,7 +550,7 @@ pub async fn get_top_artists(token: &str, limit: u32) -> Result<Vec<ArtistRef>, 
         images: Vec<RawImg>,
     }
     let url = format!("{API}/me/top/artists?time_range=short_term&limit={limit}");
-    let r: R = get_json(token, &url).await?;
+    let r: R = get_json(token, &url, ttl::SLOW).await?;
     Ok(r.items
         .into_iter()
         .map(|a| ArtistRef {
@@ -513,19 +586,94 @@ pub async fn get_top_tracks(token: &str, limit: u32) -> Result<Vec<TrackRef>, Au
     #[derive(Deserialize)]
     struct Album {
         #[serde(default)]
+        id: String,
+        #[serde(default)]
         images: Vec<RawImg>,
     }
     let url = format!("{API}/me/top/tracks?time_range=short_term&limit={limit}");
-    let r: R = get_json(token, &url).await?;
+    let r: R = get_json(token, &url, ttl::SLOW).await?;
     Ok(r.items
         .into_iter()
         .map(|t| TrackRef {
             id: t.id,
             name: t.name,
-            artist: t.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
+            artist: t
+                .artists
+                .into_iter()
+                .next()
+                .map(|a| a.name)
+                .unwrap_or_default(),
+            album_id: t.album.id,
             // Home "Your top tracks" tiles.
             album_image_url: pick_full(&t.album.images),
         })
+        .collect())
+}
+
+/// Artist header info (name + image) for the artist page. Discography is
+/// fetched separately via [`get_artist_albums`].
+#[derive(Debug, Clone)]
+pub struct ArtistDetail {
+    pub id: String,
+    pub name: String,
+    pub image_url: Option<String>,
+    /// Total followers — shown under the artist name.
+    pub followers: u64,
+}
+
+/// Fetch an artist's profile (`/v1/artists/{id}`). Name changes ~never, so
+/// a long-ish `SLOW` TTL is plenty.
+pub async fn get_artist(token: &str, artist_id: &str) -> Result<ArtistDetail, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        #[serde(default)]
+        id: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        images: Vec<RawImg>,
+        #[serde(default)]
+        followers: Followers,
+    }
+    #[derive(Deserialize, Default)]
+    struct Followers {
+        #[serde(default)]
+        total: u64,
+    }
+    let r: R = get_json(token, &format!("{API}/artists/{artist_id}"), ttl::SLOW).await?;
+    Ok(ArtistDetail {
+        id: if r.id.is_empty() {
+            artist_id.to_string()
+        } else {
+            r.id
+        },
+        name: r.name,
+        // Artist hero image (large).
+        image_url: pick_full(&r.images),
+        followers: r.followers.total,
+    })
+}
+
+/// An artist's most popular tracks (`/v1/artists/{id}/top-tracks`). Requires
+/// a `market` (the user's country); falls back to `US` if unknown. Mapped to
+/// `PlaylistTrack` so the artist page reuses the track-row rendering.
+pub async fn get_artist_top_tracks(
+    token: &str,
+    artist_id: &str,
+    market: &str,
+) -> Result<Vec<PlaylistTrack>, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        #[serde(default)]
+        tracks: Vec<RawTrack>,
+    }
+    let market = if market.is_empty() { "US" } else { market };
+    let url = format!("{API}/artists/{artist_id}/top-tracks?market={market}");
+    let r: R = get_json(token, &url, ttl::SLOW).await?;
+    Ok(r.tracks
+        .into_iter()
+        .filter(|t| !t.id.is_empty())
+        .map(RawTrack::into_track)
         .collect())
 }
 
@@ -560,17 +708,20 @@ pub async fn get_artist_albums(
         #[serde(default)]
         name: String,
     }
-    let url = format!(
-        "{API}/artists/{artist_id}/albums?include_groups=album,single&limit={limit}"
-    );
-    let r: R = get_json(token, &url).await?;
+    let url = format!("{API}/artists/{artist_id}/albums?include_groups=album,single&limit={limit}");
+    let r: R = get_json(token, &url, ttl::SLOW).await?;
     let mut albums: Vec<AlbumRef> = r
         .items
         .into_iter()
         .map(|a| AlbumRef {
             id: a.id,
             name: a.name,
-            artist: a.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
+            artist: a
+                .artists
+                .into_iter()
+                .next()
+                .map(|a| a.name)
+                .unwrap_or_default(),
             // "New release" spotlight card (THUMB_XL) — full res.
             image_url: pick_full(&a.images),
             release_date: a.release_date,
@@ -579,6 +730,94 @@ pub async fn get_artist_albums(
     // Lexicographic sort on `YYYY[-MM[-DD]]` is chronological.
     albums.sort_by(|a, b| b.release_date.cmp(&a.release_date));
     Ok(albums)
+}
+
+/// Full album page: metadata + first page (≤ 50) of tracks, mapped to the
+/// shared [`PlaylistDetail`] so an album reuses the playlist track-list
+/// pipeline (cache, view, playback). `context_uri` is `spotify:album:{id}`
+/// (albums are a playable context). `owner` carries the album artist;
+/// `total` is the loaded count (albums past 50 tracks aren't paged).
+pub async fn get_album(token: &str, album_id: &str) -> Result<PlaylistDetail, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        artists: Vec<Artist>,
+        #[serde(default)]
+        images: Vec<RawImg>,
+        #[serde(default)]
+        tracks: Tracks,
+    }
+    #[derive(Deserialize, Default)]
+    struct Tracks {
+        #[serde(default)]
+        items: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        #[serde(default)]
+        id: String,
+        #[serde(default)]
+        uri: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        duration_ms: u64,
+        #[serde(default)]
+        artists: Vec<Artist>,
+    }
+    #[derive(Deserialize)]
+    struct Artist {
+        #[serde(default)]
+        name: String,
+    }
+    let r: R = get_json(
+        token,
+        &format!("{API}/albums/{album_id}?limit=50"),
+        ttl::IMMUTABLE,
+    )
+    .await?;
+    let album_name = r.name.clone();
+    let artist = r
+        .artists
+        .into_iter()
+        .next()
+        .map(|a| a.name)
+        .unwrap_or_default();
+    let image_url = pick_full(&r.images);
+    let row_thumb = pick_thumb(&r.images);
+    let tracks: Vec<PlaylistTrack> = r
+        .tracks
+        .items
+        .into_iter()
+        .filter(|t| !t.id.is_empty())
+        .map(|t| PlaylistTrack {
+            id: t.id,
+            uri: t.uri,
+            name: t.name,
+            artist: t
+                .artists
+                .into_iter()
+                .next()
+                .map(|a| a.name)
+                .unwrap_or_default(),
+            album: album_name.clone(),
+            // Album tracks share the album cover; row-thumb tier for the list.
+            album_image_url: row_thumb.clone(),
+            duration_ms: t.duration_ms,
+        })
+        .collect();
+    let total = tracks.len() as u32;
+    Ok(PlaylistDetail {
+        id: album_id.to_string(),
+        name: r.name,
+        owner: artist,
+        image_url,
+        context_uri: Some(format!("spotify:album:{album_id}")),
+        tracks,
+        total,
+    })
 }
 
 /// Bare-ID lookup against `/v1/tracks/{id}`. Used to fill the artist
@@ -604,10 +843,17 @@ pub async fn get_track(token: &str, track_id: &str) -> Result<TrackDetails, Auth
         #[serde(default)]
         images: Vec<RawImg>,
     }
-    let r: R = get_json(token, &format!("{API}/tracks/{track_id}")).await?;
+    // Track metadata is immutable — the hot path (refetched on every
+    // track change) gets the longest TTL so repeated plays never re-hit.
+    let r: R = get_json(token, &format!("{API}/tracks/{track_id}"), ttl::IMMUTABLE).await?;
     Ok(TrackDetails {
         track_id: r.id,
-        artist: r.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
+        artist: r
+            .artists
+            .into_iter()
+            .next()
+            .map(|a| a.name)
+            .unwrap_or_default(),
         // Now-playing cover (large + full-window blurred backdrop) — full res.
         album_image_url: pick_full(&r.album.images),
     })
@@ -695,7 +941,12 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
             item.uri
         },
         name: item.name,
-        artist: item.artists.into_iter().next().map(|a| a.name).unwrap_or_default(),
+        artist: item
+            .artists
+            .into_iter()
+            .next()
+            .map(|a| a.name)
+            .unwrap_or_default(),
         // Now-playing cover — full res (large + blurred backdrop).
         album_image_url: pick_full(&item.album.images),
         is_playing: r.is_playing,
@@ -719,11 +970,7 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
 /// "no active device" — surfaced as `AuthError::Api` for the caller to
 /// log; there's nothing to control until the user starts playback
 /// somewhere.
-async fn player_command(
-    token: &str,
-    method: reqwest::Method,
-    path: &str,
-) -> Result<(), AuthError> {
+async fn player_command(token: &str, method: reqwest::Method, path: &str) -> Result<(), AuthError> {
     let res = reqwest::Client::new()
         .request(method, format!("{API}{path}"))
         .bearer_auth(token)
@@ -760,7 +1007,10 @@ pub enum PlayTarget {
 /// as `AuthError::Api` for the caller to log.
 pub async fn play_context(token: &str, target: PlayTarget) -> Result<(), AuthError> {
     let body = match target {
-        PlayTarget::Context { context_uri, offset } => serde_json::json!({
+        PlayTarget::Context {
+            context_uri,
+            offset,
+        } => serde_json::json!({
             "context_uri": context_uri,
             "offset": { "position": offset },
         }),
@@ -796,7 +1046,12 @@ pub async fn previous_track(token: &str) -> Result<(), AuthError> {
 }
 
 pub async fn set_shuffle(token: &str, on: bool) -> Result<(), AuthError> {
-    player_command(token, reqwest::Method::PUT, &format!("/me/player/shuffle?state={on}")).await
+    player_command(
+        token,
+        reqwest::Method::PUT,
+        &format!("/me/player/shuffle?state={on}"),
+    )
+    .await
 }
 
 pub async fn set_repeat(token: &str, mode: RepeatMode) -> Result<(), AuthError> {
@@ -805,7 +1060,12 @@ pub async fn set_repeat(token: &str, mode: RepeatMode) -> Result<(), AuthError> 
         RepeatMode::Track => "track",
         RepeatMode::Context => "context",
     };
-    player_command(token, reqwest::Method::PUT, &format!("/me/player/repeat?state={state}")).await
+    player_command(
+        token,
+        reqwest::Method::PUT,
+        &format!("/me/player/repeat?state={state}"),
+    )
+    .await
 }
 
 /// Seek the active Connect device to `position_ms`. Used by the
@@ -820,7 +1080,31 @@ pub async fn seek(token: &str, position_ms: u32) -> Result<(), AuthError> {
     .await
 }
 
-async fn get_json<T: for<'de> Deserialize<'de>>(token: &str, url: &str) -> Result<T, AuthError> {
+/// GET + deserialize a Web API JSON endpoint, transparently cached on disk.
+///
+/// The disk cache is keyed by [`url_key`] and stores the **raw response
+/// bytes** (not the deserialized `T`) — so every endpoint, current or
+/// future, is cached for free just by passing a `ttl`; no per-endpoint
+/// `Serialize` impl is needed. A non-expired cache hit skips the network
+/// entirely. `ttl == ttl::NONE` (zero) bypasses the cache on both read and
+/// write. Only successful (`2xx`) responses are cached, and only after they
+/// parse — error bodies and malformed payloads never poison the cache.
+async fn get_json<T: for<'de> Deserialize<'de>>(
+    token: &str,
+    url: &str,
+    ttl: Duration,
+) -> Result<T, AuthError> {
+    let key = url_key(url);
+    // Cache read (off-thread — the cache is blocking fs IO).
+    if !ttl.is_zero() {
+        let k = key.clone();
+        if let Ok(Some(bytes)) =
+            tokio::task::spawn_blocking(move || disk_cache::read_raw_json(&k, ttl)).await
+            && let Ok(value) = serde_json::from_slice::<T>(&bytes)
+        {
+            return Ok(value);
+        }
+    }
     let res = reqwest::Client::new()
         .get(url)
         .bearer_auth(token)
@@ -831,5 +1115,12 @@ async fn get_json<T: for<'de> Deserialize<'de>>(token: &str, url: &str) -> Resul
         let body = res.text().await.unwrap_or_default();
         return Err(AuthError::Api(body, Some(status)));
     }
-    Ok(res.json::<T>().await?)
+    let bytes = res.bytes().await?;
+    let value: T = serde_json::from_slice(&bytes)?;
+    // Persist for next time — best-effort, off the async runtime.
+    if !ttl.is_zero() {
+        let raw = bytes.to_vec();
+        tokio::task::spawn_blocking(move || disk_cache::write_raw_json(&key, &raw));
+    }
+    Ok(value)
 }

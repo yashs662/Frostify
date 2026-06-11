@@ -198,9 +198,12 @@ fn json_path(key: &str) -> Option<PathBuf> {
     json_dir().map(|d| d.join(format!("{key}.json")))
 }
 
-/// Read + deserialize a cached JSON value for `key`, or `None` on miss /
-/// expiry (older than `ttl`) / IO / parse error. Does not refresh mtime.
-pub fn read_json<T: DeserializeOwned>(key: &str, ttl: Duration) -> Option<T> {
+/// Read the raw cached JSON bytes for `key`, or `None` on miss / expiry
+/// (older than `ttl`) / IO error. Does not refresh mtime — an entry ages
+/// out from its original fetch time, never kept alive by re-reads. This is
+/// the byte-level primitive the [`crate::api`] HTTP cache stores raw
+/// responses through; [`read_json`] is the typed wrapper over it.
+pub fn read_raw_json(key: &str, ttl: Duration) -> Option<Vec<u8>> {
     let path = json_path(key)?;
     let meta = fs::metadata(&path).ok()?;
     let age = meta
@@ -212,21 +215,32 @@ pub fn read_json<T: DeserializeOwned>(key: &str, ttl: Duration) -> Option<T> {
         let _ = fs::remove_file(&path);
         return None;
     }
-    let bytes = fs::read(&path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    fs::read(&path).ok()
+}
+
+/// Persist raw `bytes` for `key`, then enforce the size cap. Best-effort:
+/// any IO failure is swallowed.
+pub fn write_raw_json(key: &str, bytes: &[u8]) {
+    let Some(path) = json_path(key) else { return };
+    if fs::write(&path, bytes).is_err() {
+        return;
+    }
+    enforce_json_cap();
+}
+
+/// Read + deserialize a cached JSON value for `key`, or `None` on miss /
+/// expiry (older than `ttl`) / IO / parse error. Does not refresh mtime.
+pub fn read_json<T: DeserializeOwned>(key: &str, ttl: Duration) -> Option<T> {
+    serde_json::from_slice(&read_raw_json(key, ttl)?).ok()
 }
 
 /// Serialize + persist `value` for `key`, then enforce the size cap.
 /// Best-effort: any IO / serialize failure is swallowed.
 pub fn write_json<T: Serialize>(key: &str, value: &T) {
-    let Some(path) = json_path(key) else { return };
     let Ok(bytes) = serde_json::to_vec(value) else {
         return;
     };
-    if fs::write(&path, bytes).is_err() {
-        return;
-    }
-    enforce_json_cap();
+    write_raw_json(key, &bytes);
 }
 
 fn enforce_json_cap() {
@@ -303,7 +317,9 @@ fn dir_bytes(dir: Option<PathBuf>) -> u64 {
 /// `canvas_` filename prefix.
 fn art_canvas_bytes(dir: Option<PathBuf>) -> (u64, u64) {
     let Some(dir) = dir else { return (0, 0) };
-    let Ok(rd) = fs::read_dir(&dir) else { return (0, 0) };
+    let Ok(rd) = fs::read_dir(&dir) else {
+        return (0, 0);
+    };
     let (mut art, mut canvas) = (0u64, 0u64);
     for e in rd.flatten() {
         let Ok(meta) = e.metadata() else { continue };

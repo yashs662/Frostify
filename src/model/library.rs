@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crate::album_art;
-use crate::api::{HomeData, PlaylistDetail, PlaylistTrack};
+use crate::api::{AlbumRef, HomeData, PlaylistDetail, PlaylistTrack};
 use crate::model::ArtModel;
 use crate::views::home::playlist::{self, PlaylistRow, RowBuf};
 use crate::worker::Worker;
@@ -50,11 +50,24 @@ pub struct OpenPlaylist {
     pub complete: bool,
 }
 
+/// The artist page open in the centre pane: profile + popular + discography.
+pub struct OpenArtist {
+    pub name: String,
+    pub image_url: Option<String>,
+    pub followers: u64,
+    pub top_tracks: Vec<PlaylistTrack>,
+    pub albums: Vec<AlbumRef>,
+    /// Profile/discography not yet arrived.
+    pub loading: bool,
+}
+
 pub struct LibraryModel {
     /// The Home feed (greeting, recents, top artists, playlists, …).
     pub home: RefCell<HomeData>,
-    /// The playlist open in the centre pane (live streaming buffer).
+    /// The playlist (or album) open in the centre pane (live streaming buffer).
     pub open_playlist: RefCell<Option<OpenPlaylist>>,
+    /// The artist page open in the centre pane.
+    pub open_artist: RefCell<Option<OpenArtist>>,
     /// Playlist detail TTL cache (id → detail + fetch time). Liked Songs
     /// lives here under `api::LIKED_SONGS_ID`.
     playlist_cache: RefCell<HashMap<String, CachedPlaylist>>,
@@ -68,6 +81,7 @@ impl LibraryModel {
         Self {
             home: RefCell::default(),
             open_playlist: RefCell::default(),
+            open_artist: RefCell::default(),
             playlist_cache: RefCell::default(),
             playlist_inflight: RefCell::default(),
         }
@@ -85,9 +99,13 @@ impl LibraryModel {
 
     /// Cache a fully-loaded playlist for an instant re-open.
     pub fn cache(&self, detail: PlaylistDetail) {
-        self.playlist_cache
-            .borrow_mut()
-            .insert(detail.id.clone(), CachedPlaylist { detail, fetched: Instant::now() });
+        self.playlist_cache.borrow_mut().insert(
+            detail.id.clone(),
+            CachedPlaylist {
+                detail,
+                fetched: Instant::now(),
+            },
+        );
     }
 
     /// A fresh (within TTL) cached detail clone, if any.
@@ -170,7 +188,11 @@ impl LibraryModel {
                 .map(|p| (p.name.clone(), p.image_url.clone()))
                 .unwrap_or((String::new(), None))
         };
-        let context_uri = if liked { None } else { Some(format!("spotify:playlist:{id}")) };
+        let context_uri = if liked {
+            None
+        } else {
+            Some(format!("spotify:playlist:{id}"))
+        };
         let buf: RowBuf = Rc::new(RefCell::new(Vec::new()));
         *self.open_playlist.borrow_mut() = Some(OpenPlaylist {
             liked,
@@ -184,6 +206,77 @@ impl LibraryModel {
             complete: false,
         });
         self.ensure_loaded(worker, token, id, liked);
+    }
+
+    /// Open an album in the centre pane. Albums reuse [`OpenPlaylist`] (they
+    /// have a `context_uri` + a track list); a fresh cache hit populates the
+    /// buffer instantly, otherwise a blank shell shows while the single-shot
+    /// album fetch lands. Mirrors [`Self::open_for`].
+    pub fn open_album(&self, art: &ArtModel, worker: &Worker, token: Option<String>, id: &str) {
+        if let Some(detail) = self.cached_detail(id) {
+            let buf: RowBuf = Rc::new(RefCell::new(Vec::new()));
+            self.build_rows(art, &buf, &detail.tracks);
+            *self.open_playlist.borrow_mut() = Some(OpenPlaylist {
+                liked: false,
+                name: detail.name,
+                owner: detail.owner,
+                image_url: detail.image_url,
+                context_uri: detail.context_uri,
+                total: detail.total,
+                rows: buf,
+                loading: false,
+                complete: true,
+            });
+            return;
+        }
+        let buf: RowBuf = Rc::new(RefCell::new(Vec::new()));
+        *self.open_playlist.borrow_mut() = Some(OpenPlaylist {
+            liked: false,
+            name: String::new(),
+            owner: String::new(),
+            image_url: None,
+            context_uri: Some(format!("spotify:album:{id}")),
+            total: 0,
+            rows: buf,
+            loading: true,
+            complete: false,
+        });
+        self.ensure_loaded_album(worker, token, id);
+    }
+
+    /// Open an artist page. Sets a loading shell + dispatches the profile +
+    /// discography fetch; the result lands via `ArtistOpened`.
+    pub fn open_artist(&self, worker: &Worker, token: Option<String>, id: &str) {
+        *self.open_artist.borrow_mut() = Some(OpenArtist {
+            name: String::new(),
+            image_url: None,
+            followers: 0,
+            top_tracks: Vec::new(),
+            albums: Vec::new(),
+            loading: true,
+        });
+        if self.is_inflight(id) {
+            return;
+        }
+        let Some(token) = token else {
+            log::warn!("artist load skipped — no auth token");
+            return;
+        };
+        self.playlist_inflight.borrow_mut().insert(id.to_string());
+        worker.fetch_artist(token, id.to_string());
+    }
+
+    /// Dispatch a one-shot album fetch unless one is already in flight.
+    pub fn ensure_loaded_album(&self, worker: &Worker, token: Option<String>, id: &str) {
+        if self.is_inflight(id) {
+            return;
+        }
+        let Some(token) = token else {
+            log::warn!("album load skipped — no auth token");
+            return;
+        };
+        self.playlist_inflight.borrow_mut().insert(id.to_string());
+        worker.fetch_album(token, id.to_string());
     }
 
     /// Dispatch a streaming playlist fetch unless a load is already in

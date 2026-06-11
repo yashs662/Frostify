@@ -11,12 +11,7 @@ use crate::app::cx::Cx;
 use crate::views::View;
 use crate::worker::{Worker, WorkerResponse};
 
-pub fn handle(
-    state: &Rc<AppState>,
-    cx: &mut Cx,
-    worker: &Rc<Worker>,
-    resp: WorkerResponse,
-) {
+pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: WorkerResponse) {
     match resp {
         WorkerResponse::OAuthStarted { auth_url } => {
             log::info!("opening browser for OAuth");
@@ -145,7 +140,11 @@ pub fn handle(
             }
             *state.player_ui.snapshot.borrow_mut() = player;
         }
-        WorkerResponse::AlbumArtReady { key, handle, accent } => {
+        WorkerResponse::AlbumArtReady {
+            key,
+            handle,
+            accent,
+        } => {
             state.art.clear_inflight(&key);
             // Push the resolved handle into the per-URL Home signal (if
             // any tile bound to this key) — repaints just those nodes via
@@ -164,7 +163,8 @@ pub fn handle(
             // that moved on before the upload landed just leaves the
             // orphan handle for the atlas to evict.
             let live_match = state
-                .player_ui.snapshot
+                .player_ui
+                .snapshot
                 .borrow()
                 .as_ref()
                 .and_then(|p| p.album_image_url.as_ref().map(|u| album_art::cache_key(u)))
@@ -206,7 +206,8 @@ pub fn handle(
             // pixel-average accent with Spotify's exact colour.
             let is_current = state.art.is_shown(&key)
                 || state
-                    .player_ui.snapshot
+                    .player_ui
+                    .snapshot
                     .borrow()
                     .as_ref()
                     .and_then(|p| p.album_image_url.as_ref().map(|u| album_art::cache_key(u)))
@@ -245,7 +246,7 @@ pub fn handle(
             // overwrite metadata + seed the first page, then rebuild ONCE
             // to mount the full-length virtualised list (item_count =
             // total). Subsequent pages append without a rebuild.
-            let applies = state.router.nav_is_playlist(&id);
+            let applies = state.router.nav_is_open(&id);
             if applies {
                 let buf = {
                     let mut op = state.library.open_playlist.borrow_mut();
@@ -278,9 +279,14 @@ pub fn handle(
             // Append a streamed page into the live buffer — no rebuild;
             // the lazy_list reads it on scroll. (Covers fill in reactively
             // via the per-row image bind baked in `build_rows`.)
-            let applies = state.router.nav_is_playlist(&id);
+            let applies = state.router.nav_is_open(&id);
             if applies {
-                let buf = state.library.open_playlist.borrow().as_ref().map(|o| o.rows.clone());
+                let buf = state
+                    .library
+                    .open_playlist
+                    .borrow()
+                    .as_ref()
+                    .map(|o| o.rows.clone());
                 if let Some(buf) = buf {
                     state.library.build_rows(&state.art, &buf, &tracks);
                 }
@@ -295,6 +301,47 @@ pub fn handle(
         WorkerResponse::PlaylistFailed { id, error } => {
             state.library.clear_inflight(&id);
             log::warn!("playlist {id} load failed: {error}");
+        }
+        WorkerResponse::ArtistOpened {
+            id,
+            name,
+            image_url,
+            followers,
+            top_tracks,
+            albums,
+        } => {
+            state.library.clear_inflight(&id);
+            if state.router.nav_is_artist(&id) {
+                // Create the reactive cover signals + dispatch fetches HERE
+                // (not in the view build) — the build holds an immutable
+                // borrow of `home_art`, so `or_signal`'s borrow_mut there
+                // panics. Later `AlbumArtReady` fills these via set_resolved.
+                if let Some(u) = &image_url {
+                    state.art.or_signal(album_art::cache_key(u));
+                    state.art.dispatch_cover(worker, u.clone());
+                }
+                let covers = albums
+                    .iter()
+                    .filter_map(|al| al.image_url.as_ref())
+                    .chain(top_tracks.iter().filter_map(|t| t.album_image_url.as_ref()));
+                for u in covers {
+                    state.art.or_signal(album_art::cache_key(u));
+                    state.art.dispatch_cover(worker, u.clone());
+                }
+                if let Some(a) = state.library.open_artist.borrow_mut().as_mut() {
+                    a.name = name;
+                    a.image_url = image_url;
+                    a.followers = followers;
+                    a.top_tracks = top_tracks;
+                    a.albums = albums;
+                    a.loading = false;
+                }
+                cx.rebuild();
+            }
+        }
+        WorkerResponse::ArtistFailed { id, error } => {
+            state.library.clear_inflight(&id);
+            log::warn!("artist {id} load failed: {error}");
         }
         WorkerResponse::TrackDetails { details } => {
             let track_id = details.track_id.clone();
@@ -314,4 +361,3 @@ pub fn handle(
         }
     }
 }
-

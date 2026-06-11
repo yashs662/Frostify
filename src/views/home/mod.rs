@@ -3,16 +3,17 @@
 //! ambient backdrop + glass + splitter row and dispatches to the six
 //! sub-component `.view()`s; each component owns its own slice.
 
+pub mod artist;
 pub mod main_pane;
 pub mod now_playing;
 pub mod player_bar;
 pub mod playlist;
 pub mod settings;
+pub mod show_all;
 pub mod sidebar;
 pub mod top_bar;
 
 use std::cell::Cell;
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -23,16 +24,12 @@ use crate::album_art;
 use crate::api::PlayTarget;
 use crate::app::AppState;
 use crate::app::cx::Cx;
-use crate::views::{MainNav, View};
+use crate::views::{HomeSection, MainNav, View};
 use crate::widgets::component::Component;
 use crate::widgets::crossfade::OPAQUE_TINT;
 use crate::widgets::icon::IconSet;
 use crate::widgets::tokens as t;
 use crate::worker::{PlaybackCmd, Worker};
-
-/// Per-URL reactive cover handles for Home tiles. Keyed by cache_key
-/// (trailing CDN hex). `None` until the worker resolves the fetch.
-pub type ArtMap = HashMap<String, Signal<Option<ImageHandle>>>;
 
 /// Centre-pane navigation callback — opens a playlist or returns Home.
 /// Takes the `EventCtx` so it can start the entrance transition tween at
@@ -89,106 +86,104 @@ fn render(s: &mut Scene, v: &Layout) {
     // transparency skip drops it), so the back-most composite layer is the
     // `home_bg` fill below, which `main.rs` hides once the opaque album-art
     // backdrop fully covers it (no wasted full-screen draw behind the art).
-    s.col("home_root")
-        .fill()
-        .child(|root| {
-            // Base background fill. Toggled off (→ no instance, no layer) by
-            // `tick_canvas_dim`/the backdrop watcher once the art covers it.
-            root.rect("home_bg")
-                .abs(0.0, 0.0)
-                .w(Len::Fill)
-                .h(Len::Fill)
-                .rgba(t::BG[0], t::BG[1], t::BG[2], 1.0);
-            // Outgoing layer: previous cover, held fully opaque so the
-            // incoming layer dissolves over solid coverage (no background
-            // bleed at the midpoint — see `fade_in_alpha`). Bound to the
-            // signal via `image_bound`, so `promote_backdrop` swaps the
-            // handle with no scene rebuild; `None` renders nothing (the
-            // first track has no previous cover).
-            // Gate the outgoing layer to `None` once the crossfade settles
-            // (`crossfade_t == 1`): the incoming cover is then fully opaque
-            // and covers it, so drawing it is a wasted per-frame draw call.
-            let backdrop_prev_gated = Computed::new(
-                (v.backdrop_prev.clone(), v.crossfade_t.clone()),
-                |(p, t)| if t >= 1.0 { None } else { p },
-            );
-            root.image_bound((), backdrop_prev_gated)
-                .abs(0.0, 0.0)
-                .w(Len::Fill)
-                .h(Len::Fill)
-                .image_cover()
-                .blur_source()
-                .color(OPAQUE_TINT);
-            // Incoming layer: current cover, fading in over the outgoing
-            // one. **Composite-opacity crossfade (compositor P4):** the
-            // image is held opaque (`OPAQUE_TINT`) and promoted to its own
-            // layer via `.layer_opacity(crossfade_t)` — the lib drives the
-            // layer's *composite* opacity from the tween each frame, so the
-            // incoming cover's texture rasters **once** and the fade is a
-            // composite-only recomposite (no per-frame image re-raster).
-            // Generic glass (P4) sources its backdrop from the composite of
-            // the layers below it, so the glass still blurs the dissolving
-            // result. `blur_source` keeps the (still per-frame, inherent)
-            // backdrop blur firing while the composite changes.
-            root.image_bound((), v.backdrop_curr.clone())
-                .abs(0.0, 0.0)
-                .w(Len::Fill)
-                .h(Len::Fill)
-                .image_cover()
-                .blur_source()
-                .layer_opacity(v.crossfade_t.clone())
-                .color(OPAQUE_TINT);
-            // Frosted-glass overlay: heavy blur + dark tint = the dimmed
-            // ambient look. Always present in Home — before any art it
-            // just blurs the dark BG (reads the same), and keeping it
-            // unconditional means the first cover appears *under* the
-            // glass without needing a rebuild to introduce it.
-            root.glass(())
-                .abs(0.0, 0.0)
-                .w(Len::Fill)
-                .h(Len::Fill)
-                .blur(80.0)
-                .rgba(0.0, 0.0, 0.0, 0.25);
-            v.top_bar.view(root);
-            root.row(())
-                .w(Len::Fill)
-                .h(Len::Fill)
-                .pad(t::SP_2)
-                .gap(t::SP_0)
-                .child(|b| {
-                    v.sidebar.view(b);
-                    crate::widgets::splitter::splitter(
-                        b,
-                        crate::widgets::splitter::SplitterProps {
-                            name: "split_sidebar",
-                            width: v.sidebar_w.clone(),
-                            side: crate::widgets::splitter::PanelSide::Left,
-                            min: t::SIDEBAR_MIN,
-                            max: t::SIDEBAR_MAX,
-                            collapsed: t::SIDEBAR_COLLAPSED,
-                            on_change: v.mark_dirty.clone(),
-                        },
-                    );
-                    v.main_pane.view(b);
-                    crate::widgets::splitter::splitter(
-                        b,
-                        crate::widgets::splitter::SplitterProps {
-                            name: "split_now_playing",
-                            width: v.now_playing_w.clone(),
-                            side: crate::widgets::splitter::PanelSide::Right,
-                            min: t::NOW_PLAYING_MIN,
-                            max: t::NOW_PLAYING_MAX,
-                            collapsed: t::SP_0,
-                            on_change: v.mark_dirty.clone(),
-                        },
-                    );
-                    v.now_playing.view(b);
-                });
-            v.player_bar.view(root);
-            // Settings modal — rendered last (layers on top), a component
-            // that owns its Overlay wrapper. Skipped entirely when closed.
-            v.settings_panel.view(root);
-        });
+    s.col("home_root").fill().child(|root| {
+        // Base background fill. Toggled off (→ no instance, no layer) by
+        // `tick_canvas_dim`/the backdrop watcher once the art covers it.
+        root.rect("home_bg")
+            .abs(0.0, 0.0)
+            .w(Len::Fill)
+            .h(Len::Fill)
+            .rgba(t::BG[0], t::BG[1], t::BG[2], 1.0);
+        // Outgoing layer: previous cover, held fully opaque so the
+        // incoming layer dissolves over solid coverage (no background
+        // bleed at the midpoint — see `fade_in_alpha`). Bound to the
+        // signal via `image_bound`, so `promote_backdrop` swaps the
+        // handle with no scene rebuild; `None` renders nothing (the
+        // first track has no previous cover).
+        // Gate the outgoing layer to `None` once the crossfade settles
+        // (`crossfade_t == 1`): the incoming cover is then fully opaque
+        // and covers it, so drawing it is a wasted per-frame draw call.
+        let backdrop_prev_gated = Computed::new(
+            (v.backdrop_prev.clone(), v.crossfade_t.clone()),
+            |(p, t)| if t >= 1.0 { None } else { p },
+        );
+        root.image_bound((), backdrop_prev_gated)
+            .abs(0.0, 0.0)
+            .w(Len::Fill)
+            .h(Len::Fill)
+            .image_cover()
+            .blur_source()
+            .color(OPAQUE_TINT);
+        // Incoming layer: current cover, fading in over the outgoing
+        // one. **Composite-opacity crossfade (compositor P4):** the
+        // image is held opaque (`OPAQUE_TINT`) and promoted to its own
+        // layer via `.layer_opacity(crossfade_t)` — the lib drives the
+        // layer's *composite* opacity from the tween each frame, so the
+        // incoming cover's texture rasters **once** and the fade is a
+        // composite-only recomposite (no per-frame image re-raster).
+        // Generic glass (P4) sources its backdrop from the composite of
+        // the layers below it, so the glass still blurs the dissolving
+        // result. `blur_source` keeps the (still per-frame, inherent)
+        // backdrop blur firing while the composite changes.
+        root.image_bound((), v.backdrop_curr.clone())
+            .abs(0.0, 0.0)
+            .w(Len::Fill)
+            .h(Len::Fill)
+            .image_cover()
+            .blur_source()
+            .layer_opacity(v.crossfade_t.clone())
+            .color(OPAQUE_TINT);
+        // Frosted-glass overlay: heavy blur + dark tint = the dimmed
+        // ambient look. Always present in Home — before any art it
+        // just blurs the dark BG (reads the same), and keeping it
+        // unconditional means the first cover appears *under* the
+        // glass without needing a rebuild to introduce it.
+        root.glass(())
+            .abs(0.0, 0.0)
+            .w(Len::Fill)
+            .h(Len::Fill)
+            .blur(80.0)
+            .rgba(0.0, 0.0, 0.0, 0.25);
+        v.top_bar.view(root);
+        root.row(())
+            .w(Len::Fill)
+            .h(Len::Fill)
+            .pad(t::SP_2)
+            .gap(t::SP_0)
+            .child(|b| {
+                v.sidebar.view(b);
+                crate::widgets::splitter::splitter(
+                    b,
+                    crate::widgets::splitter::SplitterProps {
+                        name: "split_sidebar",
+                        width: v.sidebar_w.clone(),
+                        side: crate::widgets::splitter::PanelSide::Left,
+                        min: t::SIDEBAR_MIN,
+                        max: t::SIDEBAR_MAX,
+                        collapsed: t::SIDEBAR_COLLAPSED,
+                        on_change: v.mark_dirty.clone(),
+                    },
+                );
+                v.main_pane.view(b);
+                crate::widgets::splitter::splitter(
+                    b,
+                    crate::widgets::splitter::SplitterProps {
+                        name: "split_now_playing",
+                        width: v.now_playing_w.clone(),
+                        side: crate::widgets::splitter::PanelSide::Right,
+                        min: t::NOW_PLAYING_MIN,
+                        max: t::NOW_PLAYING_MAX,
+                        collapsed: t::SP_0,
+                        on_change: v.mark_dirty.clone(),
+                    },
+                );
+                v.now_playing.view(b);
+            });
+        v.player_bar.view(root);
+        // Settings modal — rendered last (layers on top), a component
+        // that owns its Overlay wrapper. Skipped entirely when closed.
+        v.settings_panel.view(root);
+    });
 }
 
 /// The Home view controller — owns the callbacks (built once in
@@ -244,7 +239,9 @@ impl HomeView {
                     PlayerAction::ToggleShuffle => {
                         PlaybackCmd::Shuffle(state.player_ui.toggle_shuffle())
                     }
-                    PlayerAction::CycleRepeat => PlaybackCmd::Repeat(state.player_ui.cycle_repeat()),
+                    PlayerAction::CycleRepeat => {
+                        PlaybackCmd::Repeat(state.player_ui.cycle_repeat())
+                    }
                 };
                 worker.playback(token, cmd);
             })
@@ -254,7 +251,9 @@ impl HomeView {
             let worker = worker.clone();
             Rc::new(move || {
                 state.prefs.mark_dirty(Instant::now());
-                state.canvas.on_toggle(state.player_ui.snapshot.borrow().as_ref(), &worker);
+                state
+                    .canvas
+                    .on_toggle(state.player_ui.snapshot.borrow().as_ref(), &worker);
             })
         };
         let sign_out: Rc<dyn Fn()> = {
@@ -341,29 +340,97 @@ impl HomeView {
         let state = &self.state;
         let icons = &self.icons;
         let nav = state.router.nav.borrow();
-        // Hold the home + art borrows for the whole build — sidebar/main
-        // pane + the shell all read them.
+        // Hold the home borrow for the whole build (read-only feed data).
+        // The art model is passed by reference and looked up narrowly per
+        // tile (`art.signal`) — deliberately NOT a held `home_art` borrow,
+        // so a `borrow_mut` reached during the build can't double-borrow.
         let home_ref = state.library.home.borrow();
-        let art_ref = state.art.home_art.borrow();
+        // Both playlist + album pages render through the playlist view (an
+        // album is a track list with a context_uri); the hero label differs.
+        let kind_label = match &*nav {
+            MainNav::Album { .. } => "Album",
+            _ => "Playlist",
+        };
         let playlist: Option<playlist::PlaylistViewData> = match &*nav {
-            MainNav::Playlist { .. } => state.library.open_playlist.borrow().as_ref().map(|o| {
-                let cover = o
+            MainNav::Playlist { .. } | MainNav::Album { .. } => {
+                state.library.open_playlist.borrow().as_ref().map(|o| {
+                    let cover = o
+                        .image_url
+                        .as_ref()
+                        .and_then(|u| state.art.signal(&album_art::cache_key(u)));
+                    playlist::PlaylistViewData {
+                        name: o.name.clone(),
+                        owner: o.owner.clone(),
+                        total: o.total,
+                        liked: o.liked,
+                        kind_label,
+                        loading: o.loading,
+                        cover,
+                        context_uri: o.context_uri.clone(),
+                        rows: o.rows.clone(),
+                        request_cover: self.request_cover.clone(),
+                    }
+                })
+            }
+            MainNav::Home | MainNav::Artist { .. } | MainNav::ShowAll { .. } => None,
+        };
+        // Artist page view data: bake album cover signals + lazily dispatch
+        // their fetches (idempotent), mirroring how playlist rows resolve.
+        let artist_data: Option<artist::ArtistViewData> = match &*nav {
+            MainNav::Artist { .. } => state.library.open_artist.borrow().as_ref().map(|a| {
+                let image = a
                     .image_url
                     .as_ref()
                     .and_then(|u| state.art.signal(&album_art::cache_key(u)));
-                playlist::PlaylistViewData {
-                    name: o.name.clone(),
-                    owner: o.owner.clone(),
-                    total: o.total,
-                    liked: o.liked,
-                    loading: o.loading,
-                    cover,
-                    context_uri: o.context_uri.clone(),
-                    rows: o.rows.clone(),
-                    request_cover: self.request_cover.clone(),
+                // Read existing signals only (immutable) — they were created
+                // + dispatched in the reducer's `ArtistOpened` handler, off
+                // this build's `home_art` borrow.
+                let albums = a
+                    .albums
+                    .iter()
+                    .map(|al| {
+                        let cover = al
+                            .image_url
+                            .as_ref()
+                            .and_then(|u| state.art.signal(&album_art::cache_key(u)));
+                        artist::ArtistAlbumTile {
+                            name: al.name.clone(),
+                            year: al.release_date.chars().take(4).collect(),
+                            cover,
+                            id: al.id.clone(),
+                        }
+                    })
+                    .collect();
+                let popular = a
+                    .top_tracks
+                    .iter()
+                    .map(|tk| {
+                        let cover = tk
+                            .album_image_url
+                            .as_ref()
+                            .and_then(|u| state.art.signal(&album_art::cache_key(u)));
+                        artist::ArtistTrack {
+                            title: tk.name.clone(),
+                            cover,
+                            duration: playlist::fmt_duration(tk.duration_ms),
+                            uri: tk.uri.clone(),
+                        }
+                    })
+                    .collect();
+                artist::ArtistViewData {
+                    name: a.name.clone(),
+                    image,
+                    followers: a.followers,
+                    loading: a.loading,
+                    popular,
+                    albums,
                 }
             }),
-            MainNav::Home => None,
+            _ => None,
+        };
+        let show_all_data: Option<show_all::ShowAllViewData> = match &*nav {
+            MainNav::ShowAll { section } => Some(build_show_all(&state.art, &home_ref, *section)),
+            _ => None,
         };
         let now_playing = now_playing::NowPlaying {
             backdrop: &state.backdrop,
@@ -383,7 +450,7 @@ impl HomeView {
             nav: &nav,
             on_navigate: self.on_navigate.clone(),
             home: &home_ref,
-            art: &art_ref,
+            art: &state.art,
             icons,
         };
         let top_bar = top_bar::TopBar {
@@ -394,11 +461,14 @@ impl HomeView {
         let main_pane = main_pane::MainPane {
             icons,
             home: &home_ref,
-            art: &art_ref,
+            art: &state.art,
             accent: &state.backdrop.accent,
             nav: &nav,
             playlist: playlist.as_ref(),
+            artist: artist_data.as_ref(),
+            show_all: show_all_data.as_ref(),
             main_t: &state.router.main_t,
+            detail_collapse: &state.router.detail_collapse,
             on_play: self.on_play.clone(),
             on_navigate: self.on_navigate.clone(),
         };
@@ -431,6 +501,109 @@ impl HomeView {
     }
 }
 
+/// Assemble a [`show_all::ShowAllViewData`] for `section` from the loaded
+/// `HomeData`. Cover signals are read narrowly via `art.signal` (the prefetch
+/// already created + dispatched them) — never `or_signal` here, so no
+/// `home_art` borrow is held across the build. Recently-played is split into
+/// day groups; the other sections are one ungrouped run.
+fn build_show_all(
+    art: &crate::model::ArtModel,
+    home: &crate::api::HomeData,
+    section: HomeSection,
+) -> show_all::ShowAllViewData {
+    use show_all::{ShowAllGroup, ShowAllRow, ShowAllViewData};
+    let sig = |url: &Option<String>| {
+        url.as_ref()
+            .and_then(|u| art.signal(&album_art::cache_key(u)))
+    };
+    match section {
+        HomeSection::Recent => {
+            let (today, yesterday) = show_all::today_yesterday();
+            let mut groups: Vec<ShowAllGroup> = Vec::new();
+            for t in &home.recent {
+                let label = show_all::day_label(&t.played_at, &today, &yesterday);
+                let row = ShowAllRow {
+                    title: t.name.clone(),
+                    subtitle: t.artist.clone(),
+                    thumb: sig(&t.album_image_url),
+                    round: false,
+                    nav: MainNav::Album {
+                        id: t.album_id.clone(),
+                    },
+                };
+                if groups.last().map(|g| g.header.as_deref()) == Some(Some(label.as_str())) {
+                    groups.last_mut().unwrap().rows.push(row);
+                } else {
+                    groups.push(ShowAllGroup {
+                        header: Some(label),
+                        rows: vec![row],
+                    });
+                }
+            }
+            ShowAllViewData {
+                title: "Recently played".to_string(),
+                groups,
+            }
+        }
+        HomeSection::TopArtists => {
+            let rows = home
+                .top_artists
+                .iter()
+                .map(|a| ShowAllRow {
+                    title: a.name.clone(),
+                    subtitle: "Artist".to_string(),
+                    thumb: sig(&a.image_url),
+                    round: true,
+                    nav: MainNav::Artist { id: a.id.clone() },
+                })
+                .collect();
+            ShowAllViewData {
+                title: "Your top artists".to_string(),
+                groups: vec![ShowAllGroup { header: None, rows }],
+            }
+        }
+        HomeSection::TopTracks => {
+            let rows = home
+                .top_tracks
+                .iter()
+                .map(|t| ShowAllRow {
+                    title: t.name.clone(),
+                    subtitle: t.artist.clone(),
+                    thumb: sig(&t.album_image_url),
+                    round: false,
+                    nav: MainNav::Album {
+                        id: t.album_id.clone(),
+                    },
+                })
+                .collect();
+            ShowAllViewData {
+                title: "Your top tracks".to_string(),
+                groups: vec![ShowAllGroup { header: None, rows }],
+            }
+        }
+        HomeSection::Playlists => {
+            let rows = home
+                .playlists
+                .iter()
+                .map(|p| ShowAllRow {
+                    title: p.name.clone(),
+                    subtitle: "Playlist".to_string(),
+                    thumb: sig(&p.image_url),
+                    round: false,
+                    nav: MainNav::Playlist {
+                        id: p.id.clone(),
+                        liked: false,
+                    },
+                })
+                .collect();
+            ShowAllViewData {
+                title: "Made For You".to_string(),
+                groups: vec![ShowAllGroup { header: None, rows }],
+            }
+        }
+    }
+}
+
 /// Switch the centre pane to `nav`. Ensures the target playlist is loaded
 /// (TTL cache → fetch on miss/stale) via the library slice, flips the nav
 /// state + entrance transition via the router, and requests the one scene
@@ -438,9 +611,26 @@ impl HomeView {
 fn navigate(state: &Rc<AppState>, cx: &mut Cx, worker: &Worker, nav: MainNav) {
     match &nav {
         MainNav::Playlist { id, liked } => {
-            state.library.open_for(&state.art, worker, state.auth.token(), id, *liked)
+            *state.library.open_artist.borrow_mut() = None;
+            state
+                .library
+                .open_for(&state.art, worker, state.auth.token(), id, *liked)
         }
-        MainNav::Home => *state.library.open_playlist.borrow_mut() = None,
+        MainNav::Album { id } => {
+            *state.library.open_artist.borrow_mut() = None;
+            state
+                .library
+                .open_album(&state.art, worker, state.auth.token(), id)
+        }
+        MainNav::Artist { id } => {
+            *state.library.open_playlist.borrow_mut() = None;
+            state.library.open_artist(worker, state.auth.token(), id)
+        }
+        MainNav::ShowAll { .. } | MainNav::Home => {
+            // Show-all renders from the already-loaded HomeData — no fetch.
+            *state.library.open_playlist.borrow_mut() = None;
+            *state.library.open_artist.borrow_mut() = None;
+        }
     }
     state.router.go(nav, cx.tl, cx.now);
     cx.rebuild();

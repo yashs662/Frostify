@@ -16,7 +16,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use frostify_gfx::{Align, ImageHandle, Justify, Len, Overflow, Scene, Signal};
+use frostify_gfx::{Align, Computed, ImageHandle, Justify, Len, Overflow, Scene, Signal};
 
 use crate::api::PlayTarget;
 use crate::views::MainNav;
@@ -26,6 +26,26 @@ use crate::widgets::tokens as t;
 
 /// Track-row height. Thumb (40) + breathing room.
 const ROW_H: f32 = t::SP_14;
+
+// --- Collapsing detail-header geometry (logical px) -----------------------
+//
+// The page is a single scroller: the hero is **row 0** of the lazy list so it
+// scrolls away 1:1 with the tracks, and a compact bar + column header are
+// pinned overlays whose opacity is driven by `detail_collapse` (written each
+// frame from this scroller's offset in `app::frame::tick`). These constants
+// are read there too — keep them `pub`.
+
+/// Fixed hero (cover + title + Play) block height.
+pub const HERO_H: f32 = t::SP_64 + t::SP_8;
+/// Column-header strip height (`# Title Album Time`).
+pub const COLHEADER_H: f32 = t::SP_8;
+/// Pinned compact-bar height (mini Play + title). Roomy in Y so the bar
+/// breathes rather than crowding the controls.
+pub const BAR_H: f32 = t::SP_16;
+/// Scroll distance over which the hero collapses into the bar.
+pub const COLLAPSE_RANGE: f32 = HERO_H - BAR_H;
+/// Node name of the detail scroller — `app::frame::tick` reads its offset.
+pub const SCROLL_NODE: &str = "detail_scroll";
 
 /// Spotify's `PUT /me/player/play` caps the inline `uris` array. For the
 /// context-less Liked Songs we send a window from the clicked track so
@@ -69,6 +89,8 @@ pub struct PlaylistViewData {
     /// before every page has streamed in.
     pub total: u32,
     pub liked: bool,
+    /// Hero eyebrow label — "Playlist" or "Album".
+    pub kind_label: &'static str,
     /// Metadata not yet arrived (header shows the sidebar-known name, the
     /// list shows skeletons).
     pub loading: bool,
@@ -82,81 +104,88 @@ pub struct PlaylistViewData {
 
 /// Render the centre-pane content for the open playlist. Children are
 /// added to `s` (the caller's slide/fade transition wrapper).
+///
+/// The whole page is one scroller: the hero is **row 0** of the lazy list
+/// (so it scrolls away 1:1), the column header is **row 1**, and tracks
+/// follow. `collapse` (0 expanded → 1 collapsed, written each frame from
+/// the scroll offset) slides + fades the pinned sticky bar down from above:
+/// while expanded it sits off the top edge, so it never paints or hit-tests
+/// over the hero.
 pub fn view(
     s: &mut Scene,
     icons: &Rc<IconSet>,
     data: &PlaylistViewData,
     accent: &Signal<[f32; 4]>,
+    collapse: &Signal<f32>,
     on_play: PlayFn,
     on_navigate: NavFn,
 ) {
-    header(s, icons, data, accent, &on_play, &on_navigate);
-
-    // Column header strip + divider.
-    s.row(())
-        .w(Len::Fill)
-        .h_px(t::SP_8)
-        .pad_ltrb(t::SP_6, t::SP_0, t::SP_6, t::SP_0)
-        .gap(t::SP_3)
-        .align(Align::Center)
-        .child(|h| {
-            h.row(()).w_px(t::SP_7).center().child(|c| {
-                c.text((), "#", 12.0).color(t::TEXT_DIM);
-            });
-            h.text((), "Title", 12.0).color(t::TEXT_DIM);
-            h.row(())
-                .push_end()
-                .w_px(t::SP_12)
-                .justify(Justify::End)
-                .child(|c| {
-                    c.text((), "Time", 12.0).color(t::TEXT_DIM);
-                });
-        });
-    s.rect(())
-        .w(Len::Fill)
-        .h_px(t::SP_PX)
-        .pad_xy(t::SP_6, t::SP_0)
-        .rgba(1.0, 1.0, 1.0, 0.06);
-
     let loaded = data.rows.borrow().len() as u32;
     let count = data.total.max(loaded);
-    if count == 0 {
-        // No length known yet (or genuinely empty). Show skeletons while
-        // loading so it reads as "filling in", never a blank/spinner wall.
-        if data.loading {
-            skeleton_list(s);
-        } else {
-            s.col(()).w(Len::Fill).h(Len::Fill).center().child(|c| {
-                c.text((), "No songs here yet", 14.0).color(t::TEXT_DIM);
-            });
-        }
-        return;
-    }
+    // Track rows after [hero, column-header]: real count, skeletons while
+    // loading, or a single empty-state row when genuinely empty.
+    let track_n = if count > 0 {
+        count
+    } else if data.loading {
+        12
+    } else {
+        1
+    };
 
-    // Virtualised list of `count` rows. Rows past `loaded` render a
-    // skeleton until their page streams into the buffer.
+    // Closure captures (the render fn is `Fn`, called per visible row).
     let rows = data.rows.clone();
     let ctx = data.context_uri.clone();
     let request_cover = data.request_cover.clone();
-    s.lazy_list("pl_tracks", count, ROW_H, move |sc, i| {
-        let has = i < rows.borrow().len() as u32;
-        if has {
-            let buf = rows.borrow();
-            let r = &buf[i as usize];
-            track_row(sc, r, i, &on_play, &ctx, &rows, &request_cover);
-        } else {
-            skeleton_row(sc, i);
+    let on_play_rows = on_play.clone();
+    let icons_h = icons.clone();
+    let accent_h = accent.clone();
+    let on_play_h = on_play.clone();
+    let nav_h = on_navigate.clone();
+    let hero = HeroData::new(data);
+    let empty_loading = data.loading;
+
+    s.lazy_list(SCROLL_NODE, track_n + 2, ROW_H, move |sc, i| match i {
+        0 => hero_block(sc, &icons_h, &hero, &accent_h, &on_play_h, &nav_h),
+        1 => column_header(sc),
+        _ => {
+            let ti = i - 2;
+            let len = rows.borrow().len() as u32;
+            if count > 0 && ti < len {
+                let buf = rows.borrow();
+                track_row(
+                    sc,
+                    &buf[ti as usize],
+                    ti,
+                    &on_play_rows,
+                    &ctx,
+                    &rows,
+                    &request_cover,
+                );
+            } else if count > 0 || empty_loading {
+                skeleton_row(sc, ti);
+            } else {
+                empty_row(sc);
+            }
         }
     })
     .w(Len::Fill)
     .h(Len::Fill)
     .pad_ltrb(t::SP_3, t::SP_0, t::SP_3, t::SP_4)
-    // Compositor scroll layer (frostify-gfx P3 2b): the 989-row track list
-    // rasters its materialized window once into a tall texture; scrolling
-    // moves the composite window instead of re-rastering every row. Lazy +
-    // glass-free, so it takes the windowed-lazy path.
+    // Hero is a tall first row; the rest stay at ROW_H.
+    .lazy_list_row_height(0, HERO_H)
+    .lazy_list_row_height(1, COLHEADER_H)
+    // Compositor scroll layer: the materialized window rasters once into a
+    // tall texture; scrolling moves the composite window, no re-raster.
     .layer()
+    // The bar's top inset is driven each frame from `collapse` (see
+    // `app::frame::tick`): 0 while the glass header is hidden, growing to the
+    // header height as it slides in — so the bar shrinks/grows smoothly with
+    // the overlay and is never hidden behind it. (No static inset here.)
     .scrollbar(|sb| sb.auto_hide(true).margin(t::SP_0_5).thickness(t::SP_1));
+
+    // Pinned compact bar — slides + fades down from above the pane as the
+    // hero collapses (off-screen while expanded, so no stray hit-tests).
+    sticky_bar(s, icons, data, accent, collapse, &on_play, &on_navigate);
 }
 
 /// Build the playback target for the track at `index`. Real playlists
@@ -181,23 +210,60 @@ fn make_target(context_uri: &Option<String>, rows: &RowBuf, index: u32) -> PlayT
     }
 }
 
-fn header(
+/// Hero-block inputs cloned out of [`PlaylistViewData`] so the (`Fn`) lazy
+/// render closure can own them across rebuilds.
+struct HeroData {
+    name: String,
+    owner: String,
+    cover: Option<Signal<Option<ImageHandle>>>,
+    liked: bool,
+    total: u32,
+    kind_label: &'static str,
+    loading: bool,
+    context_uri: Option<String>,
+    rows: RowBuf,
+    has_tracks: bool,
+}
+
+impl HeroData {
+    fn new(d: &PlaylistViewData) -> Self {
+        Self {
+            name: d.name.clone(),
+            owner: d.owner.clone(),
+            cover: d.cover.clone(),
+            liked: d.liked,
+            total: d.total,
+            kind_label: d.kind_label,
+            loading: d.loading,
+            context_uri: d.context_uri.clone(),
+            rows: d.rows.clone(),
+            has_tracks: d.total > 0 || !d.rows.borrow().is_empty(),
+        }
+    }
+}
+
+/// Row 0 of the list: back chevron + big cover/title + the big Play pill.
+/// A fixed `HERO_H` block that scrolls away with the content.
+fn hero_block(
     s: &mut Scene,
     icons: &Rc<IconSet>,
-    data: &PlaylistViewData,
+    d: &HeroData,
     accent: &Signal<[f32; 4]>,
     on_play: &PlayFn,
     on_navigate: &NavFn,
 ) {
-    // Top bar: back chevron.
-    s.row(())
+    s.col(())
         .w(Len::Fill)
-        .h_px(t::SP_10)
-        .pad_ltrb(t::SP_4, t::SP_3, t::SP_4, t::SP_0)
-        .align(Align::Center)
-        .child(|r| {
+        .h_px(HERO_H)
+        .pad_ltrb(t::SP_3, t::SP_3, t::SP_3, t::SP_0)
+        .gap(t::SP_2)
+        .justify(Justify::End)
+        .child(|hero| {
+            // Back chevron pinned top-left of the hero (abs so the justified
+            // cover/title sink to the bottom); scrolls away with the hero.
             let nav = on_navigate.clone();
-            r.row(())
+            hero.row(())
+                .abs(0.0, 0.0)
                 .w_px(t::TOPBAR_BTN)
                 .h_px(t::TOPBAR_BTN)
                 .rgba(0.0, 0.0, 0.0, 0.30)
@@ -205,80 +271,207 @@ fn header(
                 .radius(t::R_FULL)
                 .center()
                 .on_click(move |ctx| nav(ctx, MainNav::Home))
-                .child(|c| {
-                    icons.render(c, Icon::ChevronLeft, t::ICON_MD, t::TEXT);
-                });
-        });
-
-    // Hero row: big cover + title block.
-    s.row(())
-        .w(Len::Fill)
-        .h_px(t::SP_44)
-        .pad_ltrb(t::SP_6, t::SP_2, t::SP_6, t::SP_2)
-        .gap(t::SP_5)
-        .align(Align::End)
-        .child(|hero| {
-            cover_art(hero, icons, data.cover.clone(), data.liked);
-            hero.col(())
-                .h(Len::Fill)
-                .gap(t::SP_2)
-                .justify(Justify::End)
-                .child(|m| {
-                    m.text((), "Playlist", 12.0).color(t::TEXT_DIM);
-                    m.text((), &data.name, 32.0).color(t::TEXT).max_width_px(520.0);
-                    m.row(()).gap(t::SP_1_5).align(Align::Center).child(|sub| {
-                        if !data.owner.is_empty() {
-                            sub.text((), &data.owner, 12.0).color(t::TEXT);
-                            sub.text((), "•", 12.0).color(t::TEXT_DIM);
-                        }
-                        sub.text((), count_label(data), 12.0).color(t::TEXT_DIM);
+                .child(|c| icons.render(c, Icon::ChevronLeft, t::ICON_MD, t::TEXT));
+            // Cover + title block.
+            hero.row(())
+                .w(Len::Fill)
+                .gap(t::SP_5)
+                .align(Align::End)
+                .child(|h| {
+                    cover_art(h, icons, d.cover.clone(), d.liked);
+                    h.col(()).gap(t::SP_2).justify(Justify::End).child(|m| {
+                        m.text((), d.kind_label, 12.0).color(t::TEXT_DIM);
+                        m.text((), &d.name, 32.0).color(t::TEXT).max_width_px(520.0);
+                        m.row(()).gap(t::SP_1_5).align(Align::Center).child(|sub| {
+                            if !d.owner.is_empty() {
+                                sub.text((), &d.owner, 12.0).color(t::TEXT);
+                                sub.text((), "•", 12.0).color(t::TEXT_DIM);
+                            }
+                            sub.text((), count_label(d.total, d.loading), 12.0)
+                                .color(t::TEXT_DIM);
+                        });
                     });
                 });
+            // Action row: big Play pill.
+            let on_play = on_play.clone();
+            let rows = d.rows.clone();
+            let ctx = d.context_uri.clone();
+            let has_tracks = d.has_tracks;
+            let acc = accent.clone();
+            hero.row(())
+                .w(Len::Fill)
+                .h_px(t::SP_16)
+                .gap(t::SP_4)
+                .align(Align::Center)
+                .child(move |a| {
+                    let mut pill = a.row(());
+                    pill.w_px(t::SP_14)
+                        .h_px(t::SP_14)
+                        .center()
+                        .color(acc)
+                        .radius(t::R_FULL);
+                    if has_tracks {
+                        pill.hover_opacity(0.85)
+                            .on_click(move |_| on_play(make_target(&ctx, &rows, 0)));
+                    } else {
+                        pill.opacity(0.4);
+                    }
+                    pill.child(|p| icons.render(p, Icon::Play, t::ICON_LG, [0.0, 0.0, 0.0, 1.0]));
+                });
         });
+}
 
-    // Action row: big Play pill.
-    let has_tracks = data.total > 0 || !data.rows.borrow().is_empty();
-    let on_play = on_play.clone();
-    let rows = data.rows.clone();
-    let ctx = data.context_uri.clone();
+/// The `# / Title / Time` column labels — shared by the in-list header
+/// (row 1) and the pinned sticky bar.
+fn strip_items(h: &mut Scene) {
+    h.row(()).w_px(t::SP_7).center().child(|x| {
+        x.text((), "#", 12.0).color(t::TEXT_DIM);
+    });
+    // Transparent spacer matching the row's thumb, so each label sits over
+    // its column (Title over the track titles, not over the thumbs).
+    h.rect(())
+        .w_px(t::THUMB_SM)
+        .h_px(t::SP_PX)
+        .rgba(0.0, 0.0, 0.0, 0.0);
+    h.col(()).w(Len::Fill).child(|x| {
+        x.text((), "Title", 12.0).color(t::TEXT_DIM);
+    });
+    h.col(()).w_px(t::SP_48).child(|x| {
+        x.text((), "Album", 12.0).color(t::TEXT_DIM);
+    });
+    h.row(()).w_px(t::SP_12).justify(Justify::End).child(|x| {
+        x.text((), "Time", 12.0).color(t::TEXT_DIM);
+    });
+}
+
+/// Row 1: the column-label strip that scrolls under the sticky bar.
+fn column_header(s: &mut Scene) {
     s.row(())
         .w(Len::Fill)
-        .h_px(t::SP_16)
-        .pad_xy(t::SP_6, t::SP_0)
-        .gap(t::SP_4)
+        .h_px(COLHEADER_H)
+        .pad_xy(t::SP_3, t::SP_0)
+        .gap(t::SP_3)
         .align(Align::Center)
-        .child(|a| {
-            let mut pill = a.row(());
-            pill.w_px(t::SP_14)
-                .h_px(t::SP_14)
-                .center()
-                .color(accent.clone())
-                .radius(t::R_FULL);
-            if has_tracks {
-                pill.hover_opacity(0.85).on_click(move |_| {
-                    on_play(make_target(&ctx, &rows, 0));
+        .child(strip_items);
+}
+
+/// Single centred row used when a playlist is genuinely empty.
+fn empty_row(s: &mut Scene) {
+    s.row(()).w(Len::Fill).h_px(ROW_H).center().child(|c| {
+        c.text((), "No songs here yet", 14.0).color(t::TEXT_DIM);
+    });
+}
+
+/// Pinned compact bar (back + mini Play + title) over a repeat of the
+/// column labels. Absolutely positioned and slid down from above the pane
+/// by `collapse`: at 0 it sits fully off the top edge (no paint, no hit
+/// over the hero); at 1 it rests flush at the top. Opacity tracks the same
+/// signal so it dissolves in as it arrives.
+fn sticky_bar(
+    s: &mut Scene,
+    icons: &Rc<IconSet>,
+    data: &PlaylistViewData,
+    accent: &Signal<[f32; 4]>,
+    collapse: &Signal<f32>,
+    on_play: &PlayFn,
+    on_navigate: &NavFn,
+) {
+    let title = data.name.clone();
+    let has_tracks = data.total > 0 || !data.rows.borrow().is_empty();
+    let rows = data.rows.clone();
+    let ctx = data.context_uri.clone();
+    let on_play = on_play.clone();
+    let nav = on_navigate.clone();
+    let acc = accent.clone();
+    let total_h = BAR_H + COLHEADER_H;
+    // Slide from y = -(bar height) (fully above) up to y = 0 (flush).
+    let slide = Computed::new((collapse.clone(),), move |(c,)| {
+        [0.0, (c.clamp(0.0, 1.0) - 1.0) * total_h]
+    });
+    // Frosted glass over the content scrolling beneath it: the per-glass
+    // backdrop pass composites every layer below this one (ambient art +
+    // root + the track-list scroll layer), so the header genuinely frosts
+    // the rows sliding under it.
+    s.glass(())
+        .pos(slide)
+        .w(Len::Fill)
+        .h_px(total_h)
+        .blur(10.0)
+        .rgba(t::PANEL[0], t::PANEL[1], t::PANEL[2], 0.72)
+        // Round only the TOP corners to match the centre pane (`main_area`,
+        // R_LG); bottom stays square (it meets the list + hairline). Needed
+        // because this is its own `.layer()` — composited separately, so the
+        // pane's rounded clip doesn't apply to it.
+        .radii(t::R_LG, t::R_LG, 0.0, 0.0)
+        .opacity_bind(collapse.clone())
+        // Promote to its own composite layer ABOVE the track-list layer so
+        // the per-glass backdrop pass frosts the list scrolling beneath it
+        // (a glass only sees layers below its own in z-order).
+        .layer()
+        .child(move |c| {
+            c.row(())
+                .w(Len::Fill)
+                .h_px(BAR_H)
+                .pad_xy(t::SP_4, t::SP_0)
+                .gap(t::SP_3)
+                .align(Align::Center)
+                .child(move |bar| {
+                    bar.row(())
+                        .w_px(t::TOPBAR_BTN)
+                        .h_px(t::TOPBAR_BTN)
+                        .rgba(0.0, 0.0, 0.0, 0.30)
+                        .hover_color(t::PANEL_HI)
+                        .radius(t::R_FULL)
+                        .center()
+                        .on_click(move |ctx| nav(ctx, MainNav::Home))
+                        .child(|c| icons.render(c, Icon::ChevronLeft, t::ICON_MD, t::TEXT));
+                    let mut pill = bar.row(());
+                    pill.w_px(t::SP_10)
+                        .h_px(t::SP_10)
+                        .center()
+                        .color(acc)
+                        .radius(t::R_FULL);
+                    if has_tracks {
+                        pill.hover_opacity(0.85)
+                            .on_click(move |_| on_play(make_target(&ctx, &rows, 0)));
+                    } else {
+                        pill.opacity(0.4);
+                    }
+                    pill.child(|p| icons.render(p, Icon::Play, t::ICON_MD, [0.0, 0.0, 0.0, 1.0]));
+                    bar.text((), &title, 16.0)
+                        .color(t::TEXT)
+                        .max_width_px(360.0);
                 });
-            } else {
-                pill.opacity(0.4);
-            }
-            pill.child(|p| {
-                icons.render(p, Icon::Play, t::ICON_LG, [0.0, 0.0, 0.0, 1.0]);
-            });
+            c.row(())
+                .w(Len::Fill)
+                .h_px(COLHEADER_H)
+                .pad_xy(t::SP_4, t::SP_0)
+                .gap(t::SP_3)
+                .align(Align::Center)
+                .child(strip_items);
+            // Hairline at the bottom edge — a crisp divider on top of the
+            // glass so the sticky header reads as distinct from the list
+            // below, not a seam/gap between two panes.
+            c.rect(())
+                .abs(0.0, total_h - t::SP_PX)
+                .w(Len::Fill)
+                .h_px(t::SP_PX)
+                .rgba(1.0, 1.0, 1.0, 0.10);
         });
 }
 
 /// Header count label — "Loading…" until tracks land, then "N songs".
-fn count_label(data: &PlaylistViewData) -> String {
-    if data.total == 0 {
-        if data.loading {
+fn count_label(total: u32, loading: bool) -> String {
+    if total == 0 {
+        if loading {
             "Loading…".to_string()
         } else {
             "0 songs".to_string()
         }
-    } else if data.total == 1 {
+    } else if total == 1 {
         "1 song".to_string()
     } else {
-        format!("{} songs", data.total)
+        format!("{total} songs")
     }
 }
 
@@ -355,7 +548,8 @@ fn track_row(
         .on_click(move |_| on_play(make_target(&ctx, &rows, index)))
         .child(|row| {
             row.row(()).w_px(t::SP_7).center().child(|c| {
-                c.text((), format!("{}", index + 1), 13.0).color(t::TEXT_DIM);
+                c.text((), format!("{}", index + 1), 13.0)
+                    .color(t::TEXT_DIM);
             });
             // Thumb.
             row.col(()).w_px(t::THUMB_SM).h_px(t::THUMB_SM).child(|b| {
@@ -381,7 +575,9 @@ fn track_row(
                 .justify(Justify::Center)
                 .overflow_x(Overflow::Hidden)
                 .child(|m| {
-                    m.text((), &r.title, 14.0).color(t::TEXT).max_width_px(360.0);
+                    m.text((), &r.title, 14.0)
+                        .color(t::TEXT)
+                        .max_width_px(360.0);
                     m.text((), &r.artist, 12.0)
                         .color(t::TEXT_DIM)
                         .max_width_px(360.0);
@@ -414,7 +610,8 @@ fn skeleton_row(s: &mut Scene, index: u32) {
         .align(Align::Center)
         .child(|row| {
             row.row(()).w_px(t::SP_7).center().child(|c| {
-                c.text((), format!("{}", index + 1), 13.0).color(t::TEXT_DIM);
+                c.text((), format!("{}", index + 1), 13.0)
+                    .color(t::TEXT_DIM);
             });
             row.rect(())
                 .w_px(t::THUMB_SM)
@@ -438,19 +635,6 @@ fn skeleton_row(s: &mut Scene, index: u32) {
                         .rgba(1.0, 1.0, 1.0, 0.05)
                         .radius(t::R_SM);
                 });
-        });
-}
-
-/// A short column of skeleton rows shown before the first page lands.
-fn skeleton_list(s: &mut Scene) {
-    s.col(())
-        .w(Len::Fill)
-        .h(Len::Fill)
-        .pad_ltrb(t::SP_3, t::SP_0, t::SP_3, t::SP_4)
-        .child(|c| {
-            for i in 0..10 {
-                skeleton_row(c, i);
-            }
         });
 }
 

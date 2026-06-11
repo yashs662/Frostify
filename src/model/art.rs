@@ -18,9 +18,10 @@ use crate::worker::Worker;
 pub struct ArtModel {
     /// Per-URL (cache_key) reactive cover handle for every cover shown
     /// anywhere — tiles/rows/player bind their image to it, so an art
-    /// arrival repaints just those nodes. `None` until resolved. Public:
-    /// the scene closure passes `&home_art.borrow()` straight into the
-    /// home view as its `ArtMap`.
+    /// arrival repaints just those nodes. `None` until resolved. The view
+    /// looks these up narrowly via [`Self::signal`] / [`Self::or_signal`] —
+    /// it must NOT hold a long-lived `borrow()` of this map across a build,
+    /// or an interleaved `or_signal` (`borrow_mut`) double-borrows at runtime.
     pub home_art: RefCell<HashMap<String, Signal<Option<ImageHandle>>>>,
     /// cache_keys with a fetch in flight — gate so a cover doesn't get a
     /// second fetch while the first resolves.
@@ -170,7 +171,12 @@ impl ArtModel {
             "home art coverage: playlists {pl_with}/{pl}, recent {rc_with}/{rc}, \
              top_artists {ta_with}/{ta}, top_tracks {tt_with}/{tt}, \
              latest_release {}",
-            if data.latest_release.as_ref().and_then(|a| a.image_url.as_ref()).is_some() {
+            if data
+                .latest_release
+                .as_ref()
+                .and_then(|a| a.image_url.as_ref())
+                .is_some()
+            {
                 "1/1"
             } else {
                 "0/1"
@@ -183,17 +189,36 @@ impl ArtModel {
             .filter_map(|p| p.image_url.as_ref())
             // Sidebar library icons fetch the tiny (64 px) tier separately —
             // distinct scdn key from the full-res home tile, so both load.
-            .chain(data.playlists.iter().filter_map(|p| p.image_url_small.as_ref()))
-            .chain(data.recent.iter().filter_map(|t| t.album_image_url.as_ref()))
+            .chain(
+                data.playlists
+                    .iter()
+                    .filter_map(|p| p.image_url_small.as_ref()),
+            )
+            .chain(
+                data.recent
+                    .iter()
+                    .filter_map(|t| t.album_image_url.as_ref()),
+            )
             .chain(data.top_artists.iter().filter_map(|a| a.image_url.as_ref()))
-            .chain(data.top_tracks.iter().filter_map(|t| t.album_image_url.as_ref()))
-            .chain(data.latest_release.iter().filter_map(|a| a.image_url.as_ref()));
+            .chain(
+                data.top_tracks
+                    .iter()
+                    .filter_map(|t| t.album_image_url.as_ref()),
+            )
+            .chain(
+                data.latest_release
+                    .iter()
+                    .filter_map(|a| a.image_url.as_ref()),
+            );
         let mut signals = self.home_art.borrow_mut();
         let mut inflight = self.inflight.borrow_mut();
         let mut dispatched = 0_usize;
         for url in urls {
             let key = album_art::cache_key(url);
-            let sig = signals.entry(key.clone()).or_insert_with(|| Signal::new(None)).clone();
+            let sig = signals
+                .entry(key.clone())
+                .or_insert_with(|| Signal::new(None))
+                .clone();
             if sig.get().is_some() || inflight.contains(&key) {
                 continue;
             }
