@@ -75,6 +75,26 @@ pub fn extract_accent(rgba: &[u8], _w: u32, _h: u32) -> [f32; 4] {
     [sum[0] * inv, sum[1] * inv, sum[2] * inv, 1.0]
 }
 
+/// Mean WCAG relative luminance of the whole cover (0 = black, 1 =
+/// white) — how *bright* the blurred ambient backdrop built from it will
+/// read. Drives the adaptive glass dim: bright covers get a stronger
+/// tint so the chrome on top keeps its contrast. All pixels count (no
+/// shadow filter — shadows are exactly what make a backdrop dark).
+pub fn mean_luminance(rgba: &[u8]) -> f32 {
+    let mut sum = 0.0_f32;
+    let mut n: u32 = 0;
+    for px in rgba.chunks_exact(4) {
+        sum += crate::widgets::color::luminance([
+            px[0] as f32 / 255.0,
+            px[1] as f32 / 255.0,
+            px[2] as f32 / 255.0,
+            1.0,
+        ]);
+        n += 1;
+    }
+    if n == 0 { 0.0 } else { sum / n as f32 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,13 +12,22 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use frostify_gfx::{Align, ImageHandle, Justify, Len, Overflow, Scene, Signal};
 
+use crate::api::PlayTarget;
 use crate::views::MainNav;
-use crate::views::home::NavFn;
+use crate::views::home::{NavFn, PlayFn};
 use crate::widgets::icon::{Icon, IconSet};
 use crate::widgets::tokens as t;
 
 /// Full-width row height.
 const ROW_H: f32 = t::SP_14;
+
+/// What clicking a row does. Container rows (playlist/artist/album) open
+/// their detail page; song rows (Recently played) just play the song —
+/// in its album context, so the queue continues naturally.
+pub enum RowAction {
+    Open(MainNav),
+    Play(PlayTarget),
+}
 
 /// One full-width list row.
 pub struct ShowAllRow {
@@ -27,8 +36,7 @@ pub struct ShowAllRow {
     pub thumb: Option<Signal<Option<ImageHandle>>>,
     /// Circular thumb (artists) vs rounded square (everything else).
     pub round: bool,
-    /// Detail page opened on click.
-    pub nav: MainNav,
+    pub action: RowAction,
 }
 
 /// A run of rows under an optional header (day label for Recently played;
@@ -45,9 +53,18 @@ pub struct ShowAllViewData {
 }
 
 /// Render the Show-all page into `s` (the caller's transition wrapper).
-pub fn view(s: &mut Scene, icons: &Rc<IconSet>, data: &ShowAllViewData, on_navigate: NavFn) {
+/// `scroll_node` is the content-scoped scroller name (rebuilds preserve
+/// scroll by identity; a different section ⇒ different name ⇒ fresh top).
+pub fn view(
+    s: &mut Scene,
+    icons: &Rc<IconSet>,
+    data: &ShowAllViewData,
+    scroll_node: &str,
+    on_navigate: NavFn,
+    on_play: PlayFn,
+) {
     let nav_back = on_navigate.clone();
-    s.col(())
+    s.col(scroll_node)
         .w(Len::Fill)
         .h(Len::Fill)
         .pad_xy(t::SP_6, t::SP_2)
@@ -82,27 +99,38 @@ pub fn view(s: &mut Scene, icons: &Rc<IconSet>, data: &ShowAllViewData, on_navig
                         });
                 }
                 for row in &group.rows {
-                    show_all_row(c, icons, row, &on_navigate);
+                    show_all_row(c, icons, row, &on_navigate, &on_play);
                 }
             }
         });
 }
 
-/// One full-width row: thumb + title/subtitle + trailing chevron.
-fn show_all_row(s: &mut Scene, icons: &Rc<IconSet>, row: &ShowAllRow, nav: &NavFn) {
-    let target = row.nav.clone();
-    let nav = nav.clone();
+/// One full-width row: thumb + title/subtitle (+ trailing chevron for
+/// rows that open a detail page; play rows have no nav affordance).
+fn show_all_row(s: &mut Scene, icons: &Rc<IconSet>, row: &ShowAllRow, nav: &NavFn, play: &PlayFn) {
     let radius = if row.round { t::R_FULL } else { t::R_SM };
-    s.row(())
-        .w(Len::Fill)
+    let chevron = matches!(row.action, RowAction::Open(_));
+    let mut r = s.row(());
+    r.w(Len::Fill)
         .h_px(ROW_H)
         .pad_xy(t::SP_2, t::SP_1)
         .gap(t::SP_3)
         .align(Align::Center)
         .radius(t::R_MD)
-        .hover_color(t::HOVER_LIFT_SUBTLE)
-        .on_click(move |ctx| nav(ctx, target.clone()))
-        .child(|r| {
+        .hover_color(t::HOVER_LIFT_SUBTLE);
+    match &row.action {
+        RowAction::Open(target) => {
+            let nav = nav.clone();
+            let target = target.clone();
+            r.on_click(move |ctx| nav(ctx, target.clone()));
+        }
+        RowAction::Play(target) => {
+            let play = play.clone();
+            let target = target.clone();
+            r.on_click(move |_| play(target.clone()));
+        }
+    }
+    r.child(|r| {
             // Thumb.
             r.col(()).w_px(t::THUMB_MD).h_px(t::THUMB_MD).child(|b| {
                 b.rect(())
@@ -134,10 +162,12 @@ fn show_all_row(s: &mut Scene, icons: &Rc<IconSet>, row: &ShowAllRow, nav: &NavF
                         .color(t::TEXT_DIM)
                         .max_width_px(420.0);
                 });
-            // Trailing chevron affordance.
-            r.row(()).push_end().w_px(t::SP_6).center().child(|c| {
-                icons.render(c, Icon::ChevronRight, t::ICON_MD, t::TEXT_DIM);
-            });
+            // Trailing chevron affordance (detail-page rows only).
+            if chevron {
+                r.row(()).push_end().w_px(t::SP_6).center().child(|c| {
+                    icons.render(c, Icon::ChevronRight, t::ICON_MD, t::TEXT_DIM);
+                });
+            }
         });
 }
 

@@ -44,15 +44,18 @@ pub struct ArtistViewData {
 }
 
 /// Render the artist page into `s` (the caller's transition wrapper).
+/// `scroll_node` is the content-scoped scroller name (rebuilds preserve
+/// scroll by identity; a different artist ⇒ different name ⇒ fresh top).
 pub fn view(
     s: &mut Scene,
     icons: &Rc<IconSet>,
     data: &ArtistViewData,
+    scroll_node: &str,
     on_play: PlayFn,
     on_navigate: NavFn,
 ) {
     let nav_back = on_navigate.clone();
-    s.col(())
+    s.col(scroll_node)
         .w(Len::Fill)
         .h(Len::Fill)
         .pad_xy(t::SP_6, t::SP_2)

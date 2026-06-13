@@ -114,19 +114,17 @@ impl ArtModel {
 
     // --- track details ------------------------------------------------
 
-    /// Cached non-empty artist name for `track_id`, if resolved.
-    pub fn cached_artist(&self, track_id: &str) -> Option<String> {
-        self.track_details
-            .borrow()
-            .get(track_id)
-            .filter(|d| !d.artist.is_empty())
-            .map(|d| d.artist.clone())
-    }
-
     pub fn insert_track_detail(&self, details: TrackDetails) {
         self.track_details
             .borrow_mut()
             .insert(details.track_id.clone(), details);
+    }
+
+    /// Full cached `/v1/tracks/{id}` detail (name + artist + cover), if
+    /// resolved — patches sparse cluster updates that arrive without
+    /// title metadata (e.g. `DEVICES_DISAPPEARED` pushes).
+    pub fn track_detail(&self, track_id: &str) -> Option<TrackDetails> {
+        self.track_details.borrow().get(track_id).cloned()
     }
 
     // --- fetch dispatch -----------------------------------------------

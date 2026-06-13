@@ -5,8 +5,8 @@
 //! per-domain logic lives on the models themselves.
 
 use crate::model::{
-    ArtModel, AuthModel, BackdropModel, CanvasModel, LibraryModel, PlayerModel, PrefsModel,
-    RouterModel, SettingsModel,
+    ArtModel, AuthModel, BackdropModel, CanvasModel, DevicesModel, LibraryModel, PlayerModel,
+    PrefsModel, RouterModel, SettingsModel,
 };
 use crate::prefs::UserPreferences;
 
@@ -32,6 +32,8 @@ pub struct AppState {
     pub player_ui: PlayerModel,
     /// Settings-modal slice: the `Overlay`, cache usage, dir-picker handoff.
     pub settings: SettingsModel,
+    /// Connect-devices slice: the devices popup + active-device chrome.
+    pub devices: DevicesModel,
     /// Persisted-preferences slice + panel widths + debounced save.
     pub prefs: PrefsModel,
 }
@@ -60,8 +62,9 @@ impl AppState {
             canvas: CanvasModel::new(prefs.show_canvas),
             art: ArtModel::new(),
             backdrop: BackdropModel::new(),
-            player_ui: PlayerModel::seed(title, artist, progress),
+            player_ui: PlayerModel::seed(title, artist, progress, prefs.audio.volume),
             settings: SettingsModel::new(),
+            devices: DevicesModel::new(),
             prefs: PrefsModel::new(prefs),
         }
     }

@@ -13,16 +13,53 @@ use crate::worker::{Worker, WorkerResponse};
 
 pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: WorkerResponse) {
     match resp {
+        WorkerResponse::PlaybackFailed { cmd } => {
+            // Roll the optimistic chrome flips (play/pause icon, shuffle
+            // and repeat tints) back to the authoritative snapshot — the
+            // command changed nothing on the server, so the UI must not
+            // pretend it did. With no snapshot at all, nothing is playing
+            // anywhere: park the transport stopped.
+            log::warn!("rolling back optimistic UI for failed {cmd:?}");
+            let snap = state.player_ui.snapshot.borrow().clone();
+            match snap.as_ref() {
+                Some(p) => state.player_ui.sync(p, cx.tl, cx.now),
+                None => state.player_ui.stopped(cx.tl),
+            }
+        }
+        WorkerResponse::VolumeChanged { fraction } => {
+            // Don't fight an in-flight drag — the release commit wins,
+            // and its confirmation will land right back here.
+            if !state.player_ui.vol_dragging.get() {
+                state.player_ui.set_volume_ui(fraction.clamp(0.0, 1.0));
+            }
+            // Persist (debounced) so the device volume survives restarts
+            // and seeds the Connect device's advertised initial volume.
+            state.prefs.data.borrow_mut().audio.volume = fraction.clamp(0.0, 1.0);
+            state.prefs.mark_dirty(cx.now);
+        }
         WorkerResponse::OAuthStarted { auth_url } => {
             log::info!("opening browser for OAuth");
             if let Err(e) = webbrowser::open(&auth_url) {
                 log::error!("open browser: {e}");
             }
         }
+        WorkerResponse::TokensRefreshed { auth } => {
+            // Mid-session refresh: swap the live token only. Everything
+            // else (home data, librespot session, Spirc device) keeps
+            // running — the session authenticated once and stays up.
+            state.auth.set(auth);
+        }
+        WorkerResponse::TokensRefreshFailed => {
+            state.auth.refresh_failed();
+        }
         WorkerResponse::OAuthComplete { auth } | WorkerResponse::TokensLoaded { auth } => {
             log::info!("auth ok — switching to Home");
             worker.fetch_home(auth.access_token.clone());
-            worker.connect_spotify_session(auth.access_token.clone());
+            let (initial_volume, quality) = {
+                let p = state.prefs.data.borrow();
+                (p.audio.volume, p.audio.quality)
+            };
+            worker.connect_spotify_session(auth.access_token.clone(), initial_volume, quality);
             state.auth.set(auth);
             if state.router.view.get() != View::Home {
                 state.router.view.set(View::Home);
@@ -55,10 +92,52 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
             *state.library.home.borrow_mut() = data;
             cx.rebuild();
         }
-        WorkerResponse::SpotifySessionConnected => {
+        WorkerResponse::SpotifySessionConnected { device_id } => {
             log::info!("librespot session ready — seeding initial /me/player state");
+            *state.devices.self_id.borrow_mut() = device_id;
             if let Some(token) = state.auth.token() {
                 worker.seed_player_state(token);
+            }
+        }
+        WorkerResponse::Devices { devices } => {
+            *state.devices.list.borrow_mut() = devices;
+            // The popup is open (it dispatched this fetch) — rebuild so
+            // the rows appear.
+            cx.rebuild();
+        }
+        WorkerResponse::ActiveDeviceChanged { device_id, is_self } => {
+            *state.devices.active_id.borrow_mut() = device_id;
+            state.devices.playing_on_self.set(is_self);
+            // Active-row highlight in the popup, if it's open.
+            if state.devices.overlay.is_open() {
+                cx.rebuild();
+            }
+        }
+        WorkerResponse::SavedState { track_id, saved } => {
+            // Only the current track's heart — a late echo for a track
+            // we've skipped past must not flip the new track's state.
+            let current = state
+                .player_ui
+                .snapshot
+                .borrow()
+                .as_ref()
+                .and_then(|p| track_id_from_uri(&p.track_id).map(|s| s.to_string()));
+            if current.as_deref() == Some(track_id.as_str()) {
+                state.player_ui.liked.set(saved);
+            }
+        }
+        WorkerResponse::QueueLoaded { tracks } => {
+            // Create the reactive cover signals + dispatch fetches HERE
+            // (not in the view build — builds are pure reads of `art`).
+            for tr in &tracks {
+                if let Some(url) = &tr.album_image_url {
+                    state.art.or_signal(album_art::cache_key(url));
+                    state.art.dispatch_cover(worker, url.clone());
+                }
+            }
+            *state.library.queue.borrow_mut() = Some(tracks);
+            if matches!(*state.router.nav.borrow(), crate::views::MainNav::Queue) {
+                cx.rebuild();
             }
         }
         WorkerResponse::SpotifySessionFailed { error } => {
@@ -70,9 +149,37 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
             // `ProvidedTrack.metadata` only carries `artist_uri`, so the
             // artist name comes from `/v1/tracks/{id}`.
             if let Some(p) = player.as_mut() {
+                // Sparse update for the SAME track (e.g. a
+                // DEVICES_DISAPPEARED push carries no title metadata):
+                // inherit the display fields from the live snapshot
+                // instead of blanking the chrome.
+                if p.name.is_empty()
+                    && let Some(prev) = state.player_ui.snapshot.borrow().as_ref()
+                    && prev.track_id == p.track_id
+                {
+                    p.name = prev.name.clone();
+                    if p.artist.is_empty() {
+                        p.artist = prev.artist.clone();
+                    }
+                    if p.album_image_url.is_none() {
+                        p.album_image_url = prev.album_image_url.clone();
+                    }
+                }
                 if let Some(id) = track_id_from_uri(&p.track_id) {
-                    match state.art.cached_artist(id) {
-                        Some(artist) => p.artist = artist,
+                    match state.art.track_detail(id) {
+                        Some(d) => {
+                            // `/v1/tracks/{id}` fills whatever the cluster
+                            // metadata didn't carry.
+                            if p.name.is_empty() {
+                                p.name = d.name.clone();
+                            }
+                            if !d.artist.is_empty() {
+                                p.artist = d.artist.clone();
+                            }
+                            if p.album_image_url.is_none() {
+                                p.album_image_url = d.album_image_url.clone();
+                            }
+                        }
                         None => {
                             if let Some(token) = state.auth.token() {
                                 worker.fetch_track_details(token, id.to_string());
@@ -101,6 +208,23 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
                     // accent on screen. Gated once per cover (disk-cached).
                     if !state.art.has_accent(&key) {
                         worker.fetch_accent(key);
+                    }
+                }
+                // Track changed → re-check the heart (assume un-liked
+                // until the check returns; the worker echo flips it).
+                let track_changed = state
+                    .player_ui
+                    .snapshot
+                    .borrow()
+                    .as_ref()
+                    .map(|prev| prev.track_id != p.track_id)
+                    .unwrap_or(true);
+                if track_changed {
+                    state.player_ui.liked.set(false);
+                    if let Some(id) = track_id_from_uri(&p.track_id)
+                        && let Some(token) = state.auth.token()
+                    {
+                        worker.check_saved(token, id.to_string());
                     }
                 }
                 // Canvas video: fetch on a real track change (not a
@@ -144,6 +268,7 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
             key,
             handle,
             accent,
+            luma,
         } => {
             state.art.clear_inflight(&key);
             // Push the resolved handle into the per-URL Home signal (if
@@ -191,7 +316,7 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
                 // No rebuild: promote swaps the handles via the reactive
                 // image-handle binds and starts the crossfade tween, both
                 // pumped by the lib without re-running the scene closure.
-                state.backdrop.promote(handle, Some(accent), cx.tl, cx.now);
+                state.backdrop.promote(handle, Some(accent), luma, cx.tl, cx.now);
                 state.art.set_shown(key);
             }
         }
@@ -289,6 +414,11 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
                     .map(|o| o.rows.clone());
                 if let Some(buf) = buf {
                     state.library.build_rows(&state.art, &buf, &tracks);
+                    // Tell the frame tick to re-materialize the lazy list:
+                    // rows the user scrolled past while this page was in
+                    // flight are on screen as skeletons and won't re-render
+                    // from a buffer append alone.
+                    state.library.rows_appended.set(true);
                 }
                 if done && let Some(o) = state.library.open_playlist.borrow_mut().as_mut() {
                     o.complete = true;
@@ -345,18 +475,40 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
         }
         WorkerResponse::TrackDetails { details } => {
             let track_id = details.track_id.clone();
-            let artist = details.artist.clone();
-            state.art.insert_track_detail(details);
-            // Patch the live player view if it still matches, and push the
-            // artist into the reactive text signal — updates the label via
-            // the text bind, no rebuild (this is the one that used to land
-            // mid-crossfade).
-            let mut player = state.player_ui.snapshot.borrow_mut();
-            if let Some(p) = player.as_mut()
-                && track_id_from_uri(&p.track_id) == Some(track_id.as_str())
+            state.art.insert_track_detail(details.clone());
+            // Patch the live player view if it still matches, pushing each
+            // field into its reactive signal — updates the labels via the
+            // text binds, no rebuild (this is the one that used to land
+            // mid-crossfade). Fills the name too: sparse cluster pushes
+            // (no title metadata) arrive with an empty one.
+            let mut fetch_cover: Option<String> = None;
             {
-                p.artist = artist.clone();
-                state.player_ui.artist.set(artist.as_str());
+                let mut player = state.player_ui.snapshot.borrow_mut();
+                if let Some(p) = player.as_mut()
+                    && track_id_from_uri(&p.track_id) == Some(track_id.as_str())
+                {
+                    if p.name.is_empty() && !details.name.is_empty() {
+                        p.name = details.name.clone();
+                        state.player_ui.title.set(details.name.as_str());
+                    }
+                    if !details.artist.is_empty() {
+                        p.artist = details.artist.clone();
+                        state.player_ui.artist.set(details.artist.as_str());
+                    }
+                    if p.album_image_url.is_none() && details.album_image_url.is_some() {
+                        p.album_image_url = details.album_image_url.clone();
+                        fetch_cover = details.album_image_url.clone();
+                    }
+                }
+            }
+            // The cluster push had no cover either — backfill the backdrop
+            // from the resolved one (outside the snapshot borrow).
+            if let Some(url) = fetch_cover {
+                let key = album_art::cache_key(&url);
+                if !state.art.is_shown(&key) && !state.art.is_inflight(&key) {
+                    state.art.mark_inflight(key.clone());
+                    worker.fetch_album_art(url, key);
+                }
             }
         }
     }

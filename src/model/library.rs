@@ -7,10 +7,12 @@
 //! virtualised list, and later pages stream into the shared buffer the
 //! `lazy_list` reads on scroll — no blocking "loading all 989 songs".
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+
+use frostify_gfx::Signal;
 
 use crate::album_art;
 use crate::api::{AlbumRef, HomeData, PlaylistDetail, PlaylistTrack};
@@ -74,6 +76,22 @@ pub struct LibraryModel {
     /// Playlist ids with a fetch in flight — gate so navigating back and
     /// forth doesn't dispatch duplicate loads.
     playlist_inflight: RefCell<HashSet<String>>,
+    /// Set by the reducer when a streamed page appended rows to the live
+    /// buffer; consumed by `app::frame::tick`, which re-materializes the
+    /// open detail page's lazy rows — otherwise rows the user already
+    /// scrolled past (materialized as skeletons because the scroll outran
+    /// the stream) would stay skeletons forever.
+    pub rows_appended: Cell<bool>,
+    /// The active device's play queue (currently playing first), for the
+    /// queue page. `None` = not loaded / loading; refetched on every
+    /// open (live state, no cache).
+    pub queue: RefCell<Option<Vec<PlaylistTrack>>>,
+    /// Skeleton-row pulse opacity, ping-pong tweened while the open
+    /// detail page is still streaming (driven by `app::frame::tick`).
+    pub skeleton_pulse: Signal<f32>,
+    /// Whether the pulse tween is currently running (mirror, so the frame
+    /// tick can start/stop it on state edges instead of every frame).
+    pub pulse_on: Cell<bool>,
 }
 
 impl LibraryModel {
@@ -84,6 +102,10 @@ impl LibraryModel {
             open_artist: RefCell::default(),
             playlist_cache: RefCell::default(),
             playlist_inflight: RefCell::default(),
+            rows_appended: Cell::new(false),
+            queue: RefCell::default(),
+            skeleton_pulse: Signal::new(1.0),
+            pulse_on: Cell::new(false),
         }
     }
 
@@ -140,6 +162,7 @@ impl LibraryModel {
                 uri: t.uri.clone(),
                 art: cover,
                 cover_url: t.album_image_url.clone(),
+                playable: t.playable,
             });
         }
     }

@@ -44,7 +44,10 @@ librespot-core = { git = "https://github.com/librespot-org/librespot", branch = 
 librespot-oauth = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
 librespot-protocol = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
 librespot-connect = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
-librespot-playback = { git = "https://github.com/librespot-org/librespot", branch = "dev", default-features = false }
+librespot-metadata = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+# `rodio-backend` (cpal under the hood) is the real audio output — this is
+# what makes Frostify an actually-audible Connect device, not just a remote.
+librespot-playback = { git = "https://github.com/librespot-org/librespot", branch = "dev", default-features = false, features = ["rodio-backend"] }
 # Must match the version librespot-protocol generates against (3.7.x);
 # protobuf 4.x reorganised the API + the generated code implements 3.x traits.
 protobuf = "3.7.2"

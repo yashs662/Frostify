@@ -21,6 +21,7 @@ use frostify_gfx::{Align, Computed, ImageHandle, Justify, Len, Overflow, Scene, 
 use crate::api::PlayTarget;
 use crate::views::MainNav;
 use crate::views::home::{NavFn, PlayFn};
+use crate::widgets::color::accent_fg;
 use crate::widgets::icon::{Icon, IconSet};
 use crate::widgets::tokens as t;
 
@@ -44,8 +45,6 @@ pub const COLHEADER_H: f32 = t::SP_8;
 pub const BAR_H: f32 = t::SP_16;
 /// Scroll distance over which the hero collapses into the bar.
 pub const COLLAPSE_RANGE: f32 = HERO_H - BAR_H;
-/// Node name of the detail scroller — `app::frame::tick` reads its offset.
-pub const SCROLL_NODE: &str = "detail_scroll";
 
 /// Spotify's `PUT /me/player/play` caps the inline `uris` array. For the
 /// context-less Liked Songs we send a window from the clicked track so
@@ -69,6 +68,9 @@ pub struct PlaylistRow {
     /// time the row scrolls into view — avoids dispatching thousands of
     /// downloads up front for a long playlist.
     pub cover_url: Option<String>,
+    /// False for local files / region-unavailable tracks — the row still
+    /// renders (faded) but takes no clicks and never enters a play queue.
+    pub playable: bool,
 }
 
 /// Request a track cover be fetched (called when a row materializes).
@@ -100,6 +102,9 @@ pub struct PlaylistViewData {
     pub rows: RowBuf,
     /// Fetch a row's cover the first time it scrolls into view.
     pub request_cover: CoverFn,
+    /// Skeleton pulse opacity — ping-pong tweened while pages are still
+    /// streaming (`LibraryModel::skeleton_pulse`), parked at 1.0 after.
+    pub pulse: Signal<f32>,
 }
 
 /// Render the centre-pane content for the open playlist. Children are
@@ -117,6 +122,10 @@ pub fn view(
     data: &PlaylistViewData,
     accent: &Signal<[f32; 4]>,
     collapse: &Signal<f32>,
+    // Content-scoped scroller name (`MainNav::detail_scroll_node`) —
+    // rebuilds preserve scroll by name, navigation resets it by changing
+    // the name. `app::frame::tick` reads the offset under the same name.
+    scroll_node: &str,
     on_play: PlayFn,
     on_navigate: NavFn,
 ) {
@@ -143,10 +152,12 @@ pub fn view(
     let nav_h = on_navigate.clone();
     let hero = HeroData::new(data);
     let empty_loading = data.loading;
+    let collapse_rows = collapse.clone();
+    let pulse = data.pulse.clone();
 
-    s.lazy_list(SCROLL_NODE, track_n + 2, ROW_H, move |sc, i| match i {
+    s.lazy_list(scroll_node, track_n + 2, ROW_H, move |sc, i| match i {
         0 => hero_block(sc, &icons_h, &hero, &accent_h, &on_play_h, &nav_h),
-        1 => column_header(sc),
+        1 => column_header(sc, &collapse_rows),
         _ => {
             let ti = i - 2;
             let len = rows.borrow().len() as u32;
@@ -162,7 +173,7 @@ pub fn view(
                     &request_cover,
                 );
             } else if count > 0 || empty_loading {
-                skeleton_row(sc, ti);
+                skeleton_row(sc, ti, &pulse);
             } else {
                 empty_row(sc);
             }
@@ -199,9 +210,14 @@ fn make_target(context_uri: &Option<String>, rows: &RowBuf, index: u32) -> PlayT
         },
         None => {
             let buf = rows.borrow();
+            // Unplayable rows can't go in the request — Spotify rejects
+            // local/blocked URIs — so the window is built from playable
+            // ones only. The clicked row itself is always playable
+            // (disabled rows take no clicks).
             let uris = buf
                 .iter()
                 .skip(index as usize)
+                .filter(|r| r.playable)
                 .take(URIS_WINDOW)
                 .map(|r| r.uri.clone())
                 .collect();
@@ -304,6 +320,7 @@ fn hero_block(
                 .gap(t::SP_4)
                 .align(Align::Center)
                 .child(move |a| {
+                    let fg = accent_fg(&acc);
                     let mut pill = a.row(());
                     pill.w_px(t::SP_14)
                         .h_px(t::SP_14)
@@ -316,7 +333,7 @@ fn hero_block(
                     } else {
                         pill.opacity(0.4);
                     }
-                    pill.child(|p| icons.render(p, Icon::Play, t::ICON_LG, [0.0, 0.0, 0.0, 1.0]));
+                    pill.child(|p| icons.render(p, Icon::Play, t::ICON_LG, fg));
                 });
         });
 }
@@ -344,14 +361,30 @@ fn strip_items(h: &mut Scene) {
     });
 }
 
+/// Collapse value at which the sticky glass' bottom edge first touches
+/// the in-list column header: from here to `collapse == 1` the glass
+/// sweeps over the header, and at exactly 1 the header's rect coincides
+/// with the overlay's copy of it — which is what makes the handoff
+/// (in-list fades out under the glass, overlay fades in on it) read as
+/// the original header *sticking onto* the overlay. Derived, not tuned:
+/// glass bottom = `c·total_h`, header top = `HERO_H − c·COLLAPSE_RANGE`.
+fn header_touch_c() -> f32 {
+    HERO_H / (BAR_H + COLHEADER_H + COLLAPSE_RANGE)
+}
+
 /// Row 1: the column-label strip that scrolls under the sticky bar.
-fn column_header(s: &mut Scene) {
+/// Hidden once fully collapsed — it sits exactly under the overlay's
+/// (now visible) copy by then, and hiding it keeps its frosted ghost
+/// from bleeding through the glass.
+fn column_header(s: &mut Scene, collapse: &Signal<f32>) {
+    let vis = Computed::new((collapse.clone(),), |(c,)| if c >= 1.0 { 0.0 } else { 1.0 });
     s.row(())
         .w(Len::Fill)
         .h_px(COLHEADER_H)
         .pad_xy(t::SP_3, t::SP_0)
         .gap(t::SP_3)
         .align(Align::Center)
+        .opacity_bind(vis)
         .child(strip_items);
 }
 
@@ -384,6 +417,8 @@ fn sticky_bar(
     let nav = on_navigate.clone();
     let acc = accent.clone();
     let total_h = BAR_H + COLHEADER_H;
+    let touch = header_touch_c();
+    let collapse_h = collapse.clone();
     // Slide from y = -(bar height) (fully above) up to y = 0 (flush).
     let slide = Computed::new((collapse.clone(),), move |(c,)| {
         [0.0, (c.clamp(0.0, 1.0) - 1.0) * total_h]
@@ -425,6 +460,7 @@ fn sticky_bar(
                         .center()
                         .on_click(move |ctx| nav(ctx, MainNav::Home))
                         .child(|c| icons.render(c, Icon::ChevronLeft, t::ICON_MD, t::TEXT));
+                    let fg = accent_fg(&acc);
                     let mut pill = bar.row(());
                     pill.w_px(t::SP_10)
                         .h_px(t::SP_10)
@@ -437,17 +473,28 @@ fn sticky_bar(
                     } else {
                         pill.opacity(0.4);
                     }
-                    pill.child(|p| icons.render(p, Icon::Play, t::ICON_MD, [0.0, 0.0, 0.0, 1.0]));
+                    pill.child(|p| icons.render(p, Icon::Play, t::ICON_MD, fg));
                     bar.text((), &title, 16.0)
                         .color(t::TEXT)
                         .max_width_px(360.0);
                 });
+            // Overlay copy of the column header. Geometry mirrors the
+            // in-list one exactly — the glass spans the full pane, so its
+            // inset must be the list's pad (SP_3) plus the header row's
+            // own pad (SP_3) for the columns to line up. Faded in over
+            // the window where the glass sweeps across the in-list header
+            // (they coincide pixel-exact at collapse = 1), so the header
+            // appears to stick onto the overlay rather than duplicate it.
+            let dock = Computed::new((collapse_h.clone(),), move |(c,)| {
+                ((c - touch) / (1.0 - touch)).clamp(0.0, 1.0)
+            });
             c.row(())
                 .w(Len::Fill)
                 .h_px(COLHEADER_H)
-                .pad_xy(t::SP_4, t::SP_0)
+                .pad_xy(t::SP_3 + t::SP_3, t::SP_0)
                 .gap(t::SP_3)
                 .align(Align::Center)
+                .opacity_bind(dock)
                 .child(strip_items);
             // Hairline at the bottom edge — a crisp divider on top of the
             // glass so the sticky header reads as distinct from the list
@@ -534,19 +581,25 @@ fn track_row(
     {
         request_cover(url.clone());
     }
-    let on_play = on_play.clone();
-    let rows = rows.clone();
-    let ctx = context_uri.clone();
-    s.row(())
-        .w(Len::Fill)
+    let mut row = s.row(());
+    row.w(Len::Fill)
         .h_px(ROW_H)
         .pad_xy(t::SP_3, t::SP_1)
         .gap(t::SP_3)
         .align(Align::Center)
-        .radius(t::R_MD)
-        .hover_color(t::HOVER_LIFT_SUBTLE)
-        .on_click(move |_| on_play(make_target(&ctx, &rows, index)))
-        .child(|row| {
+        .radius(t::R_MD);
+    if r.playable {
+        let on_play = on_play.clone();
+        let rows = rows.clone();
+        let ctx = context_uri.clone();
+        row.hover_color(t::HOVER_LIFT_SUBTLE)
+            .on_click(move |_| on_play(make_target(&ctx, &rows, index)));
+    } else {
+        // Local file / region-blocked: visible so the playlist reads
+        // complete, but faded and inert — no hover lift, no click.
+        row.opacity(0.4);
+    }
+    row.child(|row| {
             row.row(()).w_px(t::SP_7).center().child(|c| {
                 c.text((), format!("{}", index + 1), 13.0)
                     .color(t::TEXT_DIM);
@@ -601,13 +654,17 @@ fn track_row(
 }
 
 /// Placeholder for a not-yet-streamed row — index number + grey bars.
-fn skeleton_row(s: &mut Scene, index: u32) {
+fn skeleton_row(s: &mut Scene, index: u32, pulse: &Signal<f32>) {
     s.row(())
         .w(Len::Fill)
         .h_px(ROW_H)
         .pad_xy(t::SP_3, t::SP_1)
         .gap(t::SP_3)
         .align(Align::Center)
+        // Soft loading pulse — the bound signal ping-pongs on the
+        // timeline while pages stream, and opacity cascades down the
+        // subtree so the whole placeholder breathes as one.
+        .opacity_bind(pulse.clone())
         .child(|row| {
             row.row(()).w_px(t::SP_7).center().child(|c| {
                 c.text((), format!("{}", index + 1), 13.0)

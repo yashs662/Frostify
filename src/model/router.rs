@@ -51,7 +51,10 @@ impl RouterModel {
     pub fn nav_is_open(&self, id: &str) -> bool {
         match &*self.nav.borrow() {
             MainNav::Playlist { id: nid, .. } | MainNav::Album { id: nid } => nid == id,
-            MainNav::Home | MainNav::Artist { .. } | MainNav::ShowAll { .. } => false,
+            MainNav::Home
+            | MainNav::Artist { .. }
+            | MainNav::ShowAll { .. }
+            | MainNav::Queue => false,
         }
     }
 

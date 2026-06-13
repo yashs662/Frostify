@@ -11,15 +11,18 @@ use protobuf::Message as _;
 use crate::api::{CurrentlyPlaying, RepeatMode};
 
 /// Drain the dealer `hm://connect-state/v1/cluster` subscription forever,
-/// emitting our domain `CurrentlyPlaying` for each cluster update.
+/// emitting our domain `CurrentlyPlaying` (plus the active device's
+/// volume as a 0..=1 fraction, when reported) for each cluster update.
 ///
 /// Spotify's cluster carries the *globally-active* playback — the same
 /// state the official app shows regardless of which device is the
 /// audio output. So even if Frostify isn't the active device, we still
-/// reflect what the user's phone / web player is doing.
+/// reflect what the user's phone / web player is doing. (Our OWN
+/// playback never arrives here — the dealer doesn't echo a device's
+/// state back to itself; that path is `local_player`.)
 pub async fn run<F>(mut sub: Subscription, mut on_update: F)
 where
-    F: FnMut(Option<CurrentlyPlaying>),
+    F: FnMut(Option<CurrentlyPlaying>, Option<f32>, Option<String>),
 {
     info!("cluster listener started — awaiting connect-state pushes");
     while let Some(msg) = sub.next().await {
@@ -47,7 +50,7 @@ where
         );
         let Some(cluster) = update.cluster.into_option() else {
             info!("  cluster: <empty>");
-            on_update(None);
+            on_update(None, None, None);
             continue;
         };
         info!(
@@ -55,9 +58,16 @@ where
             cluster.active_device_id,
             cluster.device.keys().collect::<Vec<_>>()
         );
+        // The active device's reported volume (0..=65535 → fraction).
+        let volume = cluster
+            .device
+            .get(&cluster.active_device_id)
+            .map(|d| (d.volume as f32 / u16::MAX as f32).clamp(0.0, 1.0));
+        let active_device = (!cluster.active_device_id.is_empty())
+            .then(|| cluster.active_device_id.clone());
         let Some(state) = cluster.player_state.into_option() else {
             info!("  player_state: <empty>");
-            on_update(None);
+            on_update(None, volume, active_device);
             continue;
         };
         if !state.track.metadata.is_empty() {
@@ -71,7 +81,7 @@ where
             "  -> CurrentlyPlaying: name='{}' artist='{}' playing={} progress={}/{} img={:?}",
             cp.name, cp.artist, cp.is_playing, cp.progress_ms, cp.duration_ms, cp.album_image_url
         );
-        on_update(Some(cp));
+        on_update(Some(cp), volume, active_device);
     }
     debug!("cluster subscription stream ended");
 }

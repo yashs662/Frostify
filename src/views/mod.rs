@@ -39,6 +39,27 @@ pub enum MainNav {
     /// A full-width "Show all" list for a home-feed section. Renders from the
     /// already-loaded `HomeData` (no fetch); rows open the matching detail.
     ShowAll { section: HomeSection },
+    /// The active device's play queue (now playing + next up). Fetched
+    /// fresh on every open — live state, no cache.
+    Queue,
+}
+
+impl MainNav {
+    /// Name of the open detail page's scroller node. Scoped to the page
+    /// content: the engine preserves scroll state across scene rebuilds
+    /// **by node name** (so e.g. the settings modal opening doesn't
+    /// reset the list), which means pages that should start at the top
+    /// on every navigation must not share one name across content.
+    pub fn detail_scroll_node(&self) -> Option<String> {
+        match self {
+            MainNav::Playlist { id, .. } | MainNav::Album { id } => {
+                Some(format!("detail_scroll:{id}"))
+            }
+            MainNav::Home | MainNav::Artist { .. } | MainNav::ShowAll { .. } | MainNav::Queue => {
+                None
+            }
+        }
+    }
 }
 
 /// Which home-feed section a [`MainNav::ShowAll`] page expands.

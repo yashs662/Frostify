@@ -42,7 +42,15 @@ pub struct BackdropModel {
     pub panel_t: Signal<f32>,
     /// Dominant colour of the current track's art, driving the
     /// accent-tinted UI (play pill, active toggles, login button).
+    /// Always contrast-safe over the dark chrome — chosen/lifted at the
+    /// worker (`color::chrome_accent` / `lift_for_chrome`).
     pub accent: Signal<[f32; 4]>,
+    /// Mean luminance of the current cover — how bright the blurred
+    /// ambient backdrop reads. Drives the adaptive glass dim (bright art
+    /// gets a stronger tint so the chrome on top keeps contrast). Rides
+    /// the **slow** crossfade tween, in step with the backdrop dissolve
+    /// it compensates for.
+    pub art_luma: Signal<f32>,
 }
 
 impl BackdropModel {
@@ -53,6 +61,7 @@ impl BackdropModel {
             crossfade_t: Signal::new(1.0),
             panel_t: Signal::new(1.0),
             accent: Signal::new(tokens::ACCENT),
+            art_luma: Signal::new(0.0),
         }
     }
 
@@ -73,6 +82,7 @@ impl BackdropModel {
         &self,
         next: ImageHandle,
         accent: Option<[f32; 4]>,
+        luma: f32,
         tl: &mut Timeline,
         now: Instant,
     ) {
@@ -85,6 +95,7 @@ impl BackdropModel {
             self.panel_t.set(0.0);
             tl.animate(&self.panel_t, 1.0, Curve::EaseInOut, PANEL_CROSSFADE_DURATION, now);
         }
+        tl.animate(&self.art_luma, luma, Curve::EaseInOut, CROSSFADE_DURATION, now);
         if let Some(c) = accent {
             tl.animate(&self.accent, c, Curve::EaseInOut, PANEL_CROSSFADE_DURATION, now);
         }

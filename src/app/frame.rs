@@ -41,7 +41,10 @@ pub fn tick(
     // feed) settles it back to 0.
     {
         use crate::views::home::playlist as pl;
-        if let Some(id) = ctx.node(pl::SCROLL_NODE) {
+        // Scroller name is content-scoped (`MainNav::detail_scroll_node`)
+        // so rebuilds preserve the offset while navigation resets it.
+        let scroll_node = state.router.nav.borrow().detail_scroll_node();
+        if let Some(id) = scroll_node.as_deref().and_then(|n| ctx.node(n)) {
             // scroll offset is physical px; collapse range is logical.
             let off = ctx.tree.scroll_offset(id)[1] / ctx.scale.max(1.0);
             let collapse = (off / pl::COLLAPSE_RANGE).clamp(0.0, 1.0);
@@ -89,9 +92,59 @@ pub fn tick(
     {
         worker.playback(token, crate::worker::PlaybackCmd::Seek(ms));
     }
+    // Proactively refresh the access token before it expires — a long
+    // listening session must never start 401-ing mid-flight. Two Cell
+    // reads per frame on the cold path; dispatches exactly once per due
+    // window (the in-flight gate holds until the response lands).
+    if let Some(rt) = state.auth.refresh_due(cx.now) {
+        log::info!("access token nearing expiry — refreshing");
+        worker.refresh_tokens(rt);
+    }
     // Drain worker responses through the reducer.
     while let Some(resp) = worker.poll() {
         reducer::handle(state, &mut cx, worker, resp);
+    }
+    // A streamed page appended rows → re-materialize the open detail
+    // page's lazy rows, turning any already-on-screen skeletons (fast
+    // scroll outran the stream) into real tracks.
+    if state.library.rows_appended.take()
+        && let Some(name) = state.router.nav.borrow().detail_scroll_node()
+        && let Some(id) = ctx.node(&name)
+    {
+        ctx.tree.invalidate_lazy_list(id);
+    }
+    // Pulse the skeleton rows while the open detail page is still
+    // streaming. Started/stopped on the state edge (not re-armed every
+    // frame); the ping-pong tween then runs itself on the timeline.
+    {
+        let streaming = state
+            .library
+            .open_playlist
+            .borrow()
+            .as_ref()
+            .map(|o| o.loading || !o.complete)
+            .unwrap_or(false);
+        let queue_loading = matches!(*state.router.nav.borrow(), crate::views::MainNav::Queue)
+            && state.library.queue.borrow().is_none();
+        let want = queue_loading
+            || (streaming && state.router.nav.borrow().detail_scroll_node().is_some());
+        if want != state.library.pulse_on.get() {
+            let pulse = &state.library.skeleton_pulse;
+            if want {
+                cx.tl.animate_pingpong(
+                    pulse,
+                    1.0,
+                    0.45,
+                    frostify_gfx::Curve::EaseInOut,
+                    std::time::Duration::from_millis(650),
+                    cx.now,
+                );
+            } else {
+                cx.tl.stop_for(pulse);
+                pulse.set(1.0);
+            }
+            state.library.pulse_on.set(want);
+        }
     }
     // Debounced prefs save (panel widths + last-player snapshot).
     state.prefs.tick(

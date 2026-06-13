@@ -69,6 +69,17 @@ fn cache_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
+/// `<root>/audio` — handed to librespot's `Cache` as its audio location,
+/// so streamed tracks land under the same user-relocatable cache root as
+/// art/json. librespot manages the contents itself (2-level fan-out dirs
+/// + an LRU size cap that touches mtimes on read); we only report usage
+/// and clear it. Created on first use.
+pub fn audio_dir() -> Option<PathBuf> {
+    let dir = root()?.join("audio");
+    fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
 /// Reject anything that isn't a bare filename (defence-in-depth against
 /// path traversal — keys are hex / base62 / known sentinels in practice).
 fn is_safe_key(key: &str) -> bool {
@@ -294,11 +305,13 @@ pub struct CacheUsage {
     pub canvas: u64,
     /// Cached API JSON + canvas metadata (`json/`).
     pub json: u64,
+    /// Streamed-track audio bytes (`audio/`, librespot-managed).
+    pub audio: u64,
 }
 
 impl CacheUsage {
     pub fn total(&self) -> u64 {
-        self.art + self.canvas + self.json
+        self.art + self.canvas + self.json + self.audio
     }
 }
 
@@ -310,6 +323,20 @@ fn dir_bytes(dir: Option<PathBuf>) -> u64 {
         .filter_map(|e| e.metadata().ok())
         .filter(|m| m.is_file())
         .map(|m| m.len())
+        .sum()
+}
+
+/// Sum file bytes under `dir` recursively — the audio cache fans files
+/// out into 2-character subdirectories (librespot's layout).
+fn dir_bytes_recursive(dir: Option<PathBuf>) -> u64 {
+    let Some(dir) = dir else { return 0 };
+    let Ok(rd) = fs::read_dir(&dir) else { return 0 };
+    rd.flatten()
+        .map(|e| match e.metadata() {
+            Ok(m) if m.is_file() => m.len(),
+            Ok(m) if m.is_dir() => dir_bytes_recursive(Some(e.path())),
+            _ => 0,
+        })
         .sum()
 }
 
@@ -348,6 +375,7 @@ pub fn usage() -> CacheUsage {
         art,
         canvas,
         json: dir_bytes(json_dir()),
+        audio: dir_bytes_recursive(audio_dir()),
     }
 }
 
@@ -357,8 +385,10 @@ pub fn root_dir() -> Option<PathBuf> {
     root()
 }
 
-/// Delete every cached file (art + json). Best-effort; returns the number
-/// of bytes freed. Blocking — call from `spawn_blocking`.
+/// Delete every cached file (art + json + audio). Best-effort; returns
+/// the number of bytes freed (a track currently streaming keeps its file
+/// locked and survives — fine, it's still valid cache). Blocking — call
+/// from `spawn_blocking`.
 pub fn clear() -> u64 {
     let before = usage().total();
     for dir in [cache_dir(), json_dir()].into_iter().flatten() {
@@ -368,6 +398,19 @@ pub fn clear() -> u64 {
                     let _ = fs::remove_file(e.path());
                 }
             }
+        }
+    }
+    // Audio fans out into subdirectories — clear those recursively.
+    if let Some(dir) = audio_dir()
+        && let Ok(rd) = fs::read_dir(&dir)
+    {
+        for e in rd.flatten() {
+            let p = e.path();
+            let _ = if p.is_dir() {
+                fs::remove_dir_all(&p)
+            } else {
+                fs::remove_file(&p)
+            };
         }
     }
     before.saturating_sub(usage().total())

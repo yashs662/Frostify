@@ -4,10 +4,12 @@
 //! sub-component `.view()`s; each component owns its own slice.
 
 pub mod artist;
+pub mod devices;
 pub mod main_pane;
 pub mod now_playing;
 pub mod player_bar;
 pub mod playlist;
+pub mod queue;
 pub mod settings;
 pub mod show_all;
 pub mod sidebar;
@@ -50,6 +52,10 @@ pub enum PlayerAction {
     Prev,
     ToggleShuffle,
     CycleRepeat,
+    /// Commit the volume slider's released position (0..=100).
+    SetVolume(u8),
+    /// Like / unlike the current track (heart button).
+    ToggleLike,
 }
 
 /// Per-build layout inputs — the ambient backdrop signals + splitter
@@ -60,6 +66,9 @@ struct Layout<'a> {
     pub backdrop_curr: &'a Signal<Option<ImageHandle>>,
     /// Slow backdrop + accent crossfade progress.
     pub crossfade_t: &'a Signal<f32>,
+    /// Mean luminance of the current cover — drives the adaptive
+    /// ambient-glass dim.
+    pub art_luma: &'a Signal<f32>,
     /// Resizable panel widths (driven by splitters via `width_px_bind`).
     pub sidebar_w: &'a Signal<f32>,
     pub now_playing_w: &'a Signal<f32>,
@@ -79,6 +88,8 @@ struct Layout<'a> {
     pub main_pane: &'a crate::views::home::main_pane::MainPane<'a>,
     /// The settings modal, a [`Component`] owning its `Overlay` wrapper.
     pub settings_panel: &'a crate::views::home::settings::SettingsPanel<'a>,
+    /// The Connect-devices popup, ditto.
+    pub devices_panel: &'a crate::views::home::devices::DevicesPanel<'a>,
 }
 
 fn render(s: &mut Scene, v: &Layout) {
@@ -138,12 +149,22 @@ fn render(s: &mut Scene, v: &Layout) {
         // just blurs the dark BG (reads the same), and keeping it
         // unconditional means the first cover appears *under* the
         // glass without needing a rebuild to introduce it.
+        // The tint adapts to the cover's brightness: a near-white cover
+        // would otherwise lift the whole backdrop to mid-grey and wash
+        // out every icon/label above it, so bright art gets a
+        // proportionally deeper dim — the chrome's background stays
+        // predictably dark, which is what the contrast-lifted accent is
+        // calibrated against. Reactive colour bind riding the slow
+        // crossfade tween — re-tints once per track change.
+        let glass_tint = Computed::new((v.art_luma.clone(),), |(l,)| {
+            [0.0, 0.0, 0.0, 0.25 + 0.40 * l.clamp(0.0, 1.0)]
+        });
         root.glass(())
             .abs(0.0, 0.0)
             .w(Len::Fill)
             .h(Len::Fill)
             .blur(80.0)
-            .rgba(0.0, 0.0, 0.0, 0.25);
+            .color(glass_tint);
         v.top_bar.view(root);
         root.row(())
             .w(Len::Fill)
@@ -180,9 +201,10 @@ fn render(s: &mut Scene, v: &Layout) {
                 v.now_playing.view(b);
             });
         v.player_bar.view(root);
-        // Settings modal — rendered last (layers on top), a component
-        // that owns its Overlay wrapper. Skipped entirely when closed.
+        // Modals — rendered last (layer on top), components that own
+        // their Overlay wrappers. Skipped entirely when closed.
         v.settings_panel.view(root);
+        v.devices_panel.view(root);
     });
 }
 
@@ -203,6 +225,9 @@ pub struct HomeView {
     on_play: PlayFn,
     request_cover: playlist::CoverFn,
     mark_dirty: Rc<dyn Fn()>,
+    on_devices_open: Rc<dyn Fn()>,
+    on_transfer: Rc<dyn Fn(String)>,
+    on_quality: Rc<dyn Fn(crate::prefs::AudioQuality)>,
 }
 
 impl HomeView {
@@ -242,6 +267,24 @@ impl HomeView {
                     PlayerAction::CycleRepeat => {
                         PlaybackCmd::Repeat(state.player_ui.cycle_repeat())
                     }
+                    PlayerAction::SetVolume(pct) => PlaybackCmd::Volume(pct),
+                    PlayerAction::ToggleLike => {
+                        // Heart: optimistic flip + save/unsave; the worker
+                        // echoes the committed (or rolled-back) state.
+                        let Some(id) = state
+                            .player_ui
+                            .snapshot
+                            .borrow()
+                            .as_ref()
+                            .and_then(|p| crate::api::track_id_from_uri(&p.track_id).map(String::from))
+                        else {
+                            return;
+                        };
+                        let next = !state.player_ui.liked.get();
+                        state.player_ui.liked.set(next);
+                        worker.set_saved(token, id, next);
+                        return;
+                    }
                 };
                 worker.playback(token, cmd);
             })
@@ -272,6 +315,36 @@ impl HomeView {
             let rebuild = rebuild.clone();
             Rc::new(move || {
                 state.settings.refresh_usage();
+                rebuild.set(true);
+            })
+        };
+        let on_devices_open: Rc<dyn Fn()> = {
+            let state = state.clone();
+            let worker = worker.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move || {
+                // Fresh list on every open — devices are live state.
+                if let Some(token) = state.auth.token() {
+                    worker.fetch_devices(token);
+                }
+                rebuild.set(true);
+            })
+        };
+        let on_transfer: Rc<dyn Fn(String)> = {
+            let state = state.clone();
+            let worker = worker.clone();
+            Rc::new(move |device_id| {
+                let Some(token) = state.auth.token() else { return };
+                log::info!("transferring playback to {device_id}");
+                worker.transfer_playback(token, device_id);
+            })
+        };
+        let on_quality: Rc<dyn Fn(crate::prefs::AudioQuality)> = {
+            let state = state.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move |q| {
+                state.prefs.data.borrow_mut().audio.quality = q;
+                state.prefs.mark_dirty(Instant::now());
                 rebuild.set(true);
             })
         };
@@ -331,6 +404,9 @@ impl HomeView {
             on_play,
             request_cover,
             mark_dirty,
+            on_devices_open,
+            on_transfer,
+            on_quality,
         }
     }
 
@@ -369,10 +445,13 @@ impl HomeView {
                         context_uri: o.context_uri.clone(),
                         rows: o.rows.clone(),
                         request_cover: self.request_cover.clone(),
+                        pulse: state.library.skeleton_pulse.clone(),
                     }
                 })
             }
-            MainNav::Home | MainNav::Artist { .. } | MainNav::ShowAll { .. } => None,
+            MainNav::Home | MainNav::Artist { .. } | MainNav::ShowAll { .. } | MainNav::Queue => {
+                None
+            }
         };
         // Artist page view data: bake album cover signals + lazily dispatch
         // their fetches (idempotent), mirroring how playlist rows resolve.
@@ -438,10 +517,14 @@ impl HomeView {
             canvas: &state.canvas,
             width: &state.prefs.now_playing_w,
         };
+        let queue_ref = state.library.queue.borrow();
         let player_bar = player_bar::PlayerBar {
             backdrop: &state.backdrop,
             player: &state.player_ui,
             on_action: self.on_action.clone(),
+            devices: &state.devices,
+            on_devices_open: self.on_devices_open.clone(),
+            on_navigate: self.on_navigate.clone(),
             icons,
         };
         let sidebar = sidebar::Sidebar {
@@ -467,6 +550,8 @@ impl HomeView {
             playlist: playlist.as_ref(),
             artist: artist_data.as_ref(),
             show_all: show_all_data.as_ref(),
+            queue: queue_ref.as_deref(),
+            pulse: &state.library.skeleton_pulse,
             main_t: &state.router.main_t,
             detail_collapse: &state.router.detail_collapse,
             on_play: self.on_play.clone(),
@@ -482,11 +567,20 @@ impl HomeView {
             on_canvas_change: self.on_canvas_change.clone(),
             on_clear_cache: self.on_clear_cache.clone(),
             on_change_cache_dir: self.on_change_cache_dir.clone(),
+            quality: state.prefs.data.borrow().audio.quality,
+            on_quality: self.on_quality.clone(),
+        };
+        let devices_panel = devices::DevicesPanel {
+            devices: &state.devices,
+            accent: &state.backdrop.accent,
+            icons,
+            on_transfer: self.on_transfer.clone(),
         };
         let layout = Layout {
             backdrop_prev: &state.backdrop.prev,
             backdrop_curr: &state.backdrop.curr,
             crossfade_t: &state.backdrop.crossfade_t,
+            art_luma: &state.backdrop.art_luma,
             sidebar_w: &state.prefs.sidebar_w,
             now_playing_w: &state.prefs.now_playing_w,
             mark_dirty: self.mark_dirty.clone(),
@@ -496,6 +590,7 @@ impl HomeView {
             top_bar: &top_bar,
             main_pane: &main_pane,
             settings_panel: &settings_panel,
+            devices_panel: &devices_panel,
         };
         render(s, &layout);
     }
@@ -522,14 +617,18 @@ fn build_show_all(
             let mut groups: Vec<ShowAllGroup> = Vec::new();
             for t in &home.recent {
                 let label = show_all::day_label(&t.played_at, &today, &yesterday);
+                // A song row plays the song (in its album context, so the
+                // queue continues) — it doesn't navigate; opening the album
+                // from a play-history list surprised more than it helped.
                 let row = ShowAllRow {
                     title: t.name.clone(),
                     subtitle: t.artist.clone(),
                     thumb: sig(&t.album_image_url),
                     round: false,
-                    nav: MainNav::Album {
-                        id: t.album_id.clone(),
-                    },
+                    action: show_all::RowAction::Play(crate::api::PlayTarget::ContextAt {
+                        context_uri: format!("spotify:album:{}", t.album_id),
+                        track_uri: format!("spotify:track:{}", t.id),
+                    }),
                 };
                 if groups.last().map(|g| g.header.as_deref()) == Some(Some(label.as_str())) {
                     groups.last_mut().unwrap().rows.push(row);
@@ -554,7 +653,7 @@ fn build_show_all(
                     subtitle: "Artist".to_string(),
                     thumb: sig(&a.image_url),
                     round: true,
-                    nav: MainNav::Artist { id: a.id.clone() },
+                    action: show_all::RowAction::Open(MainNav::Artist { id: a.id.clone() }),
                 })
                 .collect();
             ShowAllViewData {
@@ -571,9 +670,9 @@ fn build_show_all(
                     subtitle: t.artist.clone(),
                     thumb: sig(&t.album_image_url),
                     round: false,
-                    nav: MainNav::Album {
+                    action: show_all::RowAction::Open(MainNav::Album {
                         id: t.album_id.clone(),
-                    },
+                    }),
                 })
                 .collect();
             ShowAllViewData {
@@ -590,10 +689,10 @@ fn build_show_all(
                     subtitle: "Playlist".to_string(),
                     thumb: sig(&p.image_url),
                     round: false,
-                    nav: MainNav::Playlist {
+                    action: show_all::RowAction::Open(MainNav::Playlist {
                         id: p.id.clone(),
                         liked: false,
-                    },
+                    }),
                 })
                 .collect();
             ShowAllViewData {
@@ -630,6 +729,16 @@ fn navigate(state: &Rc<AppState>, cx: &mut Cx, worker: &Worker, nav: MainNav) {
             // Show-all renders from the already-loaded HomeData — no fetch.
             *state.library.open_playlist.borrow_mut() = None;
             *state.library.open_artist.borrow_mut() = None;
+        }
+        MainNav::Queue => {
+            // Live state — refetched on every open (skeleton until it
+            // lands; the response rebuilds).
+            *state.library.open_playlist.borrow_mut() = None;
+            *state.library.open_artist.borrow_mut() = None;
+            *state.library.queue.borrow_mut() = None;
+            if let Some(token) = state.auth.token() {
+                worker.fetch_queue(token);
+            }
         }
     }
     state.router.go(nav, cx.tl, cx.now);

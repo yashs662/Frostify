@@ -25,6 +25,8 @@ const CACHE_ART_COL: [f32; 4] = [0.36, 0.7, 0.95, 1.0];
 const CACHE_CANVAS_COL: [f32; 4] = [0.78, 0.5, 0.95, 1.0];
 /// Colour of the API-JSON segment in the cache usage bar.
 const CACHE_JSON_COL: [f32; 4] = [0.55, 0.82, 0.55, 1.0];
+/// Colour of the streamed-audio segment in the cache usage bar.
+const CACHE_AUDIO_COL: [f32; 4] = [0.95, 0.68, 0.38, 1.0];
 
 // Animated toggle dimensions (logical px). The knob slides `TRAVEL` px
 // between the two pad-inset ends of the track.
@@ -41,6 +43,10 @@ const TOGGLE_OFF: [f32; 4] = [1.0, 1.0, 1.0, 0.18];
 const TOGGLE_MS: u64 = 160;
 
 const PANEL_W: f32 = 420.0;
+/// Capped panel height (logical px). Current content fits within this, so
+/// the body doesn't scroll yet; it caps growth so the modal never exceeds
+/// a typical window, scrolling once future sections push past it.
+const PANEL_MAX_H: f32 = 600.0;
 const SIGN_OUT_W: f32 = 116.0;
 
 /// The settings modal — a [`Component`]. Reads its toggle/accent/cache
@@ -61,6 +67,10 @@ pub struct SettingsPanel<'a> {
     pub on_clear_cache: Rc<dyn Fn()>,
     /// Open a folder picker to relocate the cache.
     pub on_change_cache_dir: Rc<dyn Fn()>,
+    /// Current streaming-quality preference (selected chip).
+    pub quality: crate::prefs::AudioQuality,
+    /// Persist a new streaming-quality choice.
+    pub on_quality: Rc<dyn Fn(crate::prefs::AudioQuality)>,
 }
 
 impl Component for SettingsPanel<'_> {
@@ -72,36 +82,109 @@ impl Component for SettingsPanel<'_> {
             .map(|p| p.display().to_string())
             .unwrap_or_default();
         self.settings.overlay.render(s, t::SCRIM, |host| {
+            // Capped-height panel: the header stays pinned and the body
+            // scrolls, so the modal never grows past the window however
+            // many settings sections we add. Current content fits without
+            // scrolling; future sections simply scroll into reach.
             host.col("settings_panel")
                 .w_px(PANEL_W)
+                .h_px(PANEL_MAX_H)
                 .rgba(t::PANEL[0], t::PANEL[1], t::PANEL[2], 0.98)
                 .radius(t::R_XL)
                 .border(1.0, t::BORDER)
-                .pad(t::SP_6)
-                .gap(t::SP_5)
+                .pad_ltrb(t::SP_6, t::SP_6, t::SP_6, t::SP_0)
+                .gap(t::SP_4)
                 .child(|panel| {
+                    // Pinned header.
                     header(panel, icons, self.settings.overlay.clone());
-                    setting_row(
-                        panel,
-                        "Show canvas video",
-                        "Looping artist visual in the now-playing pane",
-                        &self.canvas.show,
-                        &self.backdrop.accent,
-                        self.on_canvas_change.clone(),
-                    );
-                    panel.rect(()).w(Len::Fill).h_px(t::SP_PX).rgba(1.0, 1.0, 1.0, 0.06);
-                    cache_section(
-                        panel,
-                        cache_usage,
-                        &cache_path,
-                        self.on_clear_cache.clone(),
-                        self.on_change_cache_dir.clone(),
-                    );
-                    panel.rect(()).w(Len::Fill).h_px(t::SP_PX).rgba(1.0, 1.0, 1.0, 0.06);
-                    account(panel, self.profile, self.sign_out.clone());
+                    // Scrolling body — fills the remaining height; the thin
+                    // auto-hiding scrollbar only shows when content overflows.
+                    panel
+                        .col(())
+                        .w(Len::Fill)
+                        .h(Len::Fill)
+                        .gap(t::SP_5)
+                        .pad_ltrb(t::SP_0, t::SP_1, t::SP_2, t::SP_6)
+                        .scroll_y()
+                        .scrollbar(|sb| sb.auto_hide(true).margin(t::SP_0_5).thickness(t::SP_1))
+                        .child(|body| {
+                            setting_row(
+                                body,
+                                "Show canvas video",
+                                "Looping artist visual in the now-playing pane",
+                                &self.canvas.show,
+                                &self.backdrop.accent,
+                                self.on_canvas_change.clone(),
+                            );
+                            divider(body);
+                            quality_row(
+                                body,
+                                self.quality,
+                                &self.backdrop.accent,
+                                self.on_quality.clone(),
+                            );
+                            divider(body);
+                            cache_section(
+                                body,
+                                cache_usage,
+                                &cache_path,
+                                self.on_clear_cache.clone(),
+                                self.on_change_cache_dir.clone(),
+                            );
+                            divider(body);
+                            account(body, self.profile, self.sign_out.clone());
+                        });
                 });
         });
     }
+}
+
+/// Hairline divider between settings sections.
+fn divider(s: &mut Scene) {
+    s.rect(()).w(Len::Fill).h_px(t::SP_PX).rgba(1.0, 1.0, 1.0, 0.06);
+}
+
+/// Streaming-quality picker: three chips (96 / 160 / 320 kbps), the
+/// active one accent-filled. Bitrate is baked into the librespot player
+/// at session start, so a change applies from the next launch — the
+/// caption says so rather than pretending it's instant.
+fn quality_row(
+    s: &mut Scene,
+    current: crate::prefs::AudioQuality,
+    accent: &Signal<[f32; 4]>,
+    on_quality: Rc<dyn Fn(crate::prefs::AudioQuality)>,
+) {
+    use crate::prefs::AudioQuality as Q;
+    s.col(()).w(Len::Fill).gap(t::SP_2).child(move |c| {
+        c.col(()).gap(t::SP_0_5).child(|m| {
+            m.text((), "Streaming quality", 14.0).color(t::TEXT);
+            m.text((), "Applies on next launch", t::TEXT_XS).color(t::TEXT_DIM);
+        });
+        c.row(()).gap(t::SP_2).child(move |row| {
+            for (q, label) in [(Q::Low, "Low 96k"), (Q::Normal, "Normal 160k"), (Q::High, "High 320k")] {
+                let selected = q == current;
+                let mut chip = row.row(());
+                chip.h_px(t::CHIP_H)
+                    .pad_xy(t::SP_3_5, t::SP_0)
+                    .center()
+                    .radius(t::R_FULL);
+                if selected {
+                    chip.color(accent.clone()).child(|x| {
+                        x.text((), label, 13.0)
+                            .color(crate::widgets::color::accent_fg(accent));
+                    });
+                } else {
+                    let on_quality = on_quality.clone();
+                    chip.color(t::PANEL_HI)
+                        .hover_opacity(0.8)
+                        .on_click(move |_| on_quality(q))
+                        .child(|x| {
+                            x.text((), label, 13.0).color(t::TEXT);
+                        });
+                }
+            }
+        });
+    });
 }
 
 /// Human-readable byte size (e.g. `1.2 GB`, `340 MB`, `12 KB`).
@@ -135,6 +218,7 @@ fn cache_section(
     // Non-zero segments in draw order, for the proportional bar. End caps
     // are rounded by rounding the first segment's left + last's right.
     let segments: Vec<(f32, [f32; 4])> = [
+        (frac(usage.audio), CACHE_AUDIO_COL),
         (frac(usage.art), CACHE_ART_COL),
         (frac(usage.canvas), CACHE_CANVAS_COL),
         (frac(usage.json), CACHE_JSON_COL),
@@ -143,6 +227,7 @@ fn cache_section(
     .filter(|(f, _)| *f > 0.0)
     .collect();
     let total_label = fmt_bytes(total);
+    let audio_label = format!("Audio  {}", fmt_bytes(usage.audio));
     let art_label = format!("Album art  {}", fmt_bytes(usage.art));
     let canvas_label = format!("Canvas  {}", fmt_bytes(usage.canvas));
     let json_label = format!("Metadata  {}", fmt_bytes(usage.json));
@@ -174,15 +259,19 @@ fn cache_section(
                     bar.rect(()).w(Len::Pct(*f)).h(Len::Fill).color(*col);
                 }
             });
-        // Legend.
-        c.row(())
-            .w(Len::Fill)
-            .gap(t::SP_4)
-            .child(move |lg| {
-                legend_dot(lg, CACHE_ART_COL, &art_label);
-                legend_dot(lg, CACHE_CANVAS_COL, &canvas_label);
-                legend_dot(lg, CACHE_JSON_COL, &json_label);
+        // Legend — a 2×2 grid (two rows of two) so four categories fit
+        // the panel width without the last one running off the edge.
+        // Each cell fills half the row so the columns line up.
+        c.col(()).w(Len::Fill).gap(t::SP_1_5).child(move |lg| {
+            lg.row(()).w(Len::Fill).gap(t::SP_2).child(|r| {
+                legend_dot(r, CACHE_AUDIO_COL, &audio_label);
+                legend_dot(r, CACHE_ART_COL, &art_label);
             });
+            lg.row(()).w(Len::Fill).gap(t::SP_2).child(|r| {
+                legend_dot(r, CACHE_CANVAS_COL, &canvas_label);
+                legend_dot(r, CACHE_JSON_COL, &json_label);
+            });
+        });
         // Location + relocate.
         c.row(())
             .w(Len::Fill)
@@ -223,13 +312,16 @@ fn cache_section(
 }
 
 /// A small coloured dot + label, for the cache-bar legend.
+/// One legend cell — a colour dot + label. Fills half its row so the two
+/// columns of the 2×2 grid line up regardless of label width.
 fn legend_dot(s: &mut Scene, color: [f32; 4], label: &str) {
     s.row(())
+        .w(Len::Fill)
         .align(Align::Center)
         .gap(t::SP_1)
         .child(|d| {
             d.rect(()).w_px(t::SP_2).h_px(t::SP_2).radius(t::R_FULL).color(color);
-            d.text((), label, t::TEXT_XS).color(t::TEXT_DIM);
+            d.text((), label, t::TEXT_XS).color(t::TEXT_DIM).max_width_px(150.0);
         });
 }
 

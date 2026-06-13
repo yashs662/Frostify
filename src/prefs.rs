@@ -154,17 +154,16 @@ pub struct WindowPrefs {
     pub maximized: bool,
 }
 
-/// Playback / audio preferences. Hooked into the player layer (libre-
-/// spot mixer + crossfade timeline) — values applied at session start.
+/// Playback / audio preferences, applied at session start (the librespot
+/// player + Connect device are built once per connect).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AudioPrefs {
-    /// Master volume, 0.0..=1.0. Applied to the librespot soft mixer.
+    /// Master volume, 0.0..=1.0. Seeds the Connect device's advertised
+    /// volume + the slider; updated from every volume confirmation.
     #[serde(default = "default_volume")]
     pub volume: f32,
-    /// Crossfade between consecutive tracks, in ms. `0` disables.
-    #[serde(default)]
-    pub crossfade_ms: u32,
-    /// Bitrate tier — librespot accepts 96 / 160 / 320 kbps.
+    /// Bitrate tier — librespot streams 96 / 160 / 320 kbps OGG Vorbis.
+    /// Changing it in settings applies from the next app start.
     #[serde(default)]
     pub quality: AudioQuality,
 }
@@ -177,17 +176,19 @@ impl Default for AudioPrefs {
     fn default() -> Self {
         Self {
             volume: default_volume(),
-            crossfade_ms: 0,
             quality: AudioQuality::default(),
         }
     }
 }
 
+/// Streaming quality tier. Defaults to High (320 kbps — the ceiling any
+/// third-party client can stream; lossless rides DRM librespot can't
+/// decrypt). Low/Normal exist for constrained connections.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AudioQuality {
     Low,
-    #[default]
     Normal,
+    #[default]
     High,
 }
 
@@ -251,7 +252,7 @@ mod tests {
         let back: UserPreferences = serde_json::from_str(&json).unwrap();
         assert_eq!(back.version, SCHEMA_VERSION);
         assert_eq!(back.panels.sidebar_w, 320.0);
-        assert_eq!(back.audio.quality, AudioQuality::Normal);
+        assert_eq!(back.audio.quality, AudioQuality::High);
     }
 
     #[test]

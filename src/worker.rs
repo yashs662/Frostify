@@ -3,6 +3,9 @@ use crate::api::{self, CurrentlyPlaying, HomeData, RepeatMode, TrackDetails};
 use crate::auth::oauth::{self, SpotifyAuthResponse, listen_for_callback, refresh_token};
 use crate::auth::token_manager::{self, StoredTokens};
 use crate::disk_cache;
+use crate::errors::AuthError;
+use crate::extracted_color;
+use crate::widgets::{color, tokens};
 use crate::{cluster_listener, spirc_bootstrap, spotify_session};
 use frostify_gfx::{ImageHandle, Uploader, WakeHandle};
 use librespot_connect::Spirc;
@@ -83,11 +86,46 @@ pub enum WorkerCommand {
     },
     ConnectSpotifySession {
         access_token: String,
+        /// Persisted volume preference (0..=1) — the Connect device's
+        /// advertised initial volume, so a transfer to Frostify doesn't
+        /// snap the user back to librespot's 50% default.
+        initial_volume: f32,
+        /// Persisted streaming-quality preference → librespot bitrate.
+        quality: crate::prefs::AudioQuality,
     },
     /// Transport control on the active Connect device (Web API).
     Playback {
         access_token: String,
         cmd: PlaybackCmd,
+    },
+    /// Proactively refresh the access token before it expires (dispatched
+    /// by the frame tick's due-check; see `AuthModel::refresh_due`).
+    RefreshTokens {
+        refresh_token: String,
+    },
+    /// List Connect devices for the devices popup.
+    FetchDevices {
+        access_token: String,
+    },
+    /// Transfer playback to a device (and resume there).
+    TransferPlayback {
+        access_token: String,
+        device_id: String,
+    },
+    /// Is the current track liked? (heart state on track change)
+    CheckSaved {
+        access_token: String,
+        track_id: String,
+    },
+    /// Like / unlike a track.
+    SetSaved {
+        access_token: String,
+        track_id: String,
+        saved: bool,
+    },
+    /// The active device's play queue, for the queue page.
+    FetchQueue {
+        access_token: String,
     },
 }
 
@@ -103,6 +141,8 @@ pub enum PlaybackCmd {
     Prev,
     Shuffle(bool),
     Repeat(RepeatMode),
+    /// Set the active device's volume (0..=100).
+    Volume(u8),
     /// Seek the active device to an absolute position (ms).
     Seek(u32),
     /// Start a playlist/album context (or explicit track list) at an
@@ -112,6 +152,45 @@ pub enum PlaybackCmd {
 
 #[derive(Debug, Clone)]
 pub enum WorkerResponse {
+    /// A transport command failed for good (after the claim-on-Frostify
+    /// fallback). The UI rolls back its optimistic toggle flips to the
+    /// authoritative snapshot.
+    PlaybackFailed {
+        cmd: PlaybackCmd,
+    },
+    /// The active device's volume changed (local mixer event or cluster
+    /// push), 0..=1.
+    VolumeChanged {
+        fraction: f32,
+    },
+    /// Proactive token refresh succeeded — swap the live token only (no
+    /// re-fetch / session reconnect like `TokensLoaded`).
+    TokensRefreshed {
+        auth: SpotifyAuthResponse,
+    },
+    /// Proactive token refresh failed — the auth model backs off and the
+    /// due-check retries shortly.
+    TokensRefreshFailed,
+    /// Connect device list (devices popup).
+    Devices {
+        devices: Vec<api::Device>,
+    },
+    /// The cluster's active device changed; `is_self` = Frostify is it.
+    ActiveDeviceChanged {
+        device_id: String,
+        is_self: bool,
+    },
+    /// Liked-state of a track (heart) — both the on-track-change check
+    /// and the authoritative echo after a save/unsave (a failed write
+    /// sends the rolled-back value).
+    SavedState {
+        track_id: String,
+        saved: bool,
+    },
+    /// The active device's queue (currently playing first).
+    QueueLoaded {
+        tracks: Vec<api::PlaylistTrack>,
+    },
     OAuthStarted {
         auth_url: String,
     },
@@ -170,6 +249,9 @@ pub enum WorkerResponse {
         key: String,
         handle: ImageHandle,
         accent: [f32; 4],
+        /// Mean luminance of the cover — how bright its blurred ambient
+        /// backdrop reads; drives the adaptive glass dim.
+        luma: f32,
     },
     AlbumArtFailed {
         key: String,
@@ -193,7 +275,11 @@ pub enum WorkerResponse {
     CanvasNone {
         track_id: String,
     },
-    SpotifySessionConnected,
+    SpotifySessionConnected {
+        /// Frostify's own librespot device id — the devices popup tags
+        /// this row "This device".
+        device_id: String,
+    },
     SpotifySessionFailed {
         error: String,
     },
@@ -269,16 +355,42 @@ impl Worker {
                             track_uri,
                             track_id,
                         } => spawn_fetch_canvas(resp.clone(), session.clone(), track_uri, track_id),
-                        WorkerCommand::ConnectSpotifySession { access_token } => {
-                            spawn_connect_session(
-                                resp.clone(),
-                                session.clone(),
-                                spirc.clone(),
-                                access_token,
-                            )
-                        }
+                        WorkerCommand::ConnectSpotifySession {
+                            access_token,
+                            initial_volume,
+                            quality,
+                        } => spawn_connect_session(
+                            resp.clone(),
+                            session.clone(),
+                            spirc.clone(),
+                            access_token,
+                            initial_volume,
+                            quality,
+                        ),
                         WorkerCommand::Playback { access_token, cmd } => {
-                            spawn_playback(access_token, cmd)
+                            spawn_playback(resp.clone(), session.clone(), access_token, cmd)
+                        }
+                        WorkerCommand::RefreshTokens { refresh_token } => {
+                            spawn_refresh_tokens(resp.clone(), refresh_token)
+                        }
+                        WorkerCommand::FetchDevices { access_token } => {
+                            spawn_fetch_devices(resp.clone(), access_token)
+                        }
+                        WorkerCommand::TransferPlayback {
+                            access_token,
+                            device_id,
+                        } => spawn_transfer(access_token, device_id),
+                        WorkerCommand::CheckSaved {
+                            access_token,
+                            track_id,
+                        } => spawn_check_saved(resp.clone(), access_token, track_id),
+                        WorkerCommand::SetSaved {
+                            access_token,
+                            track_id,
+                            saved,
+                        } => spawn_set_saved(resp.clone(), access_token, track_id, saved),
+                        WorkerCommand::FetchQueue { access_token } => {
+                            spawn_fetch_queue(resp.clone(), access_token)
                         }
                     }
                 }
@@ -337,15 +449,50 @@ impl Worker {
             track_id,
         });
     }
-    pub fn connect_spotify_session(&self, access_token: String) {
-        let _ = self
-            .cmd_tx
-            .send(WorkerCommand::ConnectSpotifySession { access_token });
+    pub fn connect_spotify_session(
+        &self,
+        access_token: String,
+        initial_volume: f32,
+        quality: crate::prefs::AudioQuality,
+    ) {
+        let _ = self.cmd_tx.send(WorkerCommand::ConnectSpotifySession {
+            access_token,
+            initial_volume,
+            quality,
+        });
     }
     pub fn playback(&self, access_token: String, cmd: PlaybackCmd) {
         let _ = self
             .cmd_tx
             .send(WorkerCommand::Playback { access_token, cmd });
+    }
+    pub fn refresh_tokens(&self, refresh_token: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::RefreshTokens { refresh_token });
+    }
+    pub fn fetch_devices(&self, access_token: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::FetchDevices { access_token });
+    }
+    pub fn transfer_playback(&self, access_token: String, device_id: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::TransferPlayback {
+            access_token,
+            device_id,
+        });
+    }
+    pub fn check_saved(&self, access_token: String, track_id: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::CheckSaved {
+            access_token,
+            track_id,
+        });
+    }
+    pub fn set_saved(&self, access_token: String, track_id: String, saved: bool) {
+        let _ = self.cmd_tx.send(WorkerCommand::SetSaved {
+            access_token,
+            track_id,
+            saved,
+        });
+    }
+    pub fn fetch_queue(&self, access_token: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::FetchQueue { access_token });
     }
     pub fn poll(&self) -> Option<WorkerResponse> {
         self.resp_rx.try_recv().ok()
@@ -451,17 +598,21 @@ const ACCENT_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60 *
 /// session round-trip lagged), then falls back to the `EXTRACTED_COLOR`
 /// extended-metadata query, caching the result. No-ops silently if there's
 /// no session yet and no cache (UI keeps the art-derived pixel average).
+///
+/// The cache stores the raw variant triple (`colors_<hex>`); the chrome's
+/// chosen + contrast-lifted accent is derived on every read so the
+/// contrast policy can evolve without fighting month-old cache entries.
 fn spawn_fetch_accent(
     resp: Responder,
     session_slot: Arc<AsyncMutex<Option<Session>>>,
     image_hex: String,
 ) {
     tokio::spawn(async move {
-        let cache_key = format!("accent_{image_hex}");
+        let cache_key = format!("colors_{image_hex}");
         // Cache hit → apply immediately, no session needed.
-        if let Some(accent) = tokio::task::spawn_blocking({
+        if let Some(colors) = tokio::task::spawn_blocking({
             let cache_key = cache_key.clone();
-            move || disk_cache::read_json::<[f32; 4]>(&cache_key, ACCENT_TTL)
+            move || disk_cache::read_json::<extracted_color::ExtractedColors>(&cache_key, ACCENT_TTL)
         })
         .await
         .ok()
@@ -469,7 +620,7 @@ fn spawn_fetch_accent(
         {
             resp.send(WorkerResponse::AccentReady {
                 key: image_hex,
-                accent,
+                accent: color::chrome_accent(&colors, tokens::ACCENT),
             });
             return;
         }
@@ -482,14 +633,14 @@ fn spawn_fetch_accent(
         // URI, not the track URI.
         let image_uri = format!("spotify:image:{image_hex}");
         match fetch_extracted_color(&session, &image_uri).await {
-            Some(accent) => {
-                debug!("extracted color {image_hex} -> {accent:?}");
-                tokio::task::spawn_blocking(move || disk_cache::write_json(&cache_key, &accent))
+            Some(colors) => {
+                debug!("extracted colors {image_hex} -> {colors:?}");
+                tokio::task::spawn_blocking(move || disk_cache::write_json(&cache_key, &colors))
                     .await
                     .ok();
                 resp.send(WorkerResponse::AccentReady {
                     key: image_hex,
-                    accent,
+                    accent: color::chrome_accent(&colors, tokens::ACCENT),
                 });
             }
             None => debug!("no extracted color for {image_hex}"),
@@ -497,7 +648,10 @@ fn spawn_fetch_accent(
     });
 }
 
-async fn fetch_extracted_color(session: &Session, image_uri: &str) -> Option<[f32; 4]> {
+async fn fetch_extracted_color(
+    session: &Session,
+    image_uri: &str,
+) -> Option<extracted_color::ExtractedColors> {
     let req = BatchedEntityRequest {
         entity_request: vec![EntityRequest {
             entity_uri: image_uri.to_string(),
@@ -520,7 +674,7 @@ async fn fetch_extracted_color(session: &Session, image_uri: &str) -> Option<[f3
     let mut arr = res.extended_metadata.pop()?;
     let mut data = arr.extension_data.pop()?;
     let any = data.extension_data.take()?;
-    crate::extracted_color::parse_color_dark(&any.value)
+    crate::extracted_color::parse_colors(&any.value)
 }
 
 /// Per-track Canvas metadata persisted to the JSON disk cache so we don't
@@ -689,24 +843,64 @@ async fn fetch_canvas_entry(
     crate::canvas::parse_canvas(&any.value)
 }
 
-fn spawn_playback(access_token: String, cmd: PlaybackCmd) {
+/// True for the Web API's "no active device" failure (404 with the
+/// NO_ACTIVE_DEVICE reason).
+fn is_no_active_device(e: &AuthError) -> bool {
+    matches!(e, AuthError::Api(body, Some(404)) if body.contains("NO_ACTIVE_DEVICE"))
+}
+
+fn spawn_playback(
+    resp: Responder,
+    session_slot: Arc<AsyncMutex<Option<Session>>>,
+    access_token: String,
+    cmd: PlaybackCmd,
+) {
     tokio::spawn(async move {
         let result = match cmd.clone() {
-            PlaybackCmd::Play => api::play(&access_token).await,
+            PlaybackCmd::Play => api::play(&access_token, None).await,
             PlaybackCmd::Pause => api::pause(&access_token).await,
             PlaybackCmd::Next => api::next_track(&access_token).await,
             PlaybackCmd::Prev => api::previous_track(&access_token).await,
             PlaybackCmd::Shuffle(on) => api::set_shuffle(&access_token, on).await,
             PlaybackCmd::Repeat(mode) => api::set_repeat(&access_token, mode).await,
             PlaybackCmd::Seek(ms) => api::seek(&access_token, ms).await,
-            PlaybackCmd::PlayContext(target) => api::play_context(&access_token, target).await,
+            PlaybackCmd::Volume(pct) => api::set_volume(&access_token, pct).await,
+            PlaybackCmd::PlayContext(target) => {
+                api::play_context(&access_token, target, None).await
+            }
+        };
+        // No active device + a "start playing" intent → Frostify IS a
+        // playable Connect device (real rodio sink): retry the same
+        // command targeted at our own librespot device id, so playback
+        // simply starts here instead of dead-ending on a 404.
+        let result = match result {
+            Err(ref e) if is_no_active_device(e) => {
+                let device_id = { session_slot.lock().await.as_ref().map(|s| s.device_id().to_string()) };
+                match (device_id, cmd.clone()) {
+                    (Some(id), PlaybackCmd::Play) => {
+                        info!("no active device — resuming on Frostify ({id})");
+                        api::play(&access_token, Some(&id)).await
+                    }
+                    (Some(id), PlaybackCmd::PlayContext(target)) => {
+                        info!("no active device — playing on Frostify ({id})");
+                        api::play_context(&access_token, target, Some(&id)).await
+                    }
+                    // Pause/Next/Seek/… with nothing playing anywhere:
+                    // there is no state to act on; surface the failure.
+                    _ => result,
+                }
+            }
+            other => other,
         };
         match result {
             Ok(()) => debug!("playback cmd {cmd:?} ok"),
-            // 404 = no active device; the optimistic UI flip may now be
-            // out of sync with reality, but there's nothing to control
-            // until the user starts playback on some device.
-            Err(e) => warn!("playback cmd {cmd:?} failed: {e}"),
+            Err(e) => {
+                warn!("playback cmd {cmd:?} failed: {e}");
+                // Tell the UI so it can roll back its optimistic flip —
+                // otherwise the play button shows "pause" while nothing
+                // is actually playing.
+                resp.send(WorkerResponse::PlaybackFailed { cmd });
+            }
         }
     });
 }
@@ -874,18 +1068,34 @@ fn spawn_fetch_playlist(resp: Responder, access_token: String, id: String, liked
             } else {
                 api::playlist_tracks_url(&id, offset, page_size)
             };
-            let page = match api::fetch_tracks_page(&access_token, &url).await {
-                Ok(p) => p,
-                Err(e) => {
-                    warn!("fetch_tracks_page({id} @{offset}) failed: {e}");
-                    if first {
+            // A transient failure (rate limit, network blip) mid-stream
+            // must not strand the rest of the playlist — retry with a
+            // short backoff before giving up. On a persistent failure the
+            // UI is told either way: `PlaylistFailed` clears the inflight
+            // gate (and `complete` stays false), so re-opening refetches
+            // instead of being locked out forever.
+            let mut attempt = 0u32;
+            let page = loop {
+                match api::fetch_tracks_page(&access_token, &url).await {
+                    Ok(p) => break Some(p),
+                    Err(e) if attempt < 2 => {
+                        attempt += 1;
+                        warn!("fetch_tracks_page({id} @{offset}) attempt {attempt} failed: {e}");
+                        tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64))
+                            .await;
+                    }
+                    Err(e) => {
+                        warn!("fetch_tracks_page({id} @{offset}) failed for good: {e}");
                         resp.send(WorkerResponse::PlaylistFailed {
                             id: id.clone(),
                             error: e.to_string(),
                         });
+                        break None;
                     }
-                    break;
                 }
+            };
+            let Some(page) = page else {
+                break;
             };
             total = page.total;
             let next = offset + page_size;
@@ -1030,13 +1240,16 @@ fn spawn_fetch_album_art(resp: Responder, uploader: Arc<Uploader>, url: String, 
                 disk_cache::write(&key_for_decode, &bytes);
             }
             let (w, h, rgba) = album_art::decode_to_rgba(&bytes, ALBUM_ART_MAX_DIM)?;
-            let accent = album_art::extract_accent(&rgba, w, h);
-            Some((w, h, rgba, accent))
+            // Provisional accent (a later `AccentReady` overrides it) —
+            // lifted so even a muddy pixel-average reads on the chrome.
+            let accent = color::lift_for_chrome(album_art::extract_accent(&rgba, w, h));
+            let luma = album_art::mean_luminance(&rgba);
+            Some((w, h, rgba, accent, luma))
         })
         .await
         .ok()
         .flatten();
-        let Some((w, h, rgba, accent)) = decoded else {
+        let Some((w, h, rgba, accent, luma)) = decoded else {
             warn!("album art decode failed for key={key}");
             resp.send(WorkerResponse::AlbumArtFailed { key });
             return;
@@ -1050,6 +1263,7 @@ fn spawn_fetch_album_art(resp: Responder, uploader: Arc<Uploader>, url: String, 
                 key,
                 handle,
                 accent,
+                luma,
             }),
             None => {
                 warn!("uploader rejected album art upload");
@@ -1064,13 +1278,15 @@ fn spawn_connect_session(
     session_slot: Arc<AsyncMutex<Option<Session>>>,
     spirc_slot: Arc<AsyncMutex<Option<Spirc>>>,
     access_token: String,
+    initial_volume: f32,
+    quality: crate::prefs::AudioQuality,
 ) {
     tokio::spawn(async move {
         let s = spotify_session::new_session();
         *session_slot.lock().await = Some(s.clone());
 
         let creds = Credentials::with_access_token(access_token);
-        let boot = match spirc_bootstrap::start(s, creds).await {
+        let boot = match spirc_bootstrap::start(s, creds, initial_volume, quality).await {
             Ok(b) => b,
             Err(e) => {
                 error!("spirc bootstrap failed: {e}");
@@ -1085,6 +1301,7 @@ fn spawn_connect_session(
             spirc,
             spirc_task,
             cluster_sub,
+            player_events,
         } = boot;
         *spirc_slot.lock().await = Some(spirc);
 
@@ -1094,16 +1311,122 @@ fn spawn_connect_session(
             warn!("spirc_task ended — Connect device offline");
         });
 
-        // Drain cluster updates into UI-thread responses.
+        // Drain cluster updates into UI-thread responses (remote devices'
+        // playback, the active device's volume, and which device is
+        // active — `is_self` lights the "playing on Frostify" chrome).
         let resp_for_cluster = resp.clone();
+        let self_device_id = {
+            let guard = session_slot.lock().await;
+            guard.as_ref().map(|s| s.device_id().to_string()).unwrap_or_default()
+        };
+        let self_id_for_connected = self_device_id.clone();
         tokio::spawn(async move {
-            cluster_listener::run(cluster_sub, move |player| {
+            let mut last_active: Option<String> = None;
+            cluster_listener::run(cluster_sub, move |player, volume, active_device| {
+                if let Some(v) = volume {
+                    resp_for_cluster.send(WorkerResponse::VolumeChanged { fraction: v });
+                }
+                if active_device != last_active {
+                    last_active = active_device.clone();
+                    let id = active_device.unwrap_or_default();
+                    resp_for_cluster.send(WorkerResponse::ActiveDeviceChanged {
+                        is_self: !id.is_empty() && id == self_device_id,
+                        device_id: id,
+                    });
+                }
                 resp_for_cluster.send(WorkerResponse::PlayerState { player });
             })
             .await;
         });
 
-        resp.send(WorkerResponse::SpotifySessionConnected);
+        // Drain LOCAL player events — the only state source while
+        // Frostify itself is the active device (no dealer self-echo).
+        let resp_for_local = resp.clone();
+        let resp_for_local_vol = resp.clone();
+        tokio::spawn(async move {
+            crate::local_player::run(
+                player_events,
+                move |player| resp_for_local.send(WorkerResponse::PlayerState { player }),
+                move |fraction| resp_for_local_vol.send(WorkerResponse::VolumeChanged { fraction }),
+            )
+            .await;
+        });
+
+        resp.send(WorkerResponse::SpotifySessionConnected {
+            device_id: self_id_for_connected,
+        });
+    });
+}
+
+fn spawn_fetch_devices(resp: Responder, access_token: String) {
+    tokio::spawn(async move {
+        match api::get_devices(&access_token).await {
+            Ok(devices) => resp.send(WorkerResponse::Devices { devices }),
+            Err(e) => warn!("get_devices failed: {e}"),
+        }
+    });
+}
+
+fn spawn_transfer(access_token: String, device_id: String) {
+    tokio::spawn(async move {
+        // The cluster push after the transfer is the UI's confirmation.
+        if let Err(e) = api::transfer_playback(&access_token, &device_id, true).await {
+            warn!("transfer to {device_id} failed: {e}");
+        }
+    });
+}
+
+fn spawn_check_saved(resp: Responder, access_token: String, track_id: String) {
+    tokio::spawn(async move {
+        match api::is_track_saved(&access_token, &track_id).await {
+            Ok(saved) => resp.send(WorkerResponse::SavedState { track_id, saved }),
+            Err(e) => warn!("is_track_saved({track_id}) failed: {e}"),
+        }
+    });
+}
+
+fn spawn_set_saved(resp: Responder, access_token: String, track_id: String, saved: bool) {
+    tokio::spawn(async move {
+        match api::set_track_saved(&access_token, &track_id, saved).await {
+            // Echo the committed state (idempotent for the optimistic UI).
+            Ok(()) => resp.send(WorkerResponse::SavedState { track_id, saved }),
+            Err(e) => {
+                warn!("set_track_saved({track_id}, {saved}) failed: {e}");
+                // Roll the optimistic heart back.
+                resp.send(WorkerResponse::SavedState {
+                    track_id,
+                    saved: !saved,
+                });
+            }
+        }
+    });
+}
+
+fn spawn_fetch_queue(resp: Responder, access_token: String) {
+    tokio::spawn(async move {
+        match api::get_queue(&access_token).await {
+            Ok(tracks) => resp.send(WorkerResponse::QueueLoaded { tracks }),
+            Err(e) => warn!("get_queue failed: {e}"),
+        }
+    });
+}
+
+/// Proactive token refresh (mid-session — the startup path lives in
+/// `spawn_try_load`). Persists the rotated tokens so the next launch
+/// starts from the fresh pair.
+fn spawn_refresh_tokens(resp: Responder, refresh: String) {
+    tokio::spawn(async move {
+        match refresh_token(&refresh).await {
+            Ok(auth) => {
+                info!("access token refreshed proactively");
+                let _ = token_manager::save_tokens(&StoredTokens::from(auth.clone()));
+                resp.send(WorkerResponse::TokensRefreshed { auth });
+            }
+            Err(e) => {
+                warn!("proactive token refresh failed: {e}");
+                resp.send(WorkerResponse::TokensRefreshFailed);
+            }
+        }
     });
 }
 

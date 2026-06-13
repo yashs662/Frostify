@@ -57,6 +57,22 @@ pub struct PlayerModel {
     /// Last observed `seeking` value, for release-edge detection in
     /// [`Self::tick_seek`].
     seek_held_last: Cell<bool>,
+    /// Active device volume as a 0..=1 fraction — drives the volume
+    /// slider fill. Updated by `VolumeChanged` (local mixer event or
+    /// cluster push) unless the user is mid-drag.
+    pub volume: Signal<f32>,
+    /// Volume slider held — gates incoming `VolumeChanged` so a stale
+    /// confirmation doesn't fight the drag.
+    pub vol_dragging: Signal<bool>,
+    /// Current track is in the user's Liked Songs — heart tint. Checked
+    /// on every track change; flipped optimistically on click with the
+    /// worker echo as the authority.
+    pub liked: Signal<bool>,
+    /// Volume slider hovered — shows the percentage tooltip.
+    pub vol_hovered: Signal<bool>,
+    /// "NN%" tooltip label, kept in step with `volume` by
+    /// [`Self::set_volume_ui`].
+    pub vol_label: TextSignal,
     /// Authoritative live player snapshot (the latest cluster push). The
     /// reactive signals above are the UI mirror; this is the source of
     /// truth handlers read for the current track/cover/repeat mode.
@@ -64,9 +80,10 @@ pub struct PlayerModel {
 }
 
 impl PlayerModel {
-    /// Seed from the cold-start snapshot (persisted `last_player`), so the
-    /// chrome renders the last-played track immediately instead of a dash.
-    pub fn seed(title: &str, artist: &str, progress: f32) -> Self {
+    /// Seed from the cold-start snapshot (persisted `last_player` +
+    /// `audio.volume`), so the chrome renders the last-played track and
+    /// volume immediately instead of a dash and a default.
+    pub fn seed(title: &str, artist: &str, progress: f32, volume: f32) -> Self {
         Self {
             title: TextSignal::new(title),
             artist: TextSignal::new(artist),
@@ -84,8 +101,37 @@ impl PlayerModel {
             total_label: TextSignal::new("0:00"),
             last_elapsed_secs: Cell::new(u32::MAX),
             seek_held_last: Cell::new(false),
+            volume: Signal::new(volume.clamp(0.0, 1.0)),
+            vol_dragging: Signal::new(false),
+            liked: Signal::new(false),
+            vol_hovered: Signal::new(false),
+            vol_label: TextSignal::new(format!(
+                "{}%",
+                (volume.clamp(0.0, 1.0) * 100.0).round() as u32
+            )),
             snapshot: RefCell::new(None),
         }
+    }
+
+    /// Set the volume fraction + its "NN%" tooltip label together — the
+    /// single write point for drag, wheel, and incoming confirmations.
+    pub fn set_volume_ui(&self, frac: f32) {
+        let frac = frac.clamp(0.0, 1.0);
+        self.volume.set(frac);
+        self.vol_label.set(format!("{}%", (frac * 100.0).round() as u32).as_str());
+    }
+
+    /// Cloneable [`Self::set_volume_ui`] for the slider's `'static` event
+    /// closures (which can't borrow the model) — the volume analogue of
+    /// [`Self::seek_handle`].
+    pub fn clone_volume_handle(&self) -> std::rc::Rc<dyn Fn(f32)> {
+        let volume = self.volume.clone();
+        let label = self.vol_label.clone();
+        std::rc::Rc::new(move |frac: f32| {
+            let frac = frac.clamp(0.0, 1.0);
+            volume.set(frac);
+            label.set(format!("{}%", (frac * 100.0).round() as u32).as_str());
+        })
     }
 
     /// Push a live player snapshot into the reactive chrome. All sets are

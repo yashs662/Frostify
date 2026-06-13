@@ -49,6 +49,10 @@ pub struct MainPane<'a> {
     pub artist: Option<&'a crate::views::home::artist::ArtistViewData>,
     /// View data for a "Show all" list (`Some` when `nav` is ShowAll).
     pub show_all: Option<&'a crate::views::home::show_all::ShowAllViewData>,
+    /// The active device's queue (`None` while loading; `nav` is Queue).
+    pub queue: Option<&'a [crate::api::PlaylistTrack]>,
+    /// Skeleton pulse signal (queue loading placeholders).
+    pub pulse: &'a Signal<f32>,
     /// 0 → 1 entrance transition progress on nav change.
     pub main_t: &'a Signal<f32>,
     /// Detail-page header collapse (0 expanded → 1 collapsed), driven each
@@ -85,37 +89,53 @@ impl Component for MainPane<'_> {
                         MainNav::Home => self.home_feed(content),
                         MainNav::Playlist { .. } | MainNav::Album { .. } => {
                             if let Some(pv) = self.playlist {
+                                let scroll_node =
+                                    self.nav.detail_scroll_node().expect("detail nav has scroller");
                                 playlist::view(
                                     content,
                                     self.icons,
                                     pv,
                                     self.accent,
                                     self.detail_collapse,
+                                    &scroll_node,
                                     self.on_play.clone(),
                                     self.on_navigate.clone(),
                                 );
                             }
                         }
-                        MainNav::Artist { .. } => {
+                        MainNav::Artist { id } => {
                             if let Some(av) = self.artist {
                                 crate::views::home::artist::view(
                                     content,
                                     self.icons,
                                     av,
+                                    &format!("artist_scroll:{id}"),
                                     self.on_play.clone(),
                                     self.on_navigate.clone(),
                                 );
                             }
                         }
-                        MainNav::ShowAll { .. } => {
+                        MainNav::ShowAll { section } => {
                             if let Some(sv) = self.show_all {
                                 crate::views::home::show_all::view(
                                     content,
                                     self.icons,
                                     sv,
+                                    &format!("show_all_scroll:{section:?}"),
                                     self.on_navigate.clone(),
+                                    self.on_play.clone(),
                                 );
                             }
+                        }
+                        MainNav::Queue => {
+                            crate::views::home::queue::view(
+                                content,
+                                self.icons,
+                                self.queue,
+                                self.art,
+                                self.pulse,
+                                self.on_navigate.clone(),
+                            );
                         }
                     });
             });
@@ -151,8 +171,11 @@ impl MainPane<'_> {
                 }
             });
         // Scrolling content body — all sections hit real endpoints.
+        // Named so the rebuild scroll-preservation keys it precisely: the
+        // home feed is one stable thing, so its scroll position survives
+        // navigating to a detail page and back (and any other rebuild).
         content
-            .col(())
+            .col("home_feed_scroll")
             .w(Len::Fill)
             .h(Len::Fill)
             .pad_xy(t::SP_6, t::SP_2)

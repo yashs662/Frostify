@@ -127,6 +127,17 @@ pub struct PlaylistTrack {
     pub album: String,
     pub album_image_url: Option<String>,
     pub duration_ms: u64,
+    /// False for tracks the Web API can't start: local files on another
+    /// device and region-unavailable tracks (`is_playable: false` under
+    /// `market=from_token`). Shown faded + non-interactive. Defaults
+    /// true so typed cache entries from before the field existed don't
+    /// render everything disabled.
+    #[serde(default = "default_true")]
+    pub playable: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// A fully-loaded playlist (metadata + first page of tracks). Liked
@@ -252,42 +263,65 @@ pub async fn get_playlists(token: &str) -> Result<Vec<PlaylistRef>, AuthError> {
 /// Songs collection rather than a real playlist.
 pub const LIKED_SONGS_ID: &str = "__liked__";
 
+/// Deserialize a field that may be **explicitly `null`** into its
+/// `Default`. `#[serde(default)]` alone only covers a *missing* field —
+/// Spotify sends `"id": null` (etc.) for local files and market-
+/// unavailable tracks, and one such track used to fail the whole page
+/// parse, stranding the rest of the playlist on skeletons.
+fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
+
 // Shared deserialize shapes for the playlist + saved-tracks endpoints —
 // both wrap items in `{ track: <RawTrack> }`, so one set of structs maps
 // both.
 #[derive(Deserialize)]
 struct RawItem {
+    #[serde(default)]
     track: Option<RawTrack>,
 }
 #[derive(Deserialize)]
 struct RawTrack {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     uri: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     duration_ms: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     artists: Vec<RawArtist>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     album: RawAlbum,
+    /// Local file on another device — listed in the playlist but not
+    /// startable through the Web API.
+    #[serde(default, deserialize_with = "null_default")]
+    is_local: bool,
+    /// Present (and honest) only when the request carries a `market`;
+    /// `false` = not available in the user's region. Absent ⇒ playable.
+    #[serde(default)]
+    is_playable: Option<bool>,
 }
 #[derive(Deserialize)]
 struct RawArtist {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     name: String,
 }
 #[derive(Deserialize, Default)]
 struct RawAlbum {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     images: Vec<RawImg>,
 }
 #[derive(Deserialize)]
 struct RawImg {
+    #[serde(default, deserialize_with = "null_default")]
     url: String,
     /// Spotify reports each image's pixel width (`null` for some sources).
     #[serde(default)]
@@ -307,6 +341,10 @@ fn pick_image_at_least(images: &[RawImg], min_w: u32) -> Option<String> {
     let mut best: Option<(u32, &str)> = None;
     let mut any: Option<&str> = None;
     for img in images {
+        // Null-tolerant parse can leave an empty url — never a usable pick.
+        if img.url.is_empty() {
+            continue;
+        }
         if any.is_none() {
             any = Some(&img.url);
         }
@@ -357,6 +395,7 @@ fn pick_full(images: &[RawImg]) -> Option<String> {
 
 impl RawTrack {
     fn into_track(self) -> PlaylistTrack {
+        let playable = !self.is_local && self.is_playable.unwrap_or(true) && !self.uri.is_empty();
         PlaylistTrack {
             id: self.id,
             uri: self.uri,
@@ -370,6 +409,7 @@ impl RawTrack {
             album: self.album.name,
             album_image_url: pick_thumb(&self.album.images),
             duration_ms: self.duration_ms,
+            playable,
         }
     }
 }
@@ -378,7 +418,10 @@ fn tracks_from_items(items: Vec<RawItem>) -> Vec<PlaylistTrack> {
     items
         .into_iter()
         .filter_map(|i| i.track)
-        .filter(|t| !t.id.is_empty())
+        // Keep unplayable-but-displayable tracks (local files, region
+        // blocks) — they render faded. Drop only nameless husks (a fully
+        // null track object) that have nothing to show.
+        .filter(|t| !t.id.is_empty() || !t.name.is_empty())
         .map(RawTrack::into_track)
         .collect()
 }
@@ -464,14 +507,20 @@ pub async fn fetch_tracks_page(token: &str, url: &str) -> Result<TracksPage, Aut
 }
 
 /// URL for a page of a real playlist's tracks (fields-masked).
+/// `market=from_token` makes Spotify report `is_playable` per track
+/// (region availability against the account's country) — without it
+/// every track looks playable until the play request 403s.
 pub fn playlist_tracks_url(playlist_id: &str, offset: u32, limit: u32) -> String {
-    let fields = "total,items(track(id,uri,name,duration_ms,artists(name),album(name,images)))";
-    format!("{API}/playlists/{playlist_id}/tracks?limit={limit}&offset={offset}&fields={fields}")
+    let fields = "total,items(track(id,uri,name,duration_ms,is_local,is_playable,artists(name),album(name,images)))";
+    format!(
+        "{API}/playlists/{playlist_id}/tracks?market=from_token&limit={limit}&offset={offset}&fields={fields}"
+    )
 }
 
 /// URL for a page of the saved-tracks (Liked Songs) collection.
+/// `market=from_token` for `is_playable`, as above.
 pub fn liked_tracks_url(offset: u32, limit: u32) -> String {
-    format!("{API}/me/tracks?limit={limit}&offset={offset}")
+    format!("{API}/me/tracks?market=from_token&limit={limit}&offset={offset}")
 }
 
 pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthError> {
@@ -487,33 +536,37 @@ pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthEr
     }
     #[derive(Deserialize)]
     struct Track {
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         id: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         name: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         artists: Vec<Artist>,
+        #[serde(default, deserialize_with = "null_default")]
         album: Album,
     }
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Default)]
     struct Artist {
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         name: String,
     }
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Default)]
     struct Album {
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         id: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         images: Vec<RawImg>,
     }
+    // Fetch more than we show: collapsing repeat-listens below can eat a
+    // good chunk of the raw page.
     let r: R = get_json(
         token,
-        &format!("{API}/me/player/recently-played?limit=12"),
+        &format!("{API}/me/player/recently-played?limit=30"),
         ttl::VOLATILE,
     )
     .await?;
-    Ok(r.items
+    let mut out: Vec<RecentTrack> = r
+        .items
         .into_iter()
         .map(|i| RecentTrack {
             id: i.track.id,
@@ -530,7 +583,13 @@ pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthEr
             album_image_url: pick_full(&i.track.album.images),
             played_at: i.played_at,
         })
-        .collect())
+        .collect();
+    // Spotify logs every play, so a song on repeat shows up as a run of
+    // identical consecutive entries. Collapse each run to its most recent
+    // play (items arrive newest-first) — a history of "X, X, X, X" tells
+    // the user nothing the first X doesn't.
+    out.dedup_by(|next, kept| next.id == kept.id);
+    Ok(out)
 }
 
 /// User's top artists for the past ~4 weeks (`short_term`). Up to
@@ -756,25 +815,28 @@ pub async fn get_album(token: &str, album_id: &str) -> Result<PlaylistDetail, Au
     }
     #[derive(Deserialize)]
     struct Item {
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         id: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         uri: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         name: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         duration_ms: u64,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_default")]
         artists: Vec<Artist>,
-    }
-    #[derive(Deserialize)]
-    struct Artist {
+        /// `market=from_token` ⇒ region availability per track.
         #[serde(default)]
+        is_playable: Option<bool>,
+    }
+    #[derive(Deserialize, Default)]
+    struct Artist {
+        #[serde(default, deserialize_with = "null_default")]
         name: String,
     }
     let r: R = get_json(
         token,
-        &format!("{API}/albums/{album_id}?limit=50"),
+        &format!("{API}/albums/{album_id}?market=from_token&limit=50"),
         ttl::IMMUTABLE,
     )
     .await?;
@@ -794,6 +856,7 @@ pub async fn get_album(token: &str, album_id: &str) -> Result<PlaylistDetail, Au
         .filter(|t| !t.id.is_empty())
         .map(|t| PlaylistTrack {
             id: t.id,
+            playable: t.is_playable.unwrap_or(true) && !t.uri.is_empty(),
             uri: t.uri,
             name: t.name,
             artist: t
@@ -829,6 +892,8 @@ pub async fn get_track(token: &str, track_id: &str) -> Result<TrackDetails, Auth
         #[serde(default)]
         id: String,
         #[serde(default)]
+        name: String,
+        #[serde(default)]
         artists: Vec<Artist>,
         #[serde(default)]
         album: Album,
@@ -848,6 +913,7 @@ pub async fn get_track(token: &str, track_id: &str) -> Result<TrackDetails, Auth
     let r: R = get_json(token, &format!("{API}/tracks/{track_id}"), ttl::IMMUTABLE).await?;
     Ok(TrackDetails {
         track_id: r.id,
+        name: r.name,
         artist: r
             .artists
             .into_iter()
@@ -862,6 +928,7 @@ pub async fn get_track(token: &str, track_id: &str) -> Result<TrackDetails, Auth
 #[derive(Debug, Clone)]
 pub struct TrackDetails {
     pub track_id: String,
+    pub name: String,
     pub artist: String,
     pub album_image_url: Option<String>,
 }
@@ -987,25 +1054,42 @@ async fn player_command(token: &str, method: reqwest::Method, path: &str) -> Res
     Err(AuthError::Api(body, Some(status.as_u16())))
 }
 
-pub async fn play(token: &str) -> Result<(), AuthError> {
-    player_command(token, reqwest::Method::PUT, "/me/player/play").await
+/// Resume playback. `device_id = None` targets the active device;
+/// `Some(id)` targets that device explicitly — the no-active-device
+/// fallback, where the worker resumes on Frostify's own librespot player.
+pub async fn play(token: &str, device_id: Option<&str>) -> Result<(), AuthError> {
+    let path = match device_id {
+        Some(id) => format!("/me/player/play?device_id={id}"),
+        None => "/me/player/play".to_string(),
+    };
+    player_command(token, reqwest::Method::PUT, &path).await
 }
 
 /// What to start playing on the active device. Real playlists/albums use
 /// a `context_uri` (so Spotify queues the whole context); the Liked
 /// Songs collection has no playable context URI, so it ships an explicit
 /// `uris` list. Both carry an `offset` = the index to start at.
+/// [`Self::ContextAt`] starts a context at a specific *track* (offset by
+/// URI, not index) — for entry points that know the song but not its
+/// position, like a recently-played row starting its album.
 #[derive(Debug, Clone)]
 pub enum PlayTarget {
     Context { context_uri: String, offset: u32 },
+    ContextAt { context_uri: String, track_uri: String },
     Uris { uris: Vec<String>, offset: u32 },
 }
 
-/// Start playback of a context (playlist/album) or explicit track list
-/// on the user's active Connect device. Body shape mirrors the official
+/// Start playback of a context (playlist/album) or explicit track list.
+/// `device_id = None` targets the user's active Connect device; `Some(id)`
+/// targets that device explicitly (the no-active-device fallback — play on
+/// Frostify's own librespot player). Body shape mirrors the official
 /// client's `PUT /me/player/play`. A `404` (no active device) surfaces
-/// as `AuthError::Api` for the caller to log.
-pub async fn play_context(token: &str, target: PlayTarget) -> Result<(), AuthError> {
+/// as `AuthError::Api`.
+pub async fn play_context(
+    token: &str,
+    target: PlayTarget,
+    device_id: Option<&str>,
+) -> Result<(), AuthError> {
     let body = match target {
         PlayTarget::Context {
             context_uri,
@@ -1014,13 +1098,24 @@ pub async fn play_context(token: &str, target: PlayTarget) -> Result<(), AuthErr
             "context_uri": context_uri,
             "offset": { "position": offset },
         }),
+        PlayTarget::ContextAt {
+            context_uri,
+            track_uri,
+        } => serde_json::json!({
+            "context_uri": context_uri,
+            "offset": { "uri": track_uri },
+        }),
         PlayTarget::Uris { uris, offset } => serde_json::json!({
             "uris": uris,
             "offset": { "position": offset },
         }),
     };
+    let url = match device_id {
+        Some(id) => format!("{API}/me/player/play?device_id={id}"),
+        None => format!("{API}/me/player/play"),
+    };
     let res = reqwest::Client::new()
-        .put(format!("{API}/me/player/play"))
+        .put(url)
         .bearer_auth(token)
         .json(&body)
         .send()
@@ -1035,6 +1130,136 @@ pub async fn play_context(token: &str, target: PlayTarget) -> Result<(), AuthErr
 
 pub async fn pause(token: &str) -> Result<(), AuthError> {
     player_command(token, reqwest::Method::PUT, "/me/player/pause").await
+}
+
+/// A Connect device visible to the account, for the devices popup.
+#[derive(Debug, Clone)]
+pub struct Device {
+    pub id: String,
+    pub name: String,
+    /// Spotify's device type string ("Computer", "Smartphone", "Speaker"…).
+    pub kind: String,
+    pub is_active: bool,
+    pub volume_percent: Option<u8>,
+}
+
+/// All Connect devices currently visible. Never cached — the list is
+/// live state (devices appear/disappear with the apps that host them).
+pub async fn get_devices(token: &str) -> Result<Vec<Device>, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        #[serde(default)]
+        devices: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        #[serde(default, deserialize_with = "null_default")]
+        id: String,
+        #[serde(default, deserialize_with = "null_default")]
+        name: String,
+        #[serde(default, deserialize_with = "null_default")]
+        r#type: String,
+        #[serde(default)]
+        is_active: bool,
+        #[serde(default)]
+        volume_percent: Option<u8>,
+    }
+    let r: R = get_json(token, &format!("{API}/me/player/devices"), ttl::NONE).await?;
+    Ok(r.devices
+        .into_iter()
+        .filter(|d| !d.id.is_empty())
+        .map(|d| Device {
+            id: d.id,
+            name: d.name,
+            kind: d.r#type,
+            is_active: d.is_active,
+            volume_percent: d.volume_percent,
+        })
+        .collect())
+}
+
+/// Transfer playback to `device_id`. `play = true` resumes there
+/// immediately (the official client's behaviour when you pick a device).
+pub async fn transfer_playback(token: &str, device_id: &str, play: bool) -> Result<(), AuthError> {
+    let body = serde_json::json!({ "device_ids": [device_id], "play": play });
+    let res = reqwest::Client::new()
+        .put(format!("{API}/me/player"))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await?;
+    let status = res.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = res.text().await.unwrap_or_default();
+    Err(AuthError::Api(body, Some(status.as_u16())))
+}
+
+/// Whether the current user has saved (liked) `track_id`.
+pub async fn is_track_saved(token: &str, track_id: &str) -> Result<bool, AuthError> {
+    // Live state — a like toggled on another device must show here.
+    let r: Vec<bool> = get_json(
+        token,
+        &format!("{API}/me/tracks/contains?ids={track_id}"),
+        ttl::NONE,
+    )
+    .await?;
+    Ok(r.first().copied().unwrap_or(false))
+}
+
+/// Save / unsave (like / unlike) a track for the current user.
+pub async fn set_track_saved(token: &str, track_id: &str, saved: bool) -> Result<(), AuthError> {
+    let method = if saved {
+        reqwest::Method::PUT
+    } else {
+        reqwest::Method::DELETE
+    };
+    let res = reqwest::Client::new()
+        .request(method, format!("{API}/me/tracks?ids={track_id}"))
+        .bearer_auth(token)
+        .header(reqwest::header::CONTENT_LENGTH, 0)
+        .send()
+        .await?;
+    let status = res.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = res.text().await.unwrap_or_default();
+    Err(AuthError::Api(body, Some(status.as_u16())))
+}
+
+/// The active device's play queue: the playing track + what's next, in
+/// order. Never cached — it changes with every skip/enqueue. When
+/// Frostify is the active device this still works: Spirc publishes its
+/// queue to connect-state and the endpoint reads from there.
+pub async fn get_queue(token: &str) -> Result<Vec<PlaylistTrack>, AuthError> {
+    #[derive(Deserialize)]
+    struct R {
+        #[serde(default)]
+        currently_playing: Option<RawTrack>,
+        #[serde(default)]
+        queue: Vec<RawTrack>,
+    }
+    let r: R = get_json(token, &format!("{API}/me/player/queue"), ttl::NONE).await?;
+    Ok(r.currently_playing
+        .into_iter()
+        .chain(r.queue)
+        .map(RawTrack::into_track)
+        .collect())
+}
+
+/// Set the active device's volume (0..=100). When Frostify is the active
+/// device, Spotify routes this back to our Spirc, which adjusts the
+/// SoftMixer — confirmation arrives via the local `VolumeChanged` event.
+pub async fn set_volume(token: &str, percent: u8) -> Result<(), AuthError> {
+    let pct = percent.min(100);
+    player_command(
+        token,
+        reqwest::Method::PUT,
+        &format!("/me/player/volume?volume_percent={pct}"),
+    )
+    .await
 }
 
 pub async fn next_track(token: &str) -> Result<(), AuthError> {
@@ -1123,4 +1348,65 @@ async fn get_json<T: for<'de> Deserialize<'de>>(
         tokio::task::spawn_blocking(move || disk_cache::write_raw_json(&key, &raw));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Local files / market-unavailable tracks arrive with explicit
+    /// `null` fields (`"id": null`), which `#[serde(default)]` alone
+    /// does NOT cover — a single such track at any page offset used to
+    /// fail the whole page parse and strand the rest of the playlist on
+    /// skeletons. `null_default` must absorb them.
+    #[test]
+    fn playlist_item_with_null_track_fields_parses() {
+        let json = r#"{
+            "track": {
+                "id": null,
+                "uri": null,
+                "name": "Local file",
+                "duration_ms": null,
+                "artists": [{ "name": null }],
+                "album": { "name": null, "images": [{ "url": null, "width": null }] }
+            }
+        }"#;
+        let item: RawItem = serde_json::from_str(json).expect("null fields must parse");
+        let t = item.track.expect("track present");
+        assert_eq!(t.id, "");
+        assert_eq!(t.uri, "");
+        assert_eq!(t.name, "Local file");
+        assert_eq!(t.duration_ms, 0);
+        // An all-null image is unusable — the pickers must skip it.
+        assert_eq!(pick_thumb(&t.album.images), None);
+    }
+
+    #[test]
+    fn playlist_item_with_null_track_parses() {
+        let item: RawItem = serde_json::from_str(r#"{ "track": null }"#).unwrap();
+        assert!(item.track.is_none());
+    }
+
+    /// Local files and region-blocked tracks stay IN the list (rendered
+    /// faded) — only nameless husks are dropped — and both map to
+    /// `playable: false`.
+    #[test]
+    fn unplayable_tracks_are_kept_but_marked() {
+        let json = r#"[
+            { "track": { "id": null, "uri": "spotify:local:abc", "name": "Local song",
+                         "is_local": true, "artists": [], "album": { "images": [] } } },
+            { "track": { "id": "x1", "uri": "spotify:track:x1", "name": "Blocked here",
+                         "is_playable": false, "artists": [], "album": { "images": [] } } },
+            { "track": { "id": "x2", "uri": "spotify:track:x2", "name": "Fine",
+                         "is_playable": true, "artists": [], "album": { "images": [] } } },
+            { "track": { "id": null, "uri": null, "name": "", "artists": [],
+                         "album": { "images": [] } } }
+        ]"#;
+        let items: Vec<RawItem> = serde_json::from_str(json).unwrap();
+        let tracks = tracks_from_items(items);
+        assert_eq!(tracks.len(), 3, "husk dropped, unplayables kept");
+        assert!(!tracks[0].playable, "local file is not playable");
+        assert!(!tracks[1].playable, "region-blocked is not playable");
+        assert!(tracks[2].playable);
+    }
 }
