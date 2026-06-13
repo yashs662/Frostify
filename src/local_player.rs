@@ -94,6 +94,19 @@ where
                 current = None;
                 on_state(None);
             }
+            // A track couldn't be loaded (region/availability or a transient
+            // 0-byte fetch). Spirc auto-skips to the next track, but that
+            // takes a moment; drop the chrome to not-playing now so it
+            // doesn't keep showing the failed track as if it were playing
+            // until the skip's `TrackChanged` lands. If nothing follows in
+            // the queue, this stays as the honest "stopped on last track".
+            PlayerEvent::Unavailable { track_id, .. } => {
+                info!("track unavailable, Spirc will skip: {track_id}");
+                if let Some(p) = current.as_mut() {
+                    p.is_playing = false;
+                    on_state(current.clone());
+                }
+            }
             PlayerEvent::ShuffleChanged { shuffle } => {
                 if let Some(p) = current.as_mut() {
                     p.shuffle = shuffle;
