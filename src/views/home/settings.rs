@@ -71,6 +71,8 @@ pub struct SettingsPanel<'a> {
     pub quality: crate::prefs::AudioQuality,
     /// Persist a new streaming-quality choice.
     pub on_quality: Rc<dyn Fn(crate::prefs::AudioQuality)>,
+    /// Persist the "Normalize volume" toggle after it flips.
+    pub on_normalize: Rc<dyn Fn()>,
 }
 
 impl Component for SettingsPanel<'_> {
@@ -122,6 +124,14 @@ impl Component for SettingsPanel<'_> {
                                 self.quality,
                                 &self.backdrop.accent,
                                 self.on_quality.clone(),
+                            );
+                            setting_row(
+                                body,
+                                "Normalize volume",
+                                "Match loudness across tracks + prevent clipping (next launch)",
+                                &self.settings.normalize,
+                                &self.backdrop.accent,
+                                self.on_normalize.clone(),
                             );
                             divider(body);
                             cache_section(
@@ -442,20 +452,29 @@ fn account(s: &mut Scene, profile: Option<&Profile>, sign_out: Rc<dyn Fn()>) {
         .filter(|n| !n.is_empty())
         .unwrap_or("Spotify account");
     s.col(())
+        .w(Len::Fill)
         .gap(t::SP_2)
         .child(|acc| {
             acc.text((), "Account", t::TEXT_SM).color(t::TEXT_DIM);
-            acc.text((), name, t::TEXT_BASE).color(t::TEXT);
+            // Name on the left, Sign out pushed to the right edge, both
+            // vertically centred on one full-width row.
             acc.row(())
-                .w_px(SIGN_OUT_W)
-                .h_px(t::SP_9)
-                .radius(t::R_FULL)
-                .border(1.0, t::BORDER)
-                .center()
-                .hover_color(t::BTN_HOVER)
-                .on_click(move |_| sign_out())
-                .child(|b| {
-                    b.text((), "Sign out", t::TEXT_SM).color(t::TEXT);
+                .w(Len::Fill)
+                .align(Align::Center)
+                .child(|r| {
+                    r.text((), name, t::TEXT_BASE).color(t::TEXT);
+                    r.row(())
+                        .push_end()
+                        .w_px(SIGN_OUT_W)
+                        .h_px(t::SP_9)
+                        .radius(t::R_FULL)
+                        .border(1.0, t::BORDER)
+                        .center()
+                        .hover_color(t::BTN_HOVER)
+                        .on_click(move |_| sign_out())
+                        .child(|b| {
+                            b.text((), "Sign out", t::TEXT_SM).color(t::TEXT);
+                        });
                 });
         });
 }

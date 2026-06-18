@@ -166,10 +166,19 @@ pub struct AudioPrefs {
     /// Changing it in settings applies from the next app start.
     #[serde(default)]
     pub quality: AudioQuality,
+    /// Volume normalisation + peak limiter (Spotify's "Normalize volume").
+    /// On by default: matches loudness across tracks and prevents loud
+    /// masters from clipping. Applies from the next app start.
+    #[serde(default = "default_normalize")]
+    pub normalize: bool,
 }
 
 fn default_volume() -> f32 {
     0.8
+}
+
+fn default_normalize() -> bool {
+    true
 }
 
 impl Default for AudioPrefs {
@@ -177,6 +186,7 @@ impl Default for AudioPrefs {
         Self {
             volume: default_volume(),
             quality: AudioQuality::default(),
+            normalize: default_normalize(),
         }
     }
 }

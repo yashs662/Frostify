@@ -4,6 +4,7 @@
 //! sub-component `.view()`s; each component owns its own slice.
 
 pub mod artist;
+pub mod context_menu;
 pub mod devices;
 pub mod main_pane;
 pub mod now_playing;
@@ -41,6 +42,25 @@ pub type NavFn = Rc<dyn Fn(&mut EventCtx, MainNav)>;
 /// Playback-start callback — hands a resolved [`PlayTarget`] up to the
 /// consumer (which adds the token + dispatches the worker command).
 pub type PlayFn = Rc<dyn Fn(PlayTarget)>;
+
+/// Right-click handler for a track row — opens the context menu at the
+/// cursor with the given target's actions. Takes the `EventCtx` for the
+/// cursor position + display scale.
+pub type CtxMenuFn = Rc<dyn Fn(&mut EventCtx, crate::model::MenuTarget)>;
+
+/// Wire the right-click context menu (Add to queue / Go to album / artist)
+/// onto a row or tile builder. The single source of truth for the gesture —
+/// every track list and tile (playlist, queue, home feed, show-all, …) calls
+/// this, so the menu behaves identically everywhere instead of each view
+/// re-implementing the `on_right_click` + clone dance.
+pub fn attach_context_menu(
+    row: &mut frostify_gfx::NodeBuilderRef<'_>,
+    on_context_menu: &CtxMenuFn,
+    target: crate::model::MenuTarget,
+) {
+    let menu = on_context_menu.clone();
+    row.on_right_click(move |ctx| menu(ctx, target.clone()));
+}
 
 /// A transport intent raised by a player-bar button click. The consumer
 /// (main.rs) maps these to optimistic signal flips + worker commands;
@@ -90,6 +110,11 @@ struct Layout<'a> {
     pub settings_panel: &'a crate::views::home::settings::SettingsPanel<'a>,
     /// The Connect-devices popup, ditto.
     pub devices_panel: &'a crate::views::home::devices::DevicesPanel<'a>,
+    /// Right-click context menu (track row actions) + its handlers.
+    pub menu: &'a crate::model::MenuModel,
+    pub on_menu_add_queue: Rc<dyn Fn(String)>,
+    pub on_menu_navigate: NavFn,
+    pub on_menu_close: Rc<dyn Fn()>,
 }
 
 fn render(s: &mut Scene, v: &Layout) {
@@ -205,6 +230,14 @@ fn render(s: &mut Scene, v: &Layout) {
         // their Overlay wrappers. Skipped entirely when closed.
         v.settings_panel.view(root);
         v.devices_panel.view(root);
+        // Right-click context menu — topmost; renders only when open.
+        context_menu::view(
+            root,
+            v.menu,
+            v.on_menu_add_queue.clone(),
+            v.on_menu_navigate.clone(),
+            v.on_menu_close.clone(),
+        );
     });
 }
 
@@ -228,6 +261,11 @@ pub struct HomeView {
     on_devices_open: Rc<dyn Fn()>,
     on_transfer: Rc<dyn Fn(String)>,
     on_quality: Rc<dyn Fn(crate::prefs::AudioQuality)>,
+    on_normalize: Rc<dyn Fn()>,
+    on_skip: Rc<dyn Fn(u32)>,
+    on_context_menu: CtxMenuFn,
+    on_add_queue: Rc<dyn Fn(String)>,
+    on_menu_close: Rc<dyn Fn()>,
 }
 
 impl HomeView {
@@ -286,7 +324,11 @@ impl HomeView {
                         return;
                     }
                 };
-                worker.playback(token, cmd);
+                // Drive our own Spirc directly when Frostify is the active
+                // device (instant + reliable; the Web API relay to self can
+                // go stale after long uptime).
+                let local = state.devices.playing_on_self.get();
+                worker.playback(token, cmd, local);
             })
         };
         let on_canvas_change: Rc<dyn Fn()> = {
@@ -335,8 +377,20 @@ impl HomeView {
             let worker = worker.clone();
             Rc::new(move |device_id| {
                 let Some(token) = state.auth.token() else { return };
-                log::info!("transferring playback to {device_id}");
-                worker.transfer_playback(token, device_id);
+                // When leaving Frostify itself, carry our locally-tracked
+                // position — the Web API transfer drops the librespot
+                // device's position and the target would restart at 0:00.
+                let position_ms = state.devices.playing_on_self.get().then(|| {
+                    state
+                        .player_ui
+                        .snapshot
+                        .borrow()
+                        .as_ref()
+                        .map(|p| p.live_progress_ms() as u32)
+                        .unwrap_or(0)
+                });
+                log::info!("transferring playback to {device_id} (pos={position_ms:?})");
+                worker.transfer_playback(token, device_id, position_ms);
             })
         };
         let on_quality: Rc<dyn Fn(crate::prefs::AudioQuality)> = {
@@ -345,6 +399,56 @@ impl HomeView {
             Rc::new(move |q| {
                 state.prefs.data.borrow_mut().audio.quality = q;
                 state.prefs.mark_dirty(Instant::now());
+                rebuild.set(true);
+            })
+        };
+        let on_normalize: Rc<dyn Fn()> = {
+            let state = state.clone();
+            Rc::new(move || {
+                // The toggle already flipped the signal; persist its new
+                // value (applied at the next session start).
+                let on = state.settings.normalize.get();
+                state.prefs.data.borrow_mut().audio.normalize = on;
+                state.prefs.mark_dirty(Instant::now());
+            })
+        };
+        let on_skip: Rc<dyn Fn(u32)> = {
+            let state = state.clone();
+            let worker = worker.clone();
+            Rc::new(move |count| {
+                let Some(token) = state.auth.token() else { return };
+                // Local (Spirc) skip when Frostify is the active device —
+                // instant + reliable; else repeated Web API next on the
+                // remote device.
+                let local = state.devices.playing_on_self.get();
+                worker.skip_forward(token, count, local);
+            })
+        };
+        let on_context_menu: CtxMenuFn = {
+            let state = state.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move |ctx, target| {
+                // Cursor is physical px; the menu's `.abs()` is logical.
+                let scale = ctx.tree.scale().max(1.0);
+                let pos = [ctx.cursor[0] / scale, ctx.cursor[1] / scale];
+                state.menu.show(target, pos);
+                rebuild.set(true);
+            })
+        };
+        let on_add_queue: Rc<dyn Fn(String)> = {
+            let state = state.clone();
+            let worker = worker.clone();
+            Rc::new(move |uri| {
+                if let Some(token) = state.auth.token() {
+                    worker.add_to_queue(token, uri);
+                }
+            })
+        };
+        let on_menu_close: Rc<dyn Fn()> = {
+            let state = state.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move || {
+                state.menu.close();
                 rebuild.set(true);
             })
         };
@@ -384,7 +488,10 @@ impl HomeView {
                     return;
                 };
                 state.player_ui.is_playing.set(true);
-                worker.playback(token, PlaybackCmd::PlayContext(target));
+                // PlayContext is a context load, not a transport verb — it
+                // always takes the Web API path (the `local` flag is ignored
+                // for it), so `false` here is just the documented default.
+                worker.playback(token, PlaybackCmd::PlayContext(target), false);
             })
         };
         let mark_dirty: Rc<dyn Fn()> = {
@@ -407,6 +514,11 @@ impl HomeView {
             on_devices_open,
             on_transfer,
             on_quality,
+            on_normalize,
+            on_skip,
+            on_context_menu,
+            on_add_queue,
+            on_menu_close,
         }
     }
 
@@ -446,6 +558,7 @@ impl HomeView {
                         rows: o.rows.clone(),
                         request_cover: self.request_cover.clone(),
                         pulse: state.library.skeleton_pulse.clone(),
+                        on_context_menu: self.on_context_menu.clone(),
                     }
                 })
             }
@@ -552,6 +665,8 @@ impl HomeView {
             show_all: show_all_data.as_ref(),
             queue: queue_ref.as_deref(),
             pulse: &state.library.skeleton_pulse,
+            on_skip: self.on_skip.clone(),
+            on_context_menu: self.on_context_menu.clone(),
             main_t: &state.router.main_t,
             detail_collapse: &state.router.detail_collapse,
             on_play: self.on_play.clone(),
@@ -569,6 +684,7 @@ impl HomeView {
             on_change_cache_dir: self.on_change_cache_dir.clone(),
             quality: state.prefs.data.borrow().audio.quality,
             on_quality: self.on_quality.clone(),
+            on_normalize: self.on_normalize.clone(),
         };
         let devices_panel = devices::DevicesPanel {
             devices: &state.devices,
@@ -591,6 +707,10 @@ impl HomeView {
             main_pane: &main_pane,
             settings_panel: &settings_panel,
             devices_panel: &devices_panel,
+            menu: &state.menu,
+            on_menu_add_queue: self.on_add_queue.clone(),
+            on_menu_navigate: self.on_navigate.clone(),
+            on_menu_close: self.on_menu_close.clone(),
         };
         render(s, &layout);
     }
@@ -629,6 +749,11 @@ fn build_show_all(
                         context_uri: format!("spotify:album:{}", t.album_id),
                         track_uri: format!("spotify:track:{}", t.id),
                     }),
+                    menu: Some(crate::model::MenuTarget {
+                        uri: format!("spotify:track:{}", t.id),
+                        album_id: t.album_id.clone(),
+                        artist_id: String::new(),
+                    }),
                 };
                 if groups.last().map(|g| g.header.as_deref()) == Some(Some(label.as_str())) {
                     groups.last_mut().unwrap().rows.push(row);
@@ -654,6 +779,7 @@ fn build_show_all(
                     thumb: sig(&a.image_url),
                     round: true,
                     action: show_all::RowAction::Open(MainNav::Artist { id: a.id.clone() }),
+                    menu: None,
                 })
                 .collect();
             ShowAllViewData {
@@ -670,8 +796,16 @@ fn build_show_all(
                     subtitle: t.artist.clone(),
                     thumb: sig(&t.album_image_url),
                     round: false,
-                    action: show_all::RowAction::Open(MainNav::Album {
-                        id: t.album_id.clone(),
+                    // A song row plays (in its album context) — same as the
+                    // recents rows and the home-feed song tiles.
+                    action: show_all::RowAction::Play(crate::api::PlayTarget::ContextAt {
+                        context_uri: format!("spotify:album:{}", t.album_id),
+                        track_uri: format!("spotify:track:{}", t.id),
+                    }),
+                    menu: Some(crate::model::MenuTarget {
+                        uri: format!("spotify:track:{}", t.id),
+                        album_id: t.album_id.clone(),
+                        artist_id: String::new(),
                     }),
                 })
                 .collect();
@@ -693,6 +827,7 @@ fn build_show_all(
                         id: p.id.clone(),
                         liked: false,
                     }),
+                    menu: None,
                 })
                 .collect();
             ShowAllViewData {
@@ -731,12 +866,18 @@ fn navigate(state: &Rc<AppState>, cx: &mut Cx, worker: &Worker, nav: MainNav) {
             *state.library.open_artist.borrow_mut() = None;
         }
         MainNav::Queue => {
-            // Live state — refetched on every open (skeleton until it
-            // lands; the response rebuilds).
             *state.library.open_playlist.borrow_mut() = None;
             *state.library.open_artist.borrow_mut() = None;
-            *state.library.queue.borrow_mut() = None;
-            if let Some(token) = state.auth.token() {
+            // If the cluster listener has already populated a live queue
+            // (a remote device is active), keep it — it's the full, uncapped,
+            // auto-updating list. Otherwise fall back to the (capped) Web API
+            // so the page resolves instead of hanging on a skeleton; this
+            // also covers the self-playing case, where the cluster never
+            // echoes our own queue. A later cluster push overwrites either
+            // way, keeping the list live.
+            if state.library.queue.borrow().is_none()
+                && let Some(token) = state.auth.token()
+            {
                 worker.fetch_queue(token);
             }
         }

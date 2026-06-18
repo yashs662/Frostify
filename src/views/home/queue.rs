@@ -9,12 +9,12 @@
 
 use std::rc::Rc;
 
-use frostify_gfx::{Align, Justify, Len, Overflow, Scene, Signal};
+use frostify_gfx::{Align, CursorIcon, Justify, Len, Overflow, Scene, Signal};
 
 use crate::api::PlaylistTrack;
 use crate::model::ArtModel;
 use crate::views::MainNav;
-use crate::views::home::NavFn;
+use crate::views::home::{CtxMenuFn, NavFn};
 use crate::widgets::icon::{Icon, IconSet};
 use crate::widgets::tokens as t;
 
@@ -22,7 +22,10 @@ use crate::widgets::tokens as t;
 const ROW_H: f32 = t::SP_14;
 
 /// Render the queue page into `s` (the caller's transition wrapper).
-/// `queue = None` → still loading (pulsing placeholder rows).
+/// `queue = None` → still loading (pulsing placeholder rows). `on_skip(n)`
+/// skips forward `n` tracks — clicking the N-th up-next row plays it
+/// (consuming the ones before it, like Spotify's own "click in queue").
+#[allow(clippy::too_many_arguments)]
 pub fn view(
     s: &mut Scene,
     icons: &Rc<IconSet>,
@@ -30,8 +33,11 @@ pub fn view(
     art: &ArtModel,
     pulse: &Signal<f32>,
     on_navigate: NavFn,
+    on_skip: Rc<dyn Fn(u32)>,
+    on_context_menu: CtxMenuFn,
 ) {
     let nav_back = on_navigate.clone();
+    let nav_rows = on_navigate.clone();
     s.col("queue_scroll")
         .w(Len::Fill)
         .h(Len::Fill)
@@ -66,14 +72,25 @@ pub fn view(
                     });
                 }
                 Some(tracks) => {
-                    let mut tracks = tracks.iter();
-                    if let Some(now) = tracks.next() {
+                    let mut it = tracks.iter().enumerate();
+                    if let Some((_, now)) = it.next() {
                         section_label(c, "Now playing");
-                        queue_row(c, now, art, true);
+                        queue_row(c, now, art, None, &on_context_menu, &nav_rows);
                     }
                     section_label(c, "Next up");
-                    for tr in tracks {
-                        queue_row(c, tr, art, false);
+                    for (i, tr) in it {
+                        // Clicking the i-th item (1-based from the playing
+                        // track) skips forward `i` tracks to reach it.
+                        let on_skip = on_skip.clone();
+                        let n = i as u32;
+                        queue_row(
+                            c,
+                            tr,
+                            art,
+                            Some(Rc::new(move || on_skip(n))),
+                            &on_context_menu,
+                            &nav_rows,
+                        );
                     }
                 }
             }
@@ -90,10 +107,16 @@ fn section_label(s: &mut Scene, label: &str) {
         });
 }
 
-/// One queue row: thumb + title/artist + duration. The now-playing row
-/// sits at full opacity; the rest are slightly dimmed, matching how
-/// Spotify de-emphasises the upcoming queue.
-fn queue_row(s: &mut Scene, tr: &PlaylistTrack, art: &ArtModel, now: bool) {
+/// One queue row: thumb + title/artist + duration. Up-next rows are
+/// clickable (`on_click` skips to them); all rows render at full opacity.
+fn queue_row(
+    s: &mut Scene,
+    tr: &PlaylistTrack,
+    art: &ArtModel,
+    on_click: Option<Rc<dyn Fn()>>,
+    on_context_menu: &CtxMenuFn,
+    on_navigate: &NavFn,
+) {
     // Signals exist (created + dispatched in the reducer's `QueueLoaded`
     // arm — view builds stay pure reads); this just binds them.
     let cover = tr
@@ -107,9 +130,21 @@ fn queue_row(s: &mut Scene, tr: &PlaylistTrack, art: &ArtModel, now: bool) {
         .gap(t::SP_3)
         .align(Align::Center)
         .radius(t::R_MD);
-    if !now {
-        row.opacity(0.75);
+    if let Some(f) = on_click {
+        row.cursor(CursorIcon::Pointer)
+            .hover_color(t::HOVER_LIFT_SUBTLE)
+            .on_click(move |_| f());
     }
+    // Right-click → context menu (Add to queue / Go to album / artist).
+    crate::views::home::attach_context_menu(
+        &mut row,
+        on_context_menu,
+        crate::model::MenuTarget {
+            uri: tr.uri.clone(),
+            album_id: tr.album_id.clone(),
+            artist_id: tr.artist_id.clone(),
+        },
+    );
     row.child(|r| {
         r.col(()).w_px(t::THUMB_MD).h_px(t::THUMB_MD).child(|b| {
             b.rect(())
@@ -134,9 +169,13 @@ fn queue_row(s: &mut Scene, tr: &PlaylistTrack, art: &ArtModel, now: bool) {
             .overflow_x(Overflow::Hidden)
             .child(|m| {
                 m.text((), &tr.name, 14.0).color(t::TEXT).max_width_px(420.0);
-                m.text((), &tr.artist, 12.0)
-                    .color(t::TEXT_DIM)
-                    .max_width_px(420.0);
+                crate::views::home::playlist::artist_line(
+                    m,
+                    &tr.artists,
+                    &tr.artist,
+                    on_navigate,
+                    420.0,
+                );
             });
         r.row(()).push_end().w_px(t::SP_12).justify(Justify::End).child(|d| {
             d.text((), crate::views::home::playlist::fmt_duration(tr.duration_ms), 12.0)

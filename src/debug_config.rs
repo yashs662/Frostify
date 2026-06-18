@@ -49,6 +49,8 @@ pub struct RawStep {
     #[serde(default)]
     pub click: Option<[f32; 2]>,
     #[serde(default)]
+    pub right_click: Option<[f32; 2]>,
+    #[serde(default)]
     pub hover: Option<[f32; 2]>,
     /// Dwell for `hover` (default 400 ms).
     #[serde(default)]
@@ -75,6 +77,9 @@ impl RawStep {
         }
         if let Some(p) = self.click {
             return Some(Step::Click(p));
+        }
+        if let Some(p) = self.right_click {
+            return Some(Step::RightClick(p));
         }
         if let Some(p) = self.hover {
             let d = Duration::from_millis(self.dwell_ms.unwrap_or(400));
@@ -106,6 +111,7 @@ impl Clone for RawStep {
             screenshot: self.screenshot.clone(),
             move_mouse: self.move_mouse,
             click: self.click,
+            right_click: self.right_click,
             hover: self.hover,
             dwell_ms: self.dwell_ms,
             scroll: self.scroll,

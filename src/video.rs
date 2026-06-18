@@ -160,12 +160,8 @@ impl CanvasVideo {
                     duration: dur,
                 })
             }
-            Ok(None) => {
-                None
-            }
-            Err(_) => {
-                None
-            }
+            Ok(None) => None,
+            Err(_) => None,
         }
     }
 

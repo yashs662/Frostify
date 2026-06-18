@@ -165,7 +165,7 @@ mod tests {
     /// Encode `EntityCanvazResponse { canvas: Canvaz { url, type } }`.
     fn encode(url: &str, ty: u8) -> Vec<u8> {
         let mut canvaz = len_delim(2, url.as_bytes()); // url = field 2
-        canvaz.push((4 << 3) | 0); // type = field 4, varint
+        canvaz.push(4 << 3); // type = field 4, wire type 0 (varint)
         canvaz.push(ty);
         len_delim(1, &canvaz) // canvas = field 1
     }
@@ -174,7 +174,7 @@ mod tests {
     /// extended-metadata CANVAZ extension actually returns (no wrapper).
     fn encode_canvaz(url: &str, ty: u8) -> Vec<u8> {
         let mut canvaz = len_delim(2, url.as_bytes());
-        canvaz.push((4 << 3) | 0);
+        canvaz.push(4 << 3); // field 4, wire type 0 (varint)
         canvaz.push(ty);
         canvaz
     }

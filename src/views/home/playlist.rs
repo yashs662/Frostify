@@ -68,6 +68,11 @@ pub struct PlaylistRow {
     /// time the row scrolls into view — avoids dispatching thousands of
     /// downloads up front for a long playlist.
     pub cover_url: Option<String>,
+    /// All credited artists (id + name) for the clickable artist line.
+    pub artists: Vec<crate::api::TrackArtist>,
+    /// Album + first-artist id for the right-click menu's "Go to …".
+    pub album_id: String,
+    pub artist_id: String,
     /// False for local files / region-unavailable tracks — the row still
     /// renders (faded) but takes no clicks and never enters a play queue.
     pub playable: bool,
@@ -105,6 +110,8 @@ pub struct PlaylistViewData {
     /// Skeleton pulse opacity — ping-pong tweened while pages are still
     /// streaming (`LibraryModel::skeleton_pulse`), parked at 1.0 after.
     pub pulse: Signal<f32>,
+    /// Right-click a track row → context menu.
+    pub on_context_menu: crate::views::home::CtxMenuFn,
 }
 
 /// Render the centre-pane content for the open playlist. Children are
@@ -116,6 +123,7 @@ pub struct PlaylistViewData {
 /// the scroll offset) slides + fades the pinned sticky bar down from above:
 /// while expanded it sits off the top edge, so it never paints or hit-tests
 /// over the hero.
+#[allow(clippy::too_many_arguments)]
 pub fn view(
     s: &mut Scene,
     icons: &Rc<IconSet>,
@@ -154,6 +162,8 @@ pub fn view(
     let empty_loading = data.loading;
     let collapse_rows = collapse.clone();
     let pulse = data.pulse.clone();
+    let on_ctx_menu = data.on_context_menu.clone();
+    let nav_rows = on_navigate.clone();
 
     s.lazy_list(scroll_node, track_n + 2, ROW_H, move |sc, i| match i {
         0 => hero_block(sc, &icons_h, &hero, &accent_h, &on_play_h, &nav_h),
@@ -171,6 +181,8 @@ pub fn view(
                     &ctx,
                     &rows,
                     &request_cover,
+                    &on_ctx_menu,
+                    &nav_rows,
                 );
             } else if count > 0 || empty_loading {
                 skeleton_row(sc, ti, &pulse);
@@ -564,6 +576,7 @@ fn cover_art(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn track_row(
     s: &mut Scene,
     r: &PlaylistRow,
@@ -572,6 +585,8 @@ fn track_row(
     context_uri: &Option<String>,
     rows: &RowBuf,
     request_cover: &CoverFn,
+    on_context_menu: &crate::views::home::CtxMenuFn,
+    on_navigate: &NavFn,
 ) {
     // Lazily fetch this row's cover the first time it materializes (and
     // isn't resolved yet). The consumer gates on inflight/resolved, so
@@ -599,6 +614,16 @@ fn track_row(
         // complete, but faded and inert — no hover lift, no click.
         row.opacity(0.4);
     }
+    // Right-click → context menu (Add to queue / Go to album / artist).
+    crate::views::home::attach_context_menu(
+        &mut row,
+        on_context_menu,
+        crate::model::MenuTarget {
+            uri: r.uri.clone(),
+            album_id: r.album_id.clone(),
+            artist_id: r.artist_id.clone(),
+        },
+    );
     row.child(|row| {
             row.row(()).w_px(t::SP_7).center().child(|c| {
                 c.text((), format!("{}", index + 1), 13.0)
@@ -620,7 +645,7 @@ fn track_row(
                         .radius(t::R_SM);
                 }
             });
-            // Title + artist.
+            // Title + artist(s).
             row.col(())
                 .w(Len::Fill)
                 .gap(t::SP_0_5)
@@ -631,9 +656,7 @@ fn track_row(
                     m.text((), &r.title, 14.0)
                         .color(t::TEXT)
                         .max_width_px(360.0);
-                    m.text((), &r.artist, 12.0)
-                        .color(t::TEXT_DIM)
-                        .max_width_px(360.0);
+                    artist_line(m, &r.artists, &r.artist, on_navigate, 360.0);
                 });
             // Album.
             row.col(())
@@ -650,6 +673,45 @@ fn track_row(
             row.row(()).w_px(t::SP_12).justify(Justify::End).child(|c| {
                 c.text((), &r.duration, 12.0).color(t::TEXT_DIM);
             });
+        });
+}
+
+/// The artist line for a track row: one clickable span per credited
+/// artist (each → its artist page), comma-separated. Falls back to the
+/// plain joined `fallback` string when the per-artist list is absent
+/// (older cache entries). Reusable across track/queue rows.
+pub(crate) fn artist_line(
+    s: &mut Scene,
+    artists: &[crate::api::TrackArtist],
+    fallback: &str,
+    on_navigate: &NavFn,
+    max_w: f32,
+) {
+    if artists.is_empty() {
+        s.text((), fallback, 12.0).color(t::TEXT_DIM).max_width_px(max_w);
+        return;
+    }
+    s.row(())
+        .w(Len::Fill)
+        .align(Align::Center)
+        .overflow_x(Overflow::Hidden)
+        .child(|line| {
+            for (i, a) in artists.iter().enumerate() {
+                if i > 0 {
+                    line.text((), ", ", 12.0).color(t::TEXT_DIM);
+                }
+                if a.id.is_empty() {
+                    line.text((), &a.name, 12.0).color(t::TEXT_DIM);
+                    continue;
+                }
+                let nav = on_navigate.clone();
+                let id = a.id.clone();
+                line.text((), &a.name, 12.0)
+                    .color(t::TEXT_DIM)
+                    .cursor(frostify_gfx::CursorIcon::Pointer)
+                    .hover_color(t::TEXT)
+                    .on_click(move |ctx| nav(ctx, MainNav::Artist { id: id.clone() }));
+            }
         });
 }
 

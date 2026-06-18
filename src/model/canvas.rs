@@ -231,7 +231,7 @@ impl CanvasModel {
                 //      showing it live. The whole loop ends up resident in
                 //      VRAM; the frame durations are recorded here.
                 //   2. Loop phase — replay by `select(index)`, a view re-bind
-                //      with no pixel transfer.
+                //      with no pixel transfer (≈ 0 CPU/GPU).
                 // A scene rebuild reassigns the canvas node id; we `migrate`
                 // the resident set to the new id rather than re-uploading.
                 let mut building = true;

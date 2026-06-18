@@ -162,6 +162,9 @@ impl LibraryModel {
                 uri: t.uri.clone(),
                 art: cover,
                 cover_url: t.album_image_url.clone(),
+                artists: t.artists.clone(),
+                album_id: t.album_id.clone(),
+                artist_id: t.artist_id.clone(),
                 playable: t.playable,
             });
         }

@@ -72,7 +72,7 @@ fn cache_dir() -> Option<PathBuf> {
 /// `<root>/audio` — handed to librespot's `Cache` as its audio location,
 /// so streamed tracks land under the same user-relocatable cache root as
 /// art/json. librespot manages the contents itself (2-level fan-out dirs
-/// + an LRU size cap that touches mtimes on read); we only report usage
+/// with an LRU size cap that touches mtimes on read); we only report usage
 /// and clear it. Created on first use.
 pub fn audio_dir() -> Option<PathBuf> {
     let dir = root()?.join("audio");

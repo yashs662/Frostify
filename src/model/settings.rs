@@ -8,7 +8,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use frostify_gfx::{Overlay, WakeHandle};
+use frostify_gfx::{Overlay, Signal, WakeHandle};
 
 use crate::disk_cache;
 
@@ -19,16 +19,21 @@ pub struct SettingsModel {
     /// Last-measured on-disk cache usage (art vs JSON), shown in the
     /// storage bar. Recomputed on open / clear / relocate.
     pub cache_usage: Cell<disk_cache::CacheUsage>,
+    /// "Normalize volume" toggle state — seeded from prefs, drives the
+    /// switch reactively. The pref is read at session start (applies on
+    /// next launch), so this only mirrors + persists the choice.
+    pub normalize: Signal<bool>,
     /// Folder picked by the off-thread (blocking) cache-relocation dialog,
     /// awaiting pickup on the UI thread in the frame loop.
     pub pending_cache_dir: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl SettingsModel {
-    pub fn new() -> Self {
+    pub fn new(normalize: bool) -> Self {
         Self {
             overlay: Overlay::new(),
             cache_usage: Cell::new(disk_cache::CacheUsage::default()),
+            normalize: Signal::new(normalize),
             pending_cache_dir: Arc::new(Mutex::new(None)),
         }
     }
@@ -73,6 +78,6 @@ impl SettingsModel {
 
 impl Default for SettingsModel {
     fn default() -> Self {
-        Self::new()
+        Self::new(true)
     }
 }

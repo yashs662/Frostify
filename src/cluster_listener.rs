@@ -5,10 +5,11 @@ use librespot_core::dealer::Subscription;
 use librespot_core::dealer::protocol::PayloadValue;
 use librespot_protocol::connect::ClusterUpdate;
 use librespot_protocol::player::PlayerState as ProtoPlayerState;
+use librespot_protocol::player::ProvidedTrack;
 use log::{debug, info, warn};
 use protobuf::Message as _;
 
-use crate::api::{CurrentlyPlaying, RepeatMode};
+use crate::api::{CurrentlyPlaying, PlaylistTrack, RepeatMode, TrackArtist};
 
 /// Drain the dealer `hm://connect-state/v1/cluster` subscription forever,
 /// emitting our domain `CurrentlyPlaying` (plus the active device's
@@ -20,11 +21,23 @@ use crate::api::{CurrentlyPlaying, RepeatMode};
 /// reflect what the user's phone / web player is doing. (Our OWN
 /// playback never arrives here — the dealer doesn't echo a device's
 /// state back to itself; that path is `local_player`.)
+///
+/// The 4th callback arg is the active device's *full* play queue (the
+/// playing track followed by `next_tracks`), emitted only when Spotify's
+/// `queue_revision` changes — this is the uncapped, live alternative to the
+/// ~20-entry `/me/player/queue` Web API. `None` means "queue unchanged
+/// since the last push" (skip the rebuild).
 pub async fn run<F>(mut sub: Subscription, mut on_update: F)
 where
-    F: FnMut(Option<CurrentlyPlaying>, Option<f32>, Option<String>),
+    F: FnMut(
+        Option<CurrentlyPlaying>,
+        Option<f32>,
+        Option<String>,
+        Option<Vec<PlaylistTrack>>,
+    ),
 {
     info!("cluster listener started — awaiting connect-state pushes");
+    let mut last_revision: Option<String> = None;
     while let Some(msg) = sub.next().await {
         let bytes = match msg.payload {
             PayloadValue::Raw(b) => b,
@@ -50,7 +63,7 @@ where
         );
         let Some(cluster) = update.cluster.into_option() else {
             info!("  cluster: <empty>");
-            on_update(None, None, None);
+            on_update(None, None, None, None);
             continue;
         };
         info!(
@@ -67,7 +80,7 @@ where
             .then(|| cluster.active_device_id.clone());
         let Some(state) = cluster.player_state.into_option() else {
             info!("  player_state: <empty>");
-            on_update(None, volume, active_device);
+            on_update(None, volume, active_device, None);
             continue;
         };
         if !state.track.metadata.is_empty() {
@@ -76,14 +89,96 @@ where
                 state.track.metadata.keys().collect::<Vec<_>>()
             );
         }
+        // Build the full queue (playing track + next_tracks) only when the
+        // revision changed — Spotify bumps `queue_revision` on every queue
+        // edit, so this is a cheap dedup against re-emitting an identical
+        // list on unrelated cluster pushes (progress ticks, volume, etc.).
+        let revision = state.queue_revision.clone();
+        let queue = if last_revision.as_deref() != Some(revision.as_str()) {
+            last_revision = Some(revision);
+            let mut q = Vec::with_capacity(1 + state.next_tracks.len());
+            if let Some(now) = state.track.as_ref() {
+                q.push(provided_to_track(now));
+            }
+            q.extend(state.next_tracks.iter().map(provided_to_track));
+            info!("  -> cluster queue: {} tracks (rev changed)", q.len());
+            Some(q)
+        } else {
+            None
+        };
+
         let cp = into_currently_playing(state);
         info!(
             "  -> CurrentlyPlaying: name='{}' artist='{}' playing={} progress={}/{} img={:?}",
             cp.name, cp.artist, cp.is_playing, cp.progress_ms, cp.duration_ms, cp.album_image_url
         );
-        on_update(Some(cp), volume, active_device);
+        on_update(Some(cp), volume, active_device, queue);
     }
     debug!("cluster subscription stream ended");
+}
+
+/// Map a connect-state `ProvidedTrack` (a queue entry) to our domain
+/// [`PlaylistTrack`]. Mirrors the metadata-key reading in
+/// [`into_currently_playing`]; the artist *name* is in the metadata but the
+/// artist *id* only as `artist_uri` (so the clickable line resolves the
+/// first artist; later artists get a name but no id until detail-fetched).
+fn provided_to_track(pt: &ProvidedTrack) -> PlaylistTrack {
+    let md = &pt.metadata;
+    let name = md.get("title").cloned().unwrap_or_default();
+    let artist_id = id_from_uri(&pt.artist_uri);
+    let album_id = id_from_uri(&pt.album_uri);
+
+    // Ordered artist names: `artist_name` (single) or `artist_name:0..n`
+    // (multi). Only the first carries an id (from `artist_uri`).
+    let mut artists: Vec<TrackArtist> = Vec::new();
+    if let Some(a) = md.get("artist_name") {
+        artists.push(TrackArtist { id: artist_id.clone(), name: a.clone() });
+    } else {
+        let mut i = 0;
+        while let Some(a) = md.get(&format!("artist_name:{i}")) {
+            let id = if i == 0 { artist_id.clone() } else { String::new() };
+            artists.push(TrackArtist { id, name: a.clone() });
+            i += 1;
+        }
+    }
+    let artist = artists
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let album_image_url = md
+        .get("image_xlarge_url")
+        .or_else(|| md.get("image_large_url"))
+        .or_else(|| md.get("image_url"))
+        .or_else(|| md.get("image_small_url"))
+        .map(|s| spotify_image_uri_to_https(s));
+    let duration_ms = md.get("duration").and_then(|d| d.parse().ok()).unwrap_or(0);
+    let id = crate::api::track_id_from_uri(&pt.uri).unwrap_or_default().to_string();
+
+    PlaylistTrack {
+        id,
+        uri: pt.uri.clone(),
+        name,
+        artist,
+        album: String::new(),
+        album_image_url,
+        duration_ms,
+        artists,
+        album_id,
+        artist_id,
+        playable: true,
+    }
+}
+
+/// Last colon-separated segment of a `spotify:kind:ID` uri (the bare id).
+/// Empty in → empty out.
+fn id_from_uri(uri: &str) -> String {
+    if uri.is_empty() {
+        String::new()
+    } else {
+        uri.rsplit(':').next().unwrap_or_default().to_string()
+    }
 }
 
 fn into_currently_playing(state: ProtoPlayerState) -> CurrentlyPlaying {

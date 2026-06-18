@@ -23,9 +23,13 @@ pub struct DevicesModel {
     pub active_id: RefCell<String>,
     /// Frostify's own librespot device id, for the "This device" row tag.
     pub self_id: RefCell<String>,
-    /// Frostify is the active device — lights the player-bar Devices
-    /// icon with the accent.
+    /// Frostify is the active device. Drives transport routing (local Spirc
+    /// vs Web API) and the "This device" affordances.
     pub playing_on_self: Signal<bool>,
+    /// Some *other* device is the active player — lights the player-bar
+    /// Devices icon with the accent (Spotify's "connected to a device"
+    /// cue). False when Frostify is playing or nothing is active.
+    pub remote_active: Signal<bool>,
 }
 
 impl DevicesModel {
@@ -36,6 +40,7 @@ impl DevicesModel {
             active_id: RefCell::default(),
             self_id: RefCell::default(),
             playing_on_self: Signal::new(false),
+            remote_active: Signal::new(false),
         }
     }
 }

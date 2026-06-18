@@ -118,15 +118,38 @@ pub struct AlbumRef {
 /// A single track inside a playlist (or the Liked Songs collection).
 /// `uri` is the `spotify:track:…` form Web API playback needs; `id` is
 /// the bare hex (album-art cache keys etc.).
+/// One artist credited on a track — id + name, for showing every artist
+/// and making each a clickable link to its artist page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackArtist {
+    pub id: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistTrack {
     pub id: String,
     pub uri: String,
     pub name: String,
+    /// All credited artists' names joined with ", " — the plain-string
+    /// display fallback. The clickable per-artist rendering uses
+    /// [`Self::artists`].
     pub artist: String,
     pub album: String,
     pub album_image_url: Option<String>,
     pub duration_ms: u64,
+    /// Every credited artist (id + name), in order, for the multi-artist
+    /// clickable line. Empty on older cache entries → fall back to the
+    /// joined `artist` string.
+    #[serde(default)]
+    pub artists: Vec<TrackArtist>,
+    /// Album id + first-artist id for the right-click "Go to album/artist"
+    /// menu actions. Empty when the source didn't carry them (older cache
+    /// entries, local files).
+    #[serde(default)]
+    pub album_id: String,
+    #[serde(default)]
+    pub artist_id: String,
     /// False for tracks the Web API can't start: local files on another
     /// device and region-unavailable tracks (`is_playable: false` under
     /// `market=from_token`). Shown faded + non-interactive. Defaults
@@ -276,6 +299,15 @@ where
     Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
 
+/// Join artist display names with ", " (the plain-string fallback).
+fn join_artist_names(artists: &[TrackArtist]) -> String {
+    artists
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 // Shared deserialize shapes for the playlist + saved-tracks endpoints —
 // both wrap items in `{ track: <RawTrack> }`, so one set of structs maps
 // both.
@@ -310,10 +342,14 @@ struct RawTrack {
 #[derive(Deserialize)]
 struct RawArtist {
     #[serde(default, deserialize_with = "null_default")]
+    id: String,
+    #[serde(default, deserialize_with = "null_default")]
     name: String,
 }
 #[derive(Deserialize, Default)]
 struct RawAlbum {
+    #[serde(default, deserialize_with = "null_default")]
+    id: String,
     #[serde(default, deserialize_with = "null_default")]
     name: String,
     #[serde(default, deserialize_with = "null_default")]
@@ -396,19 +432,27 @@ fn pick_full(images: &[RawImg]) -> Option<String> {
 impl RawTrack {
     fn into_track(self) -> PlaylistTrack {
         let playable = !self.is_local && self.is_playable.unwrap_or(true) && !self.uri.is_empty();
+        let artists: Vec<TrackArtist> = self
+            .artists
+            .into_iter()
+            .map(|a| TrackArtist {
+                id: a.id,
+                name: a.name,
+            })
+            .collect();
+        let artist = join_artist_names(&artists);
+        let artist_id = artists.first().map(|a| a.id.clone()).unwrap_or_default();
         PlaylistTrack {
             id: self.id,
             uri: self.uri,
             name: self.name,
-            artist: self
-                .artists
-                .into_iter()
-                .next()
-                .map(|a| a.name)
-                .unwrap_or_default(),
+            artist,
             album: self.album.name,
             album_image_url: pick_thumb(&self.album.images),
             duration_ms: self.duration_ms,
+            artists,
+            album_id: self.album.id,
+            artist_id,
             playable,
         }
     }
@@ -832,6 +876,8 @@ pub async fn get_album(token: &str, album_id: &str) -> Result<PlaylistDetail, Au
     #[derive(Deserialize, Default)]
     struct Artist {
         #[serde(default, deserialize_with = "null_default")]
+        id: String,
+        #[serde(default, deserialize_with = "null_default")]
         name: String,
     }
     let r: R = get_json(
@@ -854,21 +900,31 @@ pub async fn get_album(token: &str, album_id: &str) -> Result<PlaylistDetail, Au
         .items
         .into_iter()
         .filter(|t| !t.id.is_empty())
-        .map(|t| PlaylistTrack {
-            id: t.id,
-            playable: t.is_playable.unwrap_or(true) && !t.uri.is_empty(),
-            uri: t.uri,
-            name: t.name,
-            artist: t
+        .map(|t| {
+            let artists: Vec<TrackArtist> = t
                 .artists
                 .into_iter()
-                .next()
-                .map(|a| a.name)
-                .unwrap_or_default(),
-            album: album_name.clone(),
-            // Album tracks share the album cover; row-thumb tier for the list.
-            album_image_url: row_thumb.clone(),
-            duration_ms: t.duration_ms,
+                .map(|a| TrackArtist {
+                    id: a.id,
+                    name: a.name,
+                })
+                .collect();
+            let artist = join_artist_names(&artists);
+            let artist_id = artists.first().map(|a| a.id.clone()).unwrap_or_default();
+            PlaylistTrack {
+                id: t.id,
+                playable: t.is_playable.unwrap_or(true) && !t.uri.is_empty(),
+                uri: t.uri,
+                name: t.name,
+                artist,
+                album: album_name.clone(),
+                // Album tracks share the album cover; row-thumb tier for the list.
+                album_image_url: row_thumb.clone(),
+                duration_ms: t.duration_ms,
+                artists,
+                album_id: album_id.to_string(),
+                artist_id,
+            }
         })
         .collect();
     let total = tracks.len() as u32;
@@ -1132,6 +1188,21 @@ pub async fn pause(token: &str) -> Result<(), AuthError> {
     player_command(token, reqwest::Method::PUT, "/me/player/pause").await
 }
 
+/// Append a track to the active device's play queue (the one queue write
+/// the Web API exposes — works on remote devices too). `track_uri` is the
+/// `spotify:track:…` form.
+pub async fn add_to_queue(token: &str, track_uri: &str) -> Result<(), AuthError> {
+    // A track URI is `spotify:track:<base62>` — only the colons need
+    // percent-encoding for the query string.
+    let enc = track_uri.replace(':', "%3A");
+    player_command(
+        token,
+        reqwest::Method::POST,
+        &format!("/me/player/queue?uri={enc}"),
+    )
+    .await
+}
+
 /// A Connect device visible to the account, for the devices popup.
 #[derive(Debug, Clone)]
 pub struct Device {
@@ -1293,16 +1364,21 @@ pub async fn set_repeat(token: &str, mode: RepeatMode) -> Result<(), AuthError> 
     .await
 }
 
-/// Seek the active Connect device to `position_ms`. Used by the
-/// (in-progress) scrubbable progress bar — drag/click to seek, with a
-/// hover preview of the target timestamp.
-pub async fn seek(token: &str, position_ms: u32) -> Result<(), AuthError> {
-    player_command(
-        token,
-        reqwest::Method::PUT,
-        &format!("/me/player/seek?position_ms={position_ms}"),
-    )
-    .await
+/// Seek to `position_ms`. `device_id` targets a specific device (used by
+/// the transfer-from-self path to position the *new* device before it
+/// resumes); `None` seeks whichever device is active (the scrubbable
+/// progress bar — drag/click to seek, with a hover preview of the target
+/// timestamp).
+pub async fn seek(
+    token: &str,
+    position_ms: u32,
+    device_id: Option<&str>,
+) -> Result<(), AuthError> {
+    let path = match device_id {
+        Some(id) => format!("/me/player/seek?position_ms={position_ms}&device_id={id}"),
+        None => format!("/me/player/seek?position_ms={position_ms}"),
+    };
+    player_command(token, reqwest::Method::PUT, &path).await
 }
 
 /// GET + deserialize a Web API JSON endpoint, transparently cached on disk.

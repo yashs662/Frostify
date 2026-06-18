@@ -92,11 +92,27 @@ pub enum WorkerCommand {
         initial_volume: f32,
         /// Persisted streaming-quality preference → librespot bitrate.
         quality: crate::prefs::AudioQuality,
+        /// Persisted "normalize volume" preference → librespot
+        /// normalisation + limiter.
+        normalize: bool,
     },
-    /// Transport control on the active Connect device (Web API).
+    /// Transport control on the active Connect device. `local` (Frostify is
+    /// the active device) drives our own Spirc directly — instant + reliable;
+    /// the Web API relay to our own device can silently no-op after a long
+    /// uptime. Otherwise the Web API acts on the remote device.
     Playback {
         access_token: String,
         cmd: PlaybackCmd,
+        local: bool,
+    },
+    /// Skip forward `count` tracks — "skip to" a queue item (playing the
+    /// N-th queued song consumes the ones before it). `local` uses our
+    /// Spirc handle (instant, reliable) when Frostify is the active
+    /// device; otherwise it falls back to repeated Web API `next`.
+    SkipForward {
+        access_token: String,
+        count: u32,
+        local: bool,
     },
     /// Proactively refresh the access token before it expires (dispatched
     /// by the frame tick's due-check; see `AuthModel::refresh_due`).
@@ -107,10 +123,14 @@ pub enum WorkerCommand {
     FetchDevices {
         access_token: String,
     },
-    /// Transfer playback to a device (and resume there).
+    /// Transfer playback to a device (and resume there). `position_ms` is
+    /// `Some` only when leaving Frostify itself: the Web API transfer drops
+    /// our librespot device's position (the target restarts at 0:00), so we
+    /// re-apply the position we track locally — see `spawn_transfer`.
     TransferPlayback {
         access_token: String,
         device_id: String,
+        position_ms: Option<u32>,
     },
     /// Is the current track liked? (heart state on track change)
     CheckSaved {
@@ -126,6 +146,12 @@ pub enum WorkerCommand {
     /// The active device's play queue, for the queue page.
     FetchQueue {
         access_token: String,
+    },
+    /// Append a track to the active device's queue (right-click → Add to
+    /// queue). Works on remote devices too.
+    AddToQueue {
+        access_token: String,
+        uri: String,
     },
 }
 
@@ -359,6 +385,7 @@ impl Worker {
                             access_token,
                             initial_volume,
                             quality,
+                            normalize,
                         } => spawn_connect_session(
                             resp.clone(),
                             session.clone(),
@@ -366,10 +393,25 @@ impl Worker {
                             access_token,
                             initial_volume,
                             quality,
+                            normalize,
                         ),
-                        WorkerCommand::Playback { access_token, cmd } => {
-                            spawn_playback(resp.clone(), session.clone(), access_token, cmd)
-                        }
+                        WorkerCommand::Playback {
+                            access_token,
+                            cmd,
+                            local,
+                        } => spawn_playback(
+                            resp.clone(),
+                            session.clone(),
+                            spirc.clone(),
+                            access_token,
+                            cmd,
+                            local,
+                        ),
+                        WorkerCommand::SkipForward {
+                            access_token,
+                            count,
+                            local,
+                        } => spawn_skip_forward(spirc.clone(), access_token, count, local),
                         WorkerCommand::RefreshTokens { refresh_token } => {
                             spawn_refresh_tokens(resp.clone(), refresh_token)
                         }
@@ -379,7 +421,8 @@ impl Worker {
                         WorkerCommand::TransferPlayback {
                             access_token,
                             device_id,
-                        } => spawn_transfer(access_token, device_id),
+                            position_ms,
+                        } => spawn_transfer(access_token, device_id, position_ms),
                         WorkerCommand::CheckSaved {
                             access_token,
                             track_id,
@@ -391,6 +434,13 @@ impl Worker {
                         } => spawn_set_saved(resp.clone(), access_token, track_id, saved),
                         WorkerCommand::FetchQueue { access_token } => {
                             spawn_fetch_queue(resp.clone(), access_token)
+                        }
+                        WorkerCommand::AddToQueue { access_token, uri } => {
+                            tokio::spawn(async move {
+                                if let Err(e) = api::add_to_queue(&access_token, &uri).await {
+                                    warn!("add_to_queue({uri}) failed: {e}");
+                                }
+                            });
                         }
                     }
                 }
@@ -454,17 +504,28 @@ impl Worker {
         access_token: String,
         initial_volume: f32,
         quality: crate::prefs::AudioQuality,
+        normalize: bool,
     ) {
         let _ = self.cmd_tx.send(WorkerCommand::ConnectSpotifySession {
             access_token,
             initial_volume,
             quality,
+            normalize,
         });
     }
-    pub fn playback(&self, access_token: String, cmd: PlaybackCmd) {
-        let _ = self
-            .cmd_tx
-            .send(WorkerCommand::Playback { access_token, cmd });
+    pub fn skip_forward(&self, access_token: String, count: u32, local: bool) {
+        let _ = self.cmd_tx.send(WorkerCommand::SkipForward {
+            access_token,
+            count,
+            local,
+        });
+    }
+    pub fn playback(&self, access_token: String, cmd: PlaybackCmd, local: bool) {
+        let _ = self.cmd_tx.send(WorkerCommand::Playback {
+            access_token,
+            cmd,
+            local,
+        });
     }
     pub fn refresh_tokens(&self, refresh_token: String) {
         let _ = self.cmd_tx.send(WorkerCommand::RefreshTokens { refresh_token });
@@ -472,10 +533,16 @@ impl Worker {
     pub fn fetch_devices(&self, access_token: String) {
         let _ = self.cmd_tx.send(WorkerCommand::FetchDevices { access_token });
     }
-    pub fn transfer_playback(&self, access_token: String, device_id: String) {
+    pub fn transfer_playback(
+        &self,
+        access_token: String,
+        device_id: String,
+        position_ms: Option<u32>,
+    ) {
         let _ = self.cmd_tx.send(WorkerCommand::TransferPlayback {
             access_token,
             device_id,
+            position_ms,
         });
     }
     pub fn check_saved(&self, access_token: String, track_id: String) {
@@ -493,6 +560,11 @@ impl Worker {
     }
     pub fn fetch_queue(&self, access_token: String) {
         let _ = self.cmd_tx.send(WorkerCommand::FetchQueue { access_token });
+    }
+    pub fn add_to_queue(&self, access_token: String, uri: String) {
+        let _ = self
+            .cmd_tx
+            .send(WorkerCommand::AddToQueue { access_token, uri });
     }
     pub fn poll(&self) -> Option<WorkerResponse> {
         self.resp_rx.try_recv().ok()
@@ -843,6 +915,47 @@ async fn fetch_canvas_entry(
     crate::canvas::parse_canvas(&any.value)
 }
 
+/// Skip forward `count` tracks. When `local` (Frostify is the active
+/// device) and our Spirc exists, advance the queue in-process — instant
+/// and reliable. Otherwise repeatedly hit Web API `next` on the active
+/// (remote) device, spaced out a little so the rapid skips don't race or
+/// trip rate limits. The resulting state change flows back via the
+/// cluster / local-player path like any other transport.
+fn spawn_skip_forward(
+    spirc_slot: Arc<AsyncMutex<Option<Spirc>>>,
+    access_token: String,
+    count: u32,
+    local: bool,
+) {
+    tokio::spawn(async move {
+        if count == 0 {
+            return;
+        }
+        if local {
+            let guard = spirc_slot.lock().await;
+            if let Some(spirc) = guard.as_ref() {
+                for _ in 0..count {
+                    if let Err(e) = spirc.next() {
+                        warn!("spirc skip failed: {e}");
+                        break;
+                    }
+                }
+                return;
+            }
+            // No local Spirc after all — fall through to Web API.
+        }
+        for i in 0..count {
+            if let Err(e) = api::next_track(&access_token).await {
+                warn!("skip-forward next() failed at {i}/{count}: {e}");
+                break;
+            }
+            if i + 1 < count {
+                tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            }
+        }
+    });
+}
+
 /// True for the Web API's "no active device" failure (404 with the
 /// NO_ACTIVE_DEVICE reason).
 fn is_no_active_device(e: &AuthError) -> bool {
@@ -852,10 +965,50 @@ fn is_no_active_device(e: &AuthError) -> bool {
 fn spawn_playback(
     resp: Responder,
     session_slot: Arc<AsyncMutex<Option<Session>>>,
+    spirc_slot: Arc<AsyncMutex<Option<Spirc>>>,
     access_token: String,
     cmd: PlaybackCmd,
+    local: bool,
 ) {
     tokio::spawn(async move {
+        // When Frostify is the active device, drive our own Spirc directly.
+        // The Web API round-trip (Spotify → dealer relay → our Spirc) can
+        // silently no-op after a long uptime if the relay path goes stale —
+        // the command 200s but nothing happens, leaving the optimistic
+        // play/pause flipped. The local Spirc call is instant and can't go
+        // stale that way. `PlayContext` is a context load, not a transport
+        // verb, so it always takes the Web API path below.
+        if local && !matches!(cmd, PlaybackCmd::PlayContext(_)) {
+            let guard = spirc_slot.lock().await;
+            if let Some(spirc) = guard.as_ref() {
+                let r = match cmd.clone() {
+                    PlaybackCmd::Play => spirc.play(),
+                    PlaybackCmd::Pause => spirc.pause(),
+                    PlaybackCmd::Next => spirc.next(),
+                    PlaybackCmd::Prev => spirc.prev(),
+                    PlaybackCmd::Shuffle(on) => spirc.shuffle(on),
+                    PlaybackCmd::Repeat(mode) => match mode {
+                        RepeatMode::Track => spirc.repeat_track(true),
+                        RepeatMode::Context => spirc.repeat(true),
+                        RepeatMode::Off => spirc.repeat(false),
+                    },
+                    PlaybackCmd::Seek(ms) => spirc.set_position_ms(ms),
+                    PlaybackCmd::Volume(pct) => {
+                        spirc.set_volume((pct.min(100) as u32 * u16::MAX as u32 / 100) as u16)
+                    }
+                    PlaybackCmd::PlayContext(_) => unreachable!("guarded above"),
+                };
+                match r {
+                    Ok(()) => debug!("spirc cmd {cmd:?} ok"),
+                    Err(e) => {
+                        warn!("spirc cmd {cmd:?} failed: {e}");
+                        resp.send(WorkerResponse::PlaybackFailed { cmd });
+                    }
+                }
+                return;
+            }
+            // No local Spirc after all — fall through to the Web API.
+        }
         let result = match cmd.clone() {
             PlaybackCmd::Play => api::play(&access_token, None).await,
             PlaybackCmd::Pause => api::pause(&access_token).await,
@@ -863,7 +1016,7 @@ fn spawn_playback(
             PlaybackCmd::Prev => api::previous_track(&access_token).await,
             PlaybackCmd::Shuffle(on) => api::set_shuffle(&access_token, on).await,
             PlaybackCmd::Repeat(mode) => api::set_repeat(&access_token, mode).await,
-            PlaybackCmd::Seek(ms) => api::seek(&access_token, ms).await,
+            PlaybackCmd::Seek(ms) => api::seek(&access_token, ms, None).await,
             PlaybackCmd::Volume(pct) => api::set_volume(&access_token, pct).await,
             PlaybackCmd::PlayContext(target) => {
                 api::play_context(&access_token, target, None).await
@@ -1280,13 +1433,14 @@ fn spawn_connect_session(
     access_token: String,
     initial_volume: f32,
     quality: crate::prefs::AudioQuality,
+    normalize: bool,
 ) {
     tokio::spawn(async move {
         let s = spotify_session::new_session();
         *session_slot.lock().await = Some(s.clone());
 
         let creds = Credentials::with_access_token(access_token);
-        let boot = match spirc_bootstrap::start(s, creds, initial_volume, quality).await {
+        let boot = match spirc_bootstrap::start(s, creds, initial_volume, quality, normalize).await {
             Ok(b) => b,
             Err(e) => {
                 error!("spirc bootstrap failed: {e}");
@@ -1320,19 +1474,35 @@ fn spawn_connect_session(
             guard.as_ref().map(|s| s.device_id().to_string()).unwrap_or_default()
         };
         let self_id_for_connected = self_device_id.clone();
+        let self_id_for_local = self_device_id.clone();
+        // Last-announced active device id, SHARED between the cluster and
+        // local-player tasks. It must be shared: the dealer never echoes our
+        // own connect-state, so a transfer *to* Frostify produces no cluster
+        // push — the local task announces it instead. If the dedup were
+        // per-task, the cluster task's stale `last_active` would then also
+        // swallow the *next* remote switch, leaving the devices UI stuck.
+        let last_active = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+        let last_active_cluster = last_active.clone();
         tokio::spawn(async move {
-            let mut last_active: Option<String> = None;
-            cluster_listener::run(cluster_sub, move |player, volume, active_device| {
+            cluster_listener::run(cluster_sub, move |player, volume, active_device, queue| {
                 if let Some(v) = volume {
                     resp_for_cluster.send(WorkerResponse::VolumeChanged { fraction: v });
                 }
-                if active_device != last_active {
-                    last_active = active_device.clone();
-                    let id = active_device.unwrap_or_default();
-                    resp_for_cluster.send(WorkerResponse::ActiveDeviceChanged {
-                        is_self: !id.is_empty() && id == self_device_id,
-                        device_id: id,
-                    });
+                {
+                    let mut la = last_active_cluster.lock().unwrap();
+                    if *la != active_device {
+                        *la = active_device.clone();
+                        let id = active_device.unwrap_or_default();
+                        resp_for_cluster.send(WorkerResponse::ActiveDeviceChanged {
+                            is_self: !id.is_empty() && id == self_device_id,
+                            device_id: id,
+                        });
+                    }
+                }
+                // Full, live queue off connect-state — replaces the capped
+                // Web API list whenever a remote device is the active player.
+                if let Some(tracks) = queue {
+                    resp_for_cluster.send(WorkerResponse::QueueLoaded { tracks });
                 }
                 resp_for_cluster.send(WorkerResponse::PlayerState { player });
             })
@@ -1343,10 +1513,29 @@ fn spawn_connect_session(
         // Frostify itself is the active device (no dealer self-echo).
         let resp_for_local = resp.clone();
         let resp_for_local_vol = resp.clone();
+        let last_active_local = last_active;
         tokio::spawn(async move {
             crate::local_player::run(
                 player_events,
-                move |player| resp_for_local.send(WorkerResponse::PlayerState { player }),
+                move |player| {
+                    // Frostify is emitting playback state ⇒ it is now the
+                    // active Connect device (a transfer-to-self the cluster
+                    // can't report). Announce it once per activation so the
+                    // devices popup + chrome leave the previous remote's
+                    // "active" highlight, updating the shared dedup so a later
+                    // switch back to a remote still fires.
+                    if player.is_some() {
+                        let mut la = last_active_local.lock().unwrap();
+                        if la.as_deref() != Some(self_id_for_local.as_str()) {
+                            *la = Some(self_id_for_local.clone());
+                            resp_for_local.send(WorkerResponse::ActiveDeviceChanged {
+                                is_self: true,
+                                device_id: self_id_for_local.clone(),
+                            });
+                        }
+                    }
+                    resp_for_local.send(WorkerResponse::PlayerState { player });
+                },
                 move |fraction| resp_for_local_vol.send(WorkerResponse::VolumeChanged { fraction }),
             )
             .await;
@@ -1367,11 +1556,35 @@ fn spawn_fetch_devices(resp: Responder, access_token: String) {
     });
 }
 
-fn spawn_transfer(access_token: String, device_id: String) {
+fn spawn_transfer(access_token: String, device_id: String, position_ms: Option<u32>) {
     tokio::spawn(async move {
         // The cluster push after the transfer is the UI's confirmation.
-        if let Err(e) = api::transfer_playback(&access_token, &device_id, true).await {
-            warn!("transfer to {device_id} failed: {e}");
+        match position_ms {
+            // Leaving Frostify: the Web API transfer doesn't carry our
+            // librespot device's position (the target would restart at
+            // 0:00). Transfer PAUSED, seek the target to the position we
+            // tracked locally, then resume — all repositioning happens while
+            // paused, so there's no audible restart-then-jump.
+            Some(pos) => {
+                if let Err(e) = api::transfer_playback(&access_token, &device_id, false).await {
+                    warn!("transfer to {device_id} failed: {e}");
+                    return;
+                }
+                if let Err(e) = api::seek(&access_token, pos, Some(&device_id)).await {
+                    warn!("seek on transfer to {device_id} failed: {e}");
+                }
+                if let Err(e) = api::play(&access_token, Some(&device_id)).await {
+                    warn!("resume on transfer to {device_id} failed: {e}");
+                }
+            }
+            // Transferring between other devices (or to Frostify): the source
+            // hands its position off correctly, so a plain resume-on-transfer
+            // preserves it.
+            None => {
+                if let Err(e) = api::transfer_playback(&access_token, &device_id, true).await {
+                    warn!("transfer to {device_id} failed: {e}");
+                }
+            }
         }
     });
 }

@@ -13,8 +13,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use frostify_gfx::{Align, ImageHandle, Justify, Len, Overflow, Scene, Signal};
 
 use crate::api::PlayTarget;
+use crate::model::MenuTarget;
 use crate::views::MainNav;
-use crate::views::home::{NavFn, PlayFn};
+use crate::views::home::{CtxMenuFn, NavFn, PlayFn};
 use crate::widgets::icon::{Icon, IconSet};
 use crate::widgets::tokens as t;
 
@@ -37,6 +38,10 @@ pub struct ShowAllRow {
     /// Circular thumb (artists) vs rounded square (everything else).
     pub round: bool,
     pub action: RowAction,
+    /// Right-click target for track rows (Add to queue / Go to album).
+    /// `None` for container rows (playlist/artist) — they have no track to
+    /// enqueue.
+    pub menu: Option<MenuTarget>,
 }
 
 /// A run of rows under an optional header (day label for Recently played;
@@ -62,6 +67,7 @@ pub fn view(
     scroll_node: &str,
     on_navigate: NavFn,
     on_play: PlayFn,
+    on_context_menu: CtxMenuFn,
 ) {
     let nav_back = on_navigate.clone();
     s.col(scroll_node)
@@ -99,7 +105,7 @@ pub fn view(
                         });
                 }
                 for row in &group.rows {
-                    show_all_row(c, icons, row, &on_navigate, &on_play);
+                    show_all_row(c, icons, row, &on_navigate, &on_play, &on_context_menu);
                 }
             }
         });
@@ -107,7 +113,14 @@ pub fn view(
 
 /// One full-width row: thumb + title/subtitle (+ trailing chevron for
 /// rows that open a detail page; play rows have no nav affordance).
-fn show_all_row(s: &mut Scene, icons: &Rc<IconSet>, row: &ShowAllRow, nav: &NavFn, play: &PlayFn) {
+fn show_all_row(
+    s: &mut Scene,
+    icons: &Rc<IconSet>,
+    row: &ShowAllRow,
+    nav: &NavFn,
+    play: &PlayFn,
+    on_context_menu: &CtxMenuFn,
+) {
     let radius = if row.round { t::R_FULL } else { t::R_SM };
     let chevron = matches!(row.action, RowAction::Open(_));
     let mut r = s.row(());
@@ -129,6 +142,11 @@ fn show_all_row(s: &mut Scene, icons: &Rc<IconSet>, row: &ShowAllRow, nav: &NavF
             let target = target.clone();
             r.on_click(move |_| play(target.clone()));
         }
+    }
+    // Right-click → context menu (track rows only; same gesture as every
+    // other track list).
+    if let Some(target) = row.menu.clone() {
+        crate::views::home::attach_context_menu(&mut r, on_context_menu, target);
     }
     r.child(|r| {
             // Thumb.

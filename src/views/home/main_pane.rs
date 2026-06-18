@@ -15,8 +15,9 @@ use frostify_gfx::{
 use crate::album_art;
 use crate::api::{AlbumRef, HomeData};
 use crate::model::ArtModel;
+use crate::api::PlayTarget;
 use crate::views::home::playlist::{self, PlaylistViewData};
-use crate::views::home::{NavFn, PlayFn};
+use crate::views::home::{CtxMenuFn, NavFn, PlayFn};
 use crate::views::{HomeSection, MainNav};
 use crate::widgets::chip::chip;
 use crate::widgets::color::accent_fg;
@@ -53,6 +54,10 @@ pub struct MainPane<'a> {
     pub queue: Option<&'a [crate::api::PlaylistTrack]>,
     /// Skeleton pulse signal (queue loading placeholders).
     pub pulse: &'a Signal<f32>,
+    /// Skip forward N tracks — clicking a queue row jumps to it.
+    pub on_skip: Rc<dyn Fn(u32)>,
+    /// Right-click a track row → open the context menu.
+    pub on_context_menu: crate::views::home::CtxMenuFn,
     /// 0 → 1 entrance transition progress on nav change.
     pub main_t: &'a Signal<f32>,
     /// Detail-page header collapse (0 expanded → 1 collapsed), driven each
@@ -124,6 +129,7 @@ impl Component for MainPane<'_> {
                                     &format!("show_all_scroll:{section:?}"),
                                     self.on_navigate.clone(),
                                     self.on_play.clone(),
+                                    self.on_context_menu.clone(),
                                 );
                             }
                         }
@@ -135,6 +141,8 @@ impl Component for MainPane<'_> {
                                 self.art,
                                 self.pulse,
                                 self.on_navigate.clone(),
+                                self.on_skip.clone(),
+                                self.on_context_menu.clone(),
                             );
                         }
                     });
@@ -149,6 +157,8 @@ impl MainPane<'_> {
         let art = self.art;
         let accent = self.accent;
         let nav = self.on_navigate.clone();
+        let ctx_menu = self.on_context_menu.clone();
+        let on_play = self.on_play.clone();
         let greeting = match home.profile.as_ref() {
             Some(p) if !p.display_name.is_empty() => format!("Good evening, {}", p.display_name),
             _ => "Good evening".to_string(),
@@ -209,6 +219,8 @@ impl MainPane<'_> {
                     home.recent.iter().take(HOME_ROW_TILES),
                     art,
                     nav.clone(),
+                    Some(ctx_menu.clone()),
+                    Some(on_play.clone()),
                     |t| {
                         (
                             t.name.clone(),
@@ -216,6 +228,11 @@ impl MainPane<'_> {
                             t.album_image_url.clone(),
                             Some(MainNav::Album {
                                 id: t.album_id.clone(),
+                            }),
+                            Some(crate::model::MenuTarget {
+                                uri: format!("spotify:track:{}", t.id),
+                                album_id: t.album_id.clone(),
+                                artist_id: String::new(),
                             }),
                         )
                     },
@@ -235,12 +252,15 @@ impl MainPane<'_> {
                     home.top_artists.iter().take(HOME_ROW_TILES),
                     art,
                     nav.clone(),
+                    None,
+                    None,
                     |a| {
                         (
                             a.name.clone(),
                             "Artist".to_string(),
                             a.image_url.clone(),
                             Some(MainNav::Artist { id: a.id.clone() }),
+                            None,
                         )
                     },
                 );
@@ -259,6 +279,8 @@ impl MainPane<'_> {
                     home.top_tracks.iter().take(HOME_ROW_TILES),
                     art,
                     nav.clone(),
+                    Some(ctx_menu.clone()),
+                    Some(on_play.clone()),
                     |t| {
                         (
                             t.name.clone(),
@@ -266,6 +288,11 @@ impl MainPane<'_> {
                             t.album_image_url.clone(),
                             Some(MainNav::Album {
                                 id: t.album_id.clone(),
+                            }),
+                            Some(crate::model::MenuTarget {
+                                uri: format!("spotify:track:{}", t.id),
+                                album_id: t.album_id.clone(),
+                                artist_id: String::new(),
                             }),
                         )
                     },
@@ -285,6 +312,8 @@ impl MainPane<'_> {
                     home.playlists.iter().take(HOME_ROW_TILES),
                     art,
                     nav.clone(),
+                    None,
+                    None,
                     |p| {
                         (
                             p.name.clone(),
@@ -294,6 +323,7 @@ impl MainPane<'_> {
                                 id: p.id.clone(),
                                 liked: false,
                             }),
+                            None,
                         )
                     },
                 );
@@ -312,21 +342,28 @@ pub(crate) struct Card {
     pub subtitle: String,
     pub cover: Option<Signal<Option<ImageHandle>>>,
     pub target: Option<MainNav>,
+    /// Right-click target for song tiles (recents / top tracks). `None`
+    /// for non-song tiles (artists, playlists, albums) → no menu.
+    pub menu: Option<crate::model::MenuTarget>,
 }
 
 /// Adapter: build a [`card_row`] from an iterator + a per-item labeller.
 /// Used by the home feed (recents, top artists/tracks, playlists).
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 fn tile_row<T>(
     s: &mut Scene,
     icons: &Rc<IconSet>,
     items: impl Iterator<Item = T>,
     art: &ArtModel,
     nav: NavFn,
-    label: impl Fn(&T) -> (String, String, Option<String>, Option<MainNav>),
+    on_context_menu: Option<CtxMenuFn>,
+    on_play: Option<PlayFn>,
+    label: impl Fn(&T) -> (String, String, Option<String>, Option<MainNav>, Option<crate::model::MenuTarget>),
 ) {
     let cards: Vec<Card> = items
         .map(|t| {
-            let (title, subtitle, url, target) = label(&t);
+            let (title, subtitle, url, target, menu) = label(&t);
             let cover = url
                 .as_ref()
                 .and_then(|u| art.signal(&album_art::cache_key(u)));
@@ -335,10 +372,11 @@ fn tile_row<T>(
                 subtitle,
                 cover,
                 target,
+                menu,
             }
         })
         .collect();
-    card_row(s, icons, nav, cards);
+    card_row(s, icons, nav, on_context_menu, on_play, cards);
 }
 
 /// Logical-px fallback page step when the scroller's measured width isn't
@@ -350,7 +388,14 @@ const SCROLL_PAGE_FALLBACK: f32 = 600.0;
 /// reveal on hover. Shared by the home tile rows + the artist discography so
 /// the scroller + tiles + arrow affordance live in one place (DRY). Empty
 /// `cards` renders skeleton placeholders (loading state).
-pub(crate) fn card_row(s: &mut Scene, icons: &Rc<IconSet>, nav: NavFn, cards: Vec<Card>) {
+pub(crate) fn card_row(
+    s: &mut Scene,
+    icons: &Rc<IconSet>,
+    nav: NavFn,
+    on_context_menu: Option<CtxMenuFn>,
+    on_play: Option<PlayFn>,
+    cards: Vec<Card>,
+) {
     let icons = icons.clone();
     // Hover state of the whole strip (ancestor-hover: true while the cursor
     // is over any tile/gap/arrow inside it) → drives the arrow bars' fade.
@@ -373,7 +418,7 @@ pub(crate) fn card_row(s: &mut Scene, icons: &Rc<IconSet>, nav: NavFn, cards: Ve
                 scroll.child(move |g| {
                     if cards.is_empty() {
                         for _ in 0..8 {
-                            tile(g, "\u{2014}", "", None, None, &nav);
+                            tile(g, "\u{2014}", "", None, None, None, &nav, None, None);
                         }
                     } else {
                         for c in &cards {
@@ -383,7 +428,10 @@ pub(crate) fn card_row(s: &mut Scene, icons: &Rc<IconSet>, nav: NavFn, cards: Ve
                                 &c.subtitle,
                                 c.cover.clone(),
                                 c.target.clone(),
+                                c.menu.clone(),
                                 &nav,
+                                on_context_menu.as_ref(),
+                                on_play.as_ref(),
                             );
                         }
                     }
@@ -468,13 +516,17 @@ fn section_header(s: &mut Scene, title: &str, show_all: Option<MainNav>, nav: &N
 
 /// A single home/discography tile: square cover + title + subtitle, opening
 /// `target` on click. Reused by the artist page's discography grid.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn tile(
     s: &mut Scene,
     title: &str,
     sub: &str,
     art: Option<Signal<Option<ImageHandle>>>,
     target: Option<MainNav>,
+    menu: Option<crate::model::MenuTarget>,
     nav: &NavFn,
+    on_context_menu: Option<&CtxMenuFn>,
+    on_play: Option<&PlayFn>,
 ) {
     let mut b = s.col(());
     b.w_px(t::TILE_W)
@@ -487,9 +539,32 @@ pub(crate) fn tile(
         .rgba(t::PANEL_HI[0], t::PANEL_HI[1], t::PANEL_HI[2], 1.0)
         .hover_color(t::HOVER_LIFT)
         .radius(t::R_LG);
-    if let Some(target) = target {
+    // A tile that carries a menu target IS a song (recents / top tracks):
+    // clicking *plays* it (in its album context so the queue continues),
+    // matching the song-row behaviour — not "open the album", which made
+    // recents feel like a row of collections. Right-click still offers Go
+    // to album. Non-song tiles (artists, playlists, albums) navigate.
+    let play_target = match (menu.as_ref(), on_play) {
+        (Some(m), Some(_)) if m.album_id.is_empty() => Some(PlayTarget::Uris {
+            uris: vec![m.uri.clone()],
+            offset: 0,
+        }),
+        (Some(m), Some(_)) => Some(PlayTarget::ContextAt {
+            context_uri: format!("spotify:album:{}", m.album_id),
+            track_uri: m.uri.clone(),
+        }),
+        _ => None,
+    };
+    if let (Some(pt), Some(on_play)) = (play_target, on_play) {
+        let on_play = on_play.clone();
+        b.on_click(move |_| on_play(pt.clone()));
+    } else if let Some(target) = target {
         let nav = nav.clone();
         b.on_click(move |ctx| nav(ctx, target.clone()));
+    }
+    // Right-click → context menu (song tiles only).
+    if let (Some(menu), Some(on_ctx)) = (menu, on_context_menu) {
+        crate::views::home::attach_context_menu(&mut b, on_ctx, menu);
     }
     b.child(|card| {
         card.col(())

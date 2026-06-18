@@ -55,11 +55,16 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
         WorkerResponse::OAuthComplete { auth } | WorkerResponse::TokensLoaded { auth } => {
             log::info!("auth ok — switching to Home");
             worker.fetch_home(auth.access_token.clone());
-            let (initial_volume, quality) = {
+            let (initial_volume, quality, normalize) = {
                 let p = state.prefs.data.borrow();
-                (p.audio.volume, p.audio.quality)
+                (p.audio.volume, p.audio.quality, p.audio.normalize)
             };
-            worker.connect_spotify_session(auth.access_token.clone(), initial_volume, quality);
+            worker.connect_spotify_session(
+                auth.access_token.clone(),
+                initial_volume,
+                quality,
+                normalize,
+            );
             state.auth.set(auth);
             if state.router.view.get() != View::Home {
                 state.router.view.set(View::Home);
@@ -106,6 +111,11 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
             cx.rebuild();
         }
         WorkerResponse::ActiveDeviceChanged { device_id, is_self } => {
+            // A real *other* device is active → light the Devices icon.
+            state
+                .devices
+                .remote_active
+                .set(!is_self && !device_id.is_empty());
             *state.devices.active_id.borrow_mut() = device_id;
             state.devices.playing_on_self.set(is_self);
             // Active-row highlight in the popup, if it's open.
@@ -343,10 +353,23 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
             }
         }
         WorkerResponse::CanvasReady { track_id, path } => {
-            // Stage 1-2: the Canvas MP4 is fetched + cached. Frame decode
-            // + texture pump (stages 3-4) and the now-playing UI swap
-            // (stage 5) land next; for now record the cached path so the
-            // decoder task can pick it up.
+            // Ignore a canvas that no longer matches the current track —
+            // e.g. a cold-start canvas (for the last-played track) arriving
+            // after a *different* live track has already started. With no
+            // snapshot yet (cold start, nothing playing) there's nothing to
+            // contradict, so accept it — that's the case this restores.
+            let matches_current = state
+                .player_ui
+                .snapshot
+                .borrow()
+                .as_ref()
+                .and_then(|p| track_id_from_uri(&p.track_id))
+                .map(|cur| cur == track_id)
+                .unwrap_or(true);
+            if !matches_current {
+                log::debug!("stale canvas for {track_id} — ignoring");
+                return;
+            }
             log::info!("canvas ready for {track_id}: {}", path.display());
             state.canvas.set_path(track_id.clone(), path.clone());
             // Only decode if still wanted (canvas enabled). A late arrival

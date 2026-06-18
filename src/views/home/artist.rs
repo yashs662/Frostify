@@ -151,9 +151,17 @@ pub fn view(
                         subtitle: al.year.clone(),
                         cover: al.cover.clone(),
                         target: Some(MainNav::Album { id: al.id.clone() }),
+                        menu: None,
                     })
                     .collect();
-                crate::views::home::main_pane::card_row(c, icons, on_navigate.clone(), cards);
+                crate::views::home::main_pane::card_row(
+                    c,
+                    icons,
+                    on_navigate.clone(),
+                    None,
+                    None,
+                    cards,
+                );
             }
         });
 }

@@ -29,5 +29,13 @@ pub fn new_session() -> Session {
             .inspect_err(|e| log::warn!("audio cache unavailable — streaming uncached: {e}"))
             .ok()
     });
-    Session::new(SessionConfig::default(), cache)
+    // Autoplay: when the current context/queue runs out, librespot resolves
+    // a station of recommended tracks and keeps playing — matching the
+    // official client instead of stopping dead ("no more tracks left").
+    // `Some(true)` forces it on regardless of the account toggle.
+    let config = SessionConfig {
+        autoplay: Some(true),
+        ..SessionConfig::default()
+    };
+    Session::new(config, cache)
 }

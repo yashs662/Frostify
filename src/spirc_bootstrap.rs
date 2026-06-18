@@ -6,7 +6,9 @@ use librespot_core::authentication::Credentials;
 use librespot_core::config::DeviceType;
 use librespot_core::dealer::Subscription;
 use librespot_playback::audio_backend;
-use librespot_playback::config::{AudioFormat, Bitrate, PlayerConfig, VolumeCtrl};
+use librespot_playback::config::{
+    AudioFormat, Bitrate, NormalisationMethod, NormalisationType, PlayerConfig, VolumeCtrl,
+};
 use librespot_playback::mixer::softmixer::SoftMixer;
 use librespot_playback::mixer::{Mixer, MixerConfig};
 use librespot_playback::player::Player;
@@ -39,6 +41,7 @@ pub async fn start(
     credentials: Credentials,
     initial_volume: f32,
     quality: crate::prefs::AudioQuality,
+    normalize: bool,
 ) -> Result<SpircBootstrap, AuthError> {
     // External cluster subscription must land BEFORE Spirc's own
     // dealer subs to be sure we register first in the listener map.
@@ -72,9 +75,10 @@ pub async fn start(
     // Real audio output (rodio → cpal → the OS default device): Frostify
     // is an audible player, not just a Connect remote. Bitrate320 (the
     // "High" pref) is the highest tier librespot can stream (premium
-    // "Very High", 320 kbps OGG Vorbis) — Spotify's lossless FLAC tier
-    // rides a separate DRM (PlayPlay) librespot cannot decrypt, so 320
-    // is the practical ceiling for any third-party client today.
+    // "Very High", 320 kbps OGG Vorbis). Spotify's lossless FLAC tier is
+    // never provisioned to a librespot session — the account entitlement
+    // returned to this client is `high-bitrate` only (verified by probe),
+    // so 320 is the ceiling for any third-party Connect client today.
     let backend = audio_backend::find(Some("rodio".to_string()))
         .ok_or_else(|| AuthError::Server("rodio audio backend unavailable".into()))?;
     let player_config = PlayerConfig {
@@ -85,11 +89,26 @@ pub async fn start(
         },
         // Keep album playback seamless; tracks decode ahead of the seam.
         gapless: true,
+        // Volume normalisation + the DYNAMIC peak limiter — mirrors
+        // Spotify's "Normalize volume". The gain is a lossless f64
+        // multiply; the limiter only engages on peaks that would
+        // otherwise hard-clip, replacing harsh clipping distortion with a
+        // momentary inaudible dip. `Album` keeps an album's intended
+        // track-to-track dynamics rather than flattening every song to one
+        // loudness. Threshold/attack/release/knee keep librespot's
+        // sensible defaults (-2 dBFS, 5 ms, 100 ms, 5 dB).
+        normalisation: normalize,
+        normalisation_method: NormalisationMethod::Dynamic,
+        normalisation_type: NormalisationType::Album,
         ..PlayerConfig::default()
     };
 
+    // Output F32, not the S16 default: librespot decodes/processes in f64,
+    // and Windows' audio mixer runs in float, so F32 carries essentially
+    // the full decoded precision to the OS instead of quantising to 16-bit
+    // at our sink. No downside, strictly more faithful to the source.
     let player = Player::new(player_config, session.clone(), volume_getter, move || {
-        backend(None, AudioFormat::default())
+        backend(None, AudioFormat::F32)
     });
     // Grab the event stream before Spirc consumes the player.
     let player_events = player.get_player_event_channel();

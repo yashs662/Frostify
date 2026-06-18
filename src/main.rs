@@ -1,7 +1,7 @@
-// #![cfg_attr(
-//     all(target_os = "windows", not(debug_assertions)),
-//     windows_subsystem = "windows"
-// )]
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
 
 mod album_art;
 mod api;
@@ -152,6 +152,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|p| p.album_image_url.clone());
     if let Some(url) = last_cover {
         state.art.rehydrate_cover(&url, &worker);
+    }
+    // Re-hydrate the last track's Canvas too (when enabled), so the
+    // now-playing pane loops its video on cold start rather than only the
+    // static cover. The canvas meta + mp4 are disk-cached for a just-played
+    // track, so this resolves cache-first without a live session; the
+    // `CanvasReady` handler decodes it (and ignores it if a different live
+    // track has meanwhile started — see the reducer guard).
+    let (last_uri, show_canvas) = {
+        let d = state.prefs.data.borrow();
+        (
+            d.last_player.as_ref().map(|p| p.track_id.clone()),
+            d.show_canvas,
+        )
+    };
+    if show_canvas
+        && let Some(uri) = last_uri
+        && let Some(id) = api::track_id_from_uri(&uri)
+    {
+        worker.fetch_canvas(uri.clone(), id.to_string());
     }
 
     // The two views own their components + callbacks; the router state

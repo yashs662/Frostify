@@ -8,7 +8,9 @@
 
 use std::rc::Rc;
 
-use frostify_gfx::{Align, Computed, CursorIcon, Justify, Len, Scene};
+use std::time::Duration;
+
+use frostify_gfx::{Align, Computed, Curve, CursorIcon, Justify, Len, Scene};
 
 use crate::model::{BackdropModel, DevicesModel, PlayerModel};
 use crate::views::MainNav;
@@ -171,20 +173,21 @@ impl Component for PlayerBar<'_> {
                     .align(Align::Center)
                     .justify(Justify::End)
                     .child(|r| {
-                        lossless_badge(r);
                         // Queue page.
                         let nav = self.on_navigate.clone();
                         icon_btn(r, icons, Icon::Queue, t::TEXT_DIM.into(), move |ctx| {
                             nav(ctx, MainNav::Queue)
                         });
-                        // Devices popup — accent-lit while Frostify is the
-                        // active (audible) device.
+                        // Devices popup — accent-lit only when another device
+                        // is the active player (Spotify's "connected to a
+                        // device" cue); plain while Frostify itself plays or
+                        // nothing is active.
                         let dev_tint = Computed::new(
                             (
-                                self.devices.playing_on_self.clone(),
+                                self.devices.remote_active.clone(),
                                 self.backdrop.accent.clone(),
                             ),
-                            |(on_self, acc)| if on_self { acc } else { t::TEXT_DIM },
+                            |(remote, acc)| if remote { acc } else { t::TEXT_DIM },
                         );
                         let dev_overlay = self.devices.overlay.clone();
                         let on_devices_open = self.on_devices_open.clone();
@@ -192,7 +195,12 @@ impl Component for PlayerBar<'_> {
                             dev_overlay.open(ctx.timeline, ctx.now);
                             on_devices_open();
                         });
-                        icons.render(r, Icon::Volume, t::ICON_MD, t::TEXT);
+                        // Wrapped in the same SP_7 box as the queue/devices
+                        // buttons so the glyph-to-glyph spacing is even (a
+                        // raw icon node is narrower than the button boxes).
+                        r.row(()).w_px(t::SP_7).h_px(t::SP_7).center().child(|c| {
+                            icons.render(c, Icon::Volume, t::ICON_MD, t::TEXT);
+                        });
                         self.volume_slider(r);
                     });
             });
@@ -323,36 +331,44 @@ impl PlayerBar<'_> {
 
 /// Volume step per wheel line over the slider (5%).
 const VOLUME_WHEEL_STEP: f32 = 0.05;
+/// Fixed centring-box width (logical px) for the "NN%" volume pill —
+/// must exceed the widest "100%". Same trick as the seek tooltip.
+const VOL_TIP_W: f32 = 56.0;
 
 impl PlayerBar<'_> {
     /// The volume slider: a tall transparent lane (easy to grab) holding
-    /// the thin track, same interaction grammar as the seek bar. Drag
-    /// writes `player.volume` live (the local preview IS the model) with
-    /// one Web API commit on release; a wheel tick over the lane steps
-    /// ±5% and commits immediately. The device's `VolumeChanged`
-    /// confirmation lands in the same signal (gated off while dragging,
-    /// see the reducer). A "NN%" pill shows on hover/drag, like the
-    /// seek bar's timestamp.
+    /// the thin track, exactly the seek bar's interaction grammar. Hover
+    /// floats a "NN%" pill that **follows the cursor** showing what a click
+    /// there would set (fill unchanged); drag moves the fill 1:1 and
+    /// commits once on release; a wheel tick **eases** the volume to its
+    /// new ±5% step (the fill glides, not jumps) and commits. The device's
+    /// `VolumeChanged` confirmation lands in the same signal (gated off
+    /// while dragging, see the reducer).
     fn volume_slider(&self, r: &mut Scene) {
-        let drag = self.player.clone_volume_handle();
+        let hover_h = self.player.volume_handle();
+        let drag_h = self.player.volume_handle();
+        let wheel_h = self.player.volume_handle();
         let dragging_on = self.player.vol_dragging.clone();
         let dragging_off = self.player.vol_dragging.clone();
         let vol_at_release = self.player.volume.clone();
+        let wheel_vol = self.player.volume.clone();
         let act = self.on_action.clone();
         let act_wheel = self.on_action.clone();
-        let wheel = self.player.clone_volume_handle();
-        let wheel_vol = self.player.volume.clone();
         r.row(())
             .w_px(t::SP_24)
             .h_px(t::SP_4)
             .align(Align::Center)
             .cursor(CursorIcon::Pointer)
             .on_hover(self.player.vol_hovered.clone())
+            .on_hover_move(move |ctx| {
+                // Tooltip follows the un-pressed cursor (logical px).
+                let s = ctx.scale.max(1.0);
+                hover_h.preview_at((ctx.pos[0] - ctx.rect[0]) / s, ctx.rect[2] / s);
+            })
             .on_drag(move |ctx| {
-                let w = ctx.rect[2].max(1.0);
-                let frac = ((ctx.current[0] - ctx.rect[0]) / w).clamp(0.0, 1.0);
+                let s = ctx.scale.max(1.0);
                 dragging_on.set(true);
-                drag(frac);
+                drag_h.set_at((ctx.current[0] - ctx.rect[0]) / s, ctx.rect[2] / s);
             })
             .on_drag_end(move |_| {
                 dragging_off.set(false);
@@ -361,24 +377,38 @@ impl PlayerBar<'_> {
                 ));
             })
             .on_wheel(move |ctx| {
-                // Wheel up = louder. One line = one step; commit each
-                // tick (wheel events are discrete, not 500 Hz).
-                let frac = (wheel_vol.get() + ctx.delta[1] * VOLUME_WHEEL_STEP).clamp(0.0, 1.0);
-                wheel(frac);
-                act_wheel(PlayerAction::SetVolume((frac * 100.0).round() as u8));
+                // Wheel up = louder. Ease the volume signal to the new step
+                // so the fill glides instead of snapping (the timeline
+                // writes interpolated values, which the width bind follows);
+                // commit the target. The pill rides the thumb to the new %.
+                let target =
+                    (wheel_vol.get() + ctx.delta[1] * VOLUME_WHEEL_STEP).clamp(0.0, 1.0);
+                ctx.timeline.animate(
+                    &wheel_vol,
+                    target,
+                    Curve::EaseInOut,
+                    Duration::from_millis(140),
+                    ctx.now,
+                );
+                wheel_h.label_at_frac(target, ctx.rect[2] / ctx.scale.max(1.0));
+                act_wheel(PlayerAction::SetVolume((target * 100.0).round() as u8));
             })
             .child(|lane| {
-                // "NN%" pill above the lane, visible on hover/drag.
+                // "NN%" pill, centred on the cursor via the same offset
+                // trick as the seek tooltip: a fixed-width box whose left
+                // edge sits half-a-box left of the bar origin, shifted by
+                // `vol_preview_px` so `offset = cursor_px` centres it.
                 let tip_opacity = Computed::new(
                     (self.player.vol_hovered.clone(), self.player.vol_dragging.clone()),
                     |(h, d)| if h || d { 1.0 } else { 0.0 },
                 );
                 lane.row(())
-                    .abs(0.0, -t::SP_6)
-                    .w(Len::Fill)
+                    .abs(-VOL_TIP_W / 2.0, -t::SP_6)
+                    .w_px(VOL_TIP_W)
                     .h_px(t::SP_5)
                     .center()
                     .opacity_bind(tip_opacity)
+                    .layer_offset_x(self.player.vol_preview_px.clone())
                     .child(|tip| {
                         tip.row(())
                             .h_px(t::SP_5)
@@ -412,19 +442,6 @@ impl PlayerBar<'_> {
 /// centred inside it; must exceed the widest "M:SS"/"MM:SS" pill.
 const TIP_W: f32 = 96.0;
 
-/// Small "LOSSLESS" capability pill shown in the player bar.
-fn lossless_badge(s: &mut Scene) {
-    s.row(())
-        .h_px(t::SP_5)
-        .pad_xy(t::SP_2, t::SP_0)
-        .center()
-        .rgba(1.0, 1.0, 1.0, 0.10)
-        .radius(t::R_SM)
-        .border(1.0, t::BORDER)
-        .child(|b| {
-            b.text((), "LOSSLESS", 10.0).color(t::TEXT_DIM);
-        });
-}
 
 /// Clickable bare icon (no background pill) for the player-bar utilities.
 /// `tint` takes a static colour or a reactive bind (active-state tints).

@@ -3,7 +3,7 @@
 //! `AppState` god-struct.
 //!
 //! Each sub-model owns its slice of reactive state (Rc-backed `Signal`s
-//! + plain data) and the methods that mutate it. State lives here, on
+//! plus plain data) and the methods that mutate it. State lives here, on
 //! the host; views (in the `frostify` binary crate) read it and bind to
 //! it. This split is also what keeps future hot-reload viable —
 //! subsecond can patch view/logic fn bodies but cannot reload struct
@@ -28,6 +28,7 @@ pub mod backdrop;
 pub mod canvas;
 pub mod devices;
 pub mod library;
+pub mod menu;
 pub mod player;
 pub mod prefs;
 pub mod router;
@@ -39,6 +40,7 @@ pub use backdrop::BackdropModel;
 pub use canvas::CanvasModel;
 pub use devices::DevicesModel;
 pub use library::LibraryModel;
+pub use menu::{MenuModel, MenuTarget};
 pub use player::PlayerModel;
 pub use prefs::PrefsModel;
 pub use router::RouterModel;

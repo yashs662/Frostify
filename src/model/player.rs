@@ -70,8 +70,12 @@ pub struct PlayerModel {
     pub liked: Signal<bool>,
     /// Volume slider hovered — shows the percentage tooltip.
     pub vol_hovered: Signal<bool>,
-    /// "NN%" tooltip label, kept in step with `volume` by
-    /// [`Self::set_volume_ui`].
+    /// Cursor X along the volume slider (**logical px**, clamped) — drives
+    /// the tooltip's composite offset so the "NN%" pill follows the
+    /// cursor, exactly like the seek tooltip.
+    pub vol_preview_px: Signal<f32>,
+    /// "NN%" tooltip label — the value at the cursor while hovering/dragging
+    /// the volume slider (set by [`VolumeHandle`]).
     pub vol_label: TextSignal,
     /// Authoritative live player snapshot (the latest cluster push). The
     /// reactive signals above are the UI mirror; this is the source of
@@ -105,6 +109,7 @@ impl PlayerModel {
             vol_dragging: Signal::new(false),
             liked: Signal::new(false),
             vol_hovered: Signal::new(false),
+            vol_preview_px: Signal::new(0.0),
             vol_label: TextSignal::new(format!(
                 "{}%",
                 (volume.clamp(0.0, 1.0) * 100.0).round() as u32
@@ -114,24 +119,22 @@ impl PlayerModel {
     }
 
     /// Set the volume fraction + its "NN%" tooltip label together — the
-    /// single write point for drag, wheel, and incoming confirmations.
+    /// write point for incoming `VolumeChanged` confirmations.
     pub fn set_volume_ui(&self, frac: f32) {
         let frac = frac.clamp(0.0, 1.0);
         self.volume.set(frac);
-        self.vol_label.set(format!("{}%", (frac * 100.0).round() as u32).as_str());
+        self.vol_label.set(fmt_pct(frac).as_str());
     }
 
-    /// Cloneable [`Self::set_volume_ui`] for the slider's `'static` event
+    /// Cloneable write-handle for the volume slider's `'static` event
     /// closures (which can't borrow the model) — the volume analogue of
     /// [`Self::seek_handle`].
-    pub fn clone_volume_handle(&self) -> std::rc::Rc<dyn Fn(f32)> {
-        let volume = self.volume.clone();
-        let label = self.vol_label.clone();
-        std::rc::Rc::new(move |frac: f32| {
-            let frac = frac.clamp(0.0, 1.0);
-            volume.set(frac);
-            label.set(format!("{}%", (frac * 100.0).round() as u32).as_str());
-        })
+    pub fn volume_handle(&self) -> VolumeHandle {
+        VolumeHandle {
+            volume: self.volume.clone(),
+            preview_px: self.vol_preview_px.clone(),
+            label: self.vol_label.clone(),
+        }
     }
 
     /// Push a live player snapshot into the reactive chrome. All sets are
@@ -287,8 +290,52 @@ impl SeekHandle {
     }
 }
 
+/// Cloneable volume-slider write handle (see [`PlayerModel::volume_handle`]).
+/// Mirrors [`SeekHandle`]: `preview_at` moves only the tooltip (hover —
+/// "what clicking here sets"); `set_at` also moves the fill (drag).
+#[derive(Clone)]
+pub struct VolumeHandle {
+    volume: Signal<f32>,
+    preview_px: Signal<f32>,
+    label: TextSignal,
+}
+
+impl VolumeHandle {
+    /// Hover preview: position the tooltip at the cursor + show the
+    /// fraction it would set, **without** moving the actual volume.
+    pub fn preview_at(&self, x_rel: f32, lane_w: f32) {
+        let w = lane_w.max(1.0);
+        let frac = (x_rel / w).clamp(0.0, 1.0);
+        self.preview_px.set(x_rel.clamp(0.0, w));
+        self.label.set(fmt_pct(frac).as_str());
+    }
+
+    /// Drag/click: set the volume to the cursor fraction (fill follows
+    /// 1:1) and move the tooltip with it.
+    pub fn set_at(&self, x_rel: f32, lane_w: f32) {
+        let w = lane_w.max(1.0);
+        let frac = (x_rel / w).clamp(0.0, 1.0);
+        self.volume.set(frac);
+        self.preview_px.set(x_rel.clamp(0.0, w));
+        self.label.set(fmt_pct(frac).as_str());
+    }
+
+    /// Position the tooltip at a fraction along the bar (used by the wheel
+    /// path, where there's no cursor-along-bar — the pill rides the thumb).
+    pub fn label_at_frac(&self, frac: f32, lane_w: f32) {
+        let frac = frac.clamp(0.0, 1.0);
+        self.preview_px.set(frac * lane_w.max(1.0));
+        self.label.set(fmt_pct(frac).as_str());
+    }
+}
+
 /// Format a millisecond position as `M:SS` for the seek tooltip.
 fn fmt_ms(ms: u32) -> String {
     let secs = ms / 1000;
     format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+/// Format a 0..=1 fraction as `NN%` for the volume tooltip.
+fn fmt_pct(frac: f32) -> String {
+    format!("{}%", (frac.clamp(0.0, 1.0) * 100.0).round() as u32)
 }
