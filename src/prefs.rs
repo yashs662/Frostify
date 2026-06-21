@@ -92,6 +92,12 @@ pub struct StoredPlayer {
     pub album_image_url: Option<String>,
     pub progress_ms: u64,
     pub duration_ms: u64,
+    /// Playing context (`spotify:album:…`/`spotify:playlist:…`) at save time,
+    /// so a cold-start resume restarts within it and keeps playing past the
+    /// one track. `None` when nothing carried a context (e.g. self-play that
+    /// never reported one — the worker then falls back to the track's album).
+    #[serde(default)]
+    pub context_uri: Option<String>,
 }
 
 /// Sidebar + now-playing pane widths in **logical** pixels. `0`

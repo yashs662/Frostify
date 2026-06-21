@@ -94,6 +94,20 @@ fn entry_path(key: &str) -> Option<PathBuf> {
     cache_dir().map(|d| d.join(key))
 }
 
+/// Whether a cache entry file exists for `key` (ignores TTL — used to
+/// walk contiguous paginated entries when invalidating a collection).
+pub fn exists(key: &str) -> bool {
+    entry_path(key).map(|p| p.exists()).unwrap_or(false)
+}
+
+/// Delete the cache entry for `key` (best-effort). Used to invalidate a
+/// resource after we mutate it server-side, so the next read re-fetches.
+pub fn remove(key: &str) {
+    if let Some(path) = entry_path(key) {
+        let _ = fs::remove_file(path);
+    }
+}
+
 /// On-disk path for `key` if a (non-expired) entry exists — for
 /// consumers that need a file path rather than bytes (e.g. an MP4 the
 /// video decoder reads directly). Refreshes mtime like [`read`] so the

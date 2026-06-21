@@ -5,8 +5,8 @@
 //! per-domain logic lives on the models themselves.
 
 use crate::model::{
-    ArtModel, AuthModel, BackdropModel, CanvasModel, DevicesModel, LibraryModel, MenuModel,
-    PlayerModel, PrefsModel, RouterModel, SettingsModel,
+    ArtModel, AuthModel, BackdropModel, CanvasModel, DevicesModel, LibraryModel, MembershipModel,
+    MenuModel, PlayerModel, PrefsModel, RouterModel, SettingsModel,
 };
 use crate::prefs::UserPreferences;
 
@@ -36,6 +36,9 @@ pub struct AppState {
     pub devices: DevicesModel,
     /// Right-click context-menu slice (track row actions).
     pub menu: MenuModel,
+    /// Playlist-membership slice: which playlists contain a track + the
+    /// heart picker popup.
+    pub membership: MembershipModel,
     /// Persisted-preferences slice + panel widths + debounced save.
     pub prefs: PrefsModel,
 }
@@ -46,29 +49,60 @@ impl AppState {
         // renders the last-played track immediately instead of a dash. The
         // first live cluster push overwrites these; if Spotify has nothing
         // playing on launch, the snapshot stays visible.
-        let (title, artist, progress) = match prefs.last_player.as_ref() {
+        let (title, artist, progress, progress_ms, duration_ms) = match prefs.last_player.as_ref() {
             Some(p) => {
                 let frac = if p.duration_ms > 0 {
                     (p.progress_ms as f32 / p.duration_ms as f32).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
-                (p.name.as_str(), p.artist.as_str(), frac)
+                (p.name.as_str(), p.artist.as_str(), frac, p.progress_ms, p.duration_ms)
             }
-            None => ("\u{2014}", "", 0.0),
+            None => ("\u{2014}", "", 0.0, 0, 0),
         };
-        Self {
+        // The restored track, as a paused snapshot — so it counts as the
+        // *current* track for the heart (liked + playlist membership), the
+        // canvas, and resume, not just the chrome labels. Without this the
+        // membership/liked checks (which key off the snapshot) never fire on
+        // cold start, leaving the heart blank until the track actually
+        // changes. The first live cluster push overwrites it.
+        let restored = prefs.last_player.clone();
+        let state = Self {
             router: RouterModel::new(),
             auth: AuthModel::new(),
             library: LibraryModel::new(),
             canvas: CanvasModel::new(prefs.show_canvas),
             art: ArtModel::new(),
             backdrop: BackdropModel::new(),
-            player_ui: PlayerModel::seed(title, artist, progress, prefs.audio.volume),
+            player_ui: PlayerModel::seed(
+                title,
+                artist,
+                progress,
+                progress_ms,
+                duration_ms,
+                prefs.audio.volume,
+            ),
             settings: SettingsModel::new(prefs.audio.normalize),
             devices: DevicesModel::new(),
             menu: MenuModel::new(),
+            membership: MembershipModel::new(),
             prefs: PrefsModel::new(prefs),
+        };
+        if let Some(p) = restored {
+            *state.player_ui.snapshot.borrow_mut() = Some(crate::api::CurrentlyPlaying {
+                track_id: p.track_id,
+                name: p.name,
+                artist: p.artist,
+                album_image_url: p.album_image_url,
+                is_playing: false,
+                progress_ms: p.progress_ms,
+                progress_anchor: std::time::Instant::now(),
+                duration_ms: p.duration_ms,
+                shuffle: false,
+                repeat: crate::api::RepeatMode::Off,
+                context_uri: p.context_uri,
+            });
         }
+        state
     }
 }

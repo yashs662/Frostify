@@ -6,6 +6,7 @@
 pub mod artist;
 pub mod context_menu;
 pub mod devices;
+pub mod like_menu;
 pub mod main_pane;
 pub mod now_playing;
 pub mod player_bar;
@@ -74,8 +75,6 @@ pub enum PlayerAction {
     CycleRepeat,
     /// Commit the volume slider's released position (0..=100).
     SetVolume(u8),
-    /// Like / unlike the current track (heart button).
-    ToggleLike,
 }
 
 /// Per-build layout inputs — the ambient backdrop signals + splitter
@@ -110,6 +109,8 @@ struct Layout<'a> {
     pub settings_panel: &'a crate::views::home::settings::SettingsPanel<'a>,
     /// The Connect-devices popup, ditto.
     pub devices_panel: &'a crate::views::home::devices::DevicesPanel<'a>,
+    /// The playlist-picker popup behind the like icon, ditto.
+    pub like_menu: &'a crate::views::home::like_menu::LikeMenu<'a>,
     /// Right-click context menu (track row actions) + its handlers.
     pub menu: &'a crate::model::MenuModel,
     pub on_menu_add_queue: Rc<dyn Fn(String)>,
@@ -230,6 +231,7 @@ fn render(s: &mut Scene, v: &Layout) {
         // their Overlay wrappers. Skipped entirely when closed.
         v.settings_panel.view(root);
         v.devices_panel.view(root);
+        v.like_menu.view(root);
         // Right-click context menu — topmost; renders only when open.
         context_menu::view(
             root,
@@ -259,6 +261,9 @@ pub struct HomeView {
     request_cover: playlist::CoverFn,
     mark_dirty: Rc<dyn Fn()>,
     on_devices_open: Rc<dyn Fn()>,
+    on_like_open: Rc<dyn Fn()>,
+    on_like_toggle_playlist: Rc<dyn Fn(String, bool)>,
+    on_like_toggle_liked: Rc<dyn Fn(bool)>,
     on_transfer: Rc<dyn Fn(String)>,
     on_quality: Rc<dyn Fn(crate::prefs::AudioQuality)>,
     on_normalize: Rc<dyn Fn()>,
@@ -291,11 +296,40 @@ impl HomeView {
                 };
                 let cmd = match action {
                     PlayerAction::PlayPause => {
-                        if state.player_ui.toggle_play() {
-                            PlaybackCmd::Pause
-                        } else {
-                            PlaybackCmd::Play
+                        let was_playing = state.player_ui.toggle_play();
+                        let local = state.devices.playing_on_self.get();
+                        if was_playing {
+                            worker.playback(token, PlaybackCmd::Pause, local);
+                            return;
                         }
+                        // Resume. On cold start nothing is actually playing on
+                        // any device (no live push yet — the snapshot is just
+                        // the persisted seed), so a bare Web API resume 404s /
+                        // no-ops — start the last-played track at exactly the
+                        // position the chrome already shows, so the play button
+                        // matches the displayed progress instead of restarting
+                        // (and without the user first picking a song).
+                        if !state.player_ui.live.get() {
+                            let last = state.prefs.data.borrow().last_player.as_ref().map(|p| {
+                                (p.track_id.clone(), p.progress_ms as u32, p.context_uri.clone())
+                            });
+                            if let Some((uri, position_ms, context_uri)) = last {
+                                // The worker fills a missing context with the
+                                // track's album so playback continues past it.
+                                worker.playback(
+                                    token,
+                                    PlaybackCmd::PlayContext(crate::api::PlayTarget::Resume {
+                                        uri,
+                                        position_ms,
+                                        context_uri,
+                                    }),
+                                    false,
+                                );
+                                return;
+                            }
+                        }
+                        worker.playback(token, PlaybackCmd::Play, local);
+                        return;
                     }
                     PlayerAction::Next => PlaybackCmd::Next,
                     PlayerAction::Prev => PlaybackCmd::Prev,
@@ -306,23 +340,6 @@ impl HomeView {
                         PlaybackCmd::Repeat(state.player_ui.cycle_repeat())
                     }
                     PlayerAction::SetVolume(pct) => PlaybackCmd::Volume(pct),
-                    PlayerAction::ToggleLike => {
-                        // Heart: optimistic flip + save/unsave; the worker
-                        // echoes the committed (or rolled-back) state.
-                        let Some(id) = state
-                            .player_ui
-                            .snapshot
-                            .borrow()
-                            .as_ref()
-                            .and_then(|p| crate::api::track_id_from_uri(&p.track_id).map(String::from))
-                        else {
-                            return;
-                        };
-                        let next = !state.player_ui.liked.get();
-                        state.player_ui.liked.set(next);
-                        worker.set_saved(token, id, next);
-                        return;
-                    }
                 };
                 // Drive our own Spirc directly when Frostify is the active
                 // device (instant + reliable; the Web API relay to self can
@@ -369,6 +386,88 @@ impl HomeView {
                 if let Some(token) = state.auth.token() {
                     worker.fetch_devices(token);
                 }
+                rebuild.set(true);
+            })
+        };
+        let on_like_open: Rc<dyn Fn()> = {
+            let state = state.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move || {
+                // Point the picker at the current track (uri + bare id for the
+                // Liked-Songs row + header), then rebuild so the popup mounts.
+                if let Some(p) = state.player_ui.snapshot.borrow().as_ref() {
+                    let id = crate::api::track_id_from_uri(&p.track_id)
+                        .unwrap_or_default()
+                        .to_string();
+                    state.membership.set_target(crate::model::MembershipTarget {
+                        uri: p.track_id.clone(),
+                        id,
+                        name: p.name.clone(),
+                        artist: p.artist.clone(),
+                    });
+                }
+                rebuild.set(true);
+            })
+        };
+        let on_like_toggle_playlist: Rc<dyn Fn(String, bool)> = {
+            let state = state.clone();
+            let worker = worker.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move |playlist_id, add| {
+                let Some(token) = state.auth.token() else { return };
+                let uri = state.membership.target.borrow().uri.clone();
+                if uri.is_empty() {
+                    return;
+                }
+                // Optimistic flip (heart + checkbox) — the worker confirms,
+                // and rolls back via MembershipEditFailed on error.
+                state
+                    .membership
+                    .toggle_local(&playlist_id, add, state.player_ui.liked.get());
+                // Live-patch the open page if it's this playlist, and drop its
+                // in-memory cache so a re-open also reflects the edit (the disk
+                // pages are evicted worker-side).
+                if add {
+                    if let Some(track) = target_track(&state) {
+                        state.library.open_add_track(&state.art, false, &playlist_id, &track);
+                    }
+                } else {
+                    state.library.open_remove_track(false, &playlist_id, &uri);
+                }
+                state.library.invalidate_cached(&playlist_id);
+                worker.edit_membership(token, playlist_id, uri, add);
+                rebuild.set(true);
+            })
+        };
+        let on_like_toggle_liked: Rc<dyn Fn(bool)> = {
+            let state = state.clone();
+            let worker = worker.clone();
+            let rebuild = rebuild.clone();
+            Rc::new(move |add| {
+                let Some(token) = state.auth.token() else { return };
+                let target_uri = state.membership.target.borrow().uri.clone();
+                let id = state.membership.target.borrow().id.clone();
+                if id.is_empty() {
+                    return;
+                }
+                // Optimistic flip; the worker's SavedState echo reconciles.
+                state.player_ui.liked.set(add);
+                state.membership.rebuild_hint(add);
+                // Live-patch the open Liked Songs page (newest-first) + drop
+                // its in-memory cache so a re-open is also correct.
+                if add {
+                    if let Some(track) = target_track(&state) {
+                        state
+                            .library
+                            .open_add_track(&state.art, true, crate::api::LIKED_SONGS_ID, &track);
+                    }
+                } else {
+                    state
+                        .library
+                        .open_remove_track(true, crate::api::LIKED_SONGS_ID, &target_uri);
+                }
+                state.library.invalidate_cached(crate::api::LIKED_SONGS_ID);
+                worker.set_saved(token, id, add);
                 rebuild.set(true);
             })
         };
@@ -512,6 +611,9 @@ impl HomeView {
             request_cover,
             mark_dirty,
             on_devices_open,
+            on_like_open,
+            on_like_toggle_playlist,
+            on_like_toggle_liked,
             on_transfer,
             on_quality,
             on_normalize,
@@ -638,6 +740,8 @@ impl HomeView {
             devices: &state.devices,
             on_devices_open: self.on_devices_open.clone(),
             on_navigate: self.on_navigate.clone(),
+            membership: &state.membership,
+            on_like_open: self.on_like_open.clone(),
             icons,
         };
         let sidebar = sidebar::Sidebar {
@@ -692,6 +796,14 @@ impl HomeView {
             icons,
             on_transfer: self.on_transfer.clone(),
         };
+        let like_menu = like_menu::LikeMenu {
+            membership: &state.membership,
+            liked: &state.player_ui.liked,
+            accent: &state.backdrop.accent,
+            icons,
+            on_toggle_playlist: self.on_like_toggle_playlist.clone(),
+            on_toggle_liked: self.on_like_toggle_liked.clone(),
+        };
         let layout = Layout {
             backdrop_prev: &state.backdrop.prev,
             backdrop_curr: &state.backdrop.curr,
@@ -707,6 +819,7 @@ impl HomeView {
             main_pane: &main_pane,
             settings_panel: &settings_panel,
             devices_panel: &devices_panel,
+            like_menu: &like_menu,
             menu: &state.menu,
             on_menu_add_queue: self.on_add_queue.clone(),
             on_menu_navigate: self.on_navigate.clone(),
@@ -714,6 +827,38 @@ impl HomeView {
         };
         render(s, &layout);
     }
+}
+
+/// Build a track payload for the picker's current target, taking the cover
+/// and duration from the now-playing snapshot when it's still that track.
+/// Used to live-patch an open playlist / Liked Songs page when the user
+/// toggles membership, so the change shows without leaving the page.
+fn target_track(state: &AppState) -> Option<crate::api::PlaylistTrack> {
+    let target = state.membership.target.borrow();
+    if target.uri.is_empty() {
+        return None;
+    }
+    let (album_image_url, duration_ms) = state
+        .player_ui
+        .snapshot
+        .borrow()
+        .as_ref()
+        .filter(|p| p.track_id == target.uri)
+        .map(|p| (p.album_image_url.clone(), p.duration_ms))
+        .unwrap_or((None, 0));
+    Some(crate::api::PlaylistTrack {
+        id: target.id.clone(),
+        uri: target.uri.clone(),
+        name: target.name.clone(),
+        artist: target.artist.clone(),
+        album: String::new(),
+        album_image_url,
+        duration_ms,
+        artists: Vec::new(),
+        album_id: String::new(),
+        artist_id: String::new(),
+        playable: true,
+    })
 }
 
 /// Assemble a [`show_all::ShowAllViewData`] for `section` from the loaded
@@ -868,14 +1013,15 @@ fn navigate(state: &Rc<AppState>, cx: &mut Cx, worker: &Worker, nav: MainNav) {
         MainNav::Queue => {
             *state.library.open_playlist.borrow_mut() = None;
             *state.library.open_artist.borrow_mut() = None;
-            // If the cluster listener has already populated a live queue
-            // (a remote device is active), keep it — it's the full, uncapped,
-            // auto-updating list. Otherwise fall back to the (capped) Web API
-            // so the page resolves instead of hanging on a skeleton; this
-            // also covers the self-playing case, where the cluster never
-            // echoes our own queue. A later cluster push overwrites either
-            // way, keeping the list live.
-            if state.library.queue.borrow().is_none()
+            // A remote device's queue arrives live off the cluster (full,
+            // uncapped, auto-updating) — keep it. But when *Frostify itself*
+            // is the active player the cluster never echoes our queue, so a
+            // previously-cached list goes stale (it won't show autoplay's
+            // continuation): refetch from the Web API on every open. Also
+            // fetch when nothing is loaded yet so the page resolves instead of
+            // hanging on a skeleton.
+            let self_play = state.devices.playing_on_self.get();
+            if (self_play || state.library.queue.borrow().is_none())
                 && let Some(token) = state.auth.token()
             {
                 worker.fetch_queue(token);

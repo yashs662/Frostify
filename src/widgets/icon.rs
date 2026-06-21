@@ -25,6 +25,8 @@ pub enum Icon {
     Search,
     Plus,
     Heart,
+    HeartFilled,
+    Check,
     Queue,
     Devices,
 }
@@ -51,6 +53,8 @@ impl Icon {
             Icon::Search => include_bytes!("../../assets/icons/search.svg"),
             Icon::Plus => include_bytes!("../../assets/icons/plus.svg"),
             Icon::Heart => include_bytes!("../../assets/icons/heart.svg"),
+            Icon::HeartFilled => include_bytes!("../../assets/icons/heart-filled.svg"),
+            Icon::Check => include_bytes!("../../assets/icons/check.svg"),
             Icon::Queue => include_bytes!("../../assets/icons/queue.svg"),
             Icon::Devices => include_bytes!("../../assets/icons/devices.svg"),
         }
@@ -77,6 +81,8 @@ const ALL: &[Icon] = &[
     Icon::Search,
     Icon::Plus,
     Icon::Heart,
+    Icon::HeartFilled,
+    Icon::Check,
     Icon::Queue,
     Icon::Devices,
 ];

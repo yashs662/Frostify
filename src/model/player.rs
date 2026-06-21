@@ -81,13 +81,28 @@ pub struct PlayerModel {
     /// reactive signals above are the UI mirror; this is the source of
     /// truth handlers read for the current track/cover/repeat mode.
     pub snapshot: RefCell<Option<CurrentlyPlaying>>,
+    /// Whether a real live push has landed this session. False while the
+    /// snapshot is only the cold-start seed (persisted last track) — lets the
+    /// play button know nothing is actually playing yet, so it resumes the
+    /// last track explicitly instead of a bare Web API resume that no-ops.
+    pub live: Cell<bool>,
 }
 
 impl PlayerModel {
     /// Seed from the cold-start snapshot (persisted `last_player` +
     /// `audio.volume`), so the chrome renders the last-played track and
-    /// volume immediately instead of a dash and a default.
-    pub fn seed(title: &str, artist: &str, progress: f32, volume: f32) -> Self {
+    /// volume immediately instead of a dash and a default. `progress` is the
+    /// fraction (0..=1); `progress_ms`/`duration_ms` seed the elapsed/total
+    /// labels so the bar isn't paired with a bogus `0:00 / 0:00` until the
+    /// first live push (which may never come if nothing is playing).
+    pub fn seed(
+        title: &str,
+        artist: &str,
+        progress: f32,
+        progress_ms: u64,
+        duration_ms: u64,
+        volume: f32,
+    ) -> Self {
         Self {
             title: TextSignal::new(title),
             artist: TextSignal::new(artist),
@@ -95,14 +110,14 @@ impl PlayerModel {
             shuffle: Signal::new(false),
             repeat_on: Signal::new(false),
             progress: Signal::new(progress),
-            duration_ms: Signal::new(0.0),
+            duration_ms: Signal::new(duration_ms as f32),
             seek_preview: Signal::new(0.0),
             seek_preview_px: Signal::new(0.0),
             bar_hovered: Signal::new(false),
             seeking: Signal::new(false),
             seek_label: TextSignal::new("0:00"),
-            elapsed_label: TextSignal::new("0:00"),
-            total_label: TextSignal::new("0:00"),
+            elapsed_label: TextSignal::new(fmt_ms(progress_ms.min(duration_ms) as u32).as_str()),
+            total_label: TextSignal::new(fmt_ms(duration_ms as u32).as_str()),
             last_elapsed_secs: Cell::new(u32::MAX),
             seek_held_last: Cell::new(false),
             volume: Signal::new(volume.clamp(0.0, 1.0)),
@@ -115,6 +130,7 @@ impl PlayerModel {
                 (volume.clamp(0.0, 1.0) * 100.0).round() as u32
             )),
             snapshot: RefCell::new(None),
+            live: Cell::new(false),
         }
     }
 
@@ -144,6 +160,7 @@ impl PlayerModel {
     /// advances smoothly between cluster pushes; paused stops the tween so
     /// the bar holds.
     pub fn sync(&self, p: &CurrentlyPlaying, tl: &mut Timeline, now: Instant) {
+        self.live.set(true);
         self.title.set(p.name.as_str());
         self.artist.set(p.artist.as_str());
         self.is_playing.set(p.is_playing);

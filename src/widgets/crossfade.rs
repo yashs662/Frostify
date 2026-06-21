@@ -36,26 +36,41 @@ pub fn crossfaded_art(
     crossfade_t: &Signal<f32>,
     radius: f32,
 ) {
-    // Layer 0: dim placeholder shown until any cover resolves (the image
-    // layers above render nothing while their signal is None).
-    c.rect(())
+    // The two covers crossfade by stacking (outgoing held opaque, incoming
+    // fading in over it — a dual fade would dip coverage to ~75% mid-way and
+    // bleed the backdrop). Stacked rounded layers leak the back one through
+    // their anti-aliased corner, so instead of rounding each cover we group
+    // them into ONE composite `.layer()` and round its *result* once: the
+    // covers draw SQUARE inside, blend cleanly in the layer texture, and the
+    // single composite corner is artifact-free through the whole dissolve —
+    // not just when settled. The dim loading placeholder folds into the base
+    // cover's own fill, so there's never a third stacked layer.
+    let base = Computed::new(
+        (prev.clone(), curr.clone(), crossfade_t.clone()),
+        |(p, cu, t)| if t >= 1.0 && cu.is_some() { None } else { p },
+    );
+    let fade = fade_in_alpha(crossfade_t);
+    c.col(())
         .abs(0.0, 0.0)
         .w(Len::Fill)
         .h(Len::Fill)
-        .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
-        .radius(radius);
-    // Layer 1: outgoing cover, opaque. Layer 2: incoming, fading in. Both
-    // bound to the shared backdrop signals — swap rebuild-free.
-    c.image_bound((), prev.clone())
-        .abs(0.0, 0.0)
-        .w(Len::Fill)
-        .h(Len::Fill)
+        // `.layer()` + radius = round the composited group once (see the
+        // engine's composite-time `round_rect`). Inner covers stay square.
         .radius(radius)
-        .color(OPAQUE_TINT);
-    c.image_bound((), curr.clone())
-        .abs(0.0, 0.0)
-        .w(Len::Fill)
-        .h(Len::Fill)
-        .radius(radius)
-        .color(fade_in_alpha(crossfade_t));
+        .layer()
+        .child(move |inner| {
+            inner
+                .image_bound((), base)
+                .abs(0.0, 0.0)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .placeholder_fill(t::PLACEHOLDER)
+                .color(OPAQUE_TINT);
+            inner
+                .image_bound((), curr.clone())
+                .abs(0.0, 0.0)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .color(fade);
+        });
 }

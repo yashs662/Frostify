@@ -560,17 +560,21 @@ fn cover_art(
                 });
             return;
         }
-        b.rect(())
-            .abs(0.0, 0.0)
-            .w(Len::Fill)
-            .h(Len::Fill)
-            .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
-            .radius(t::R_LG);
+        // One node — the cover paints its own rounded loading fill, no rect
+        // stacked behind it to leak through the corner.
         if let Some(sig) = art {
             b.image_bound((), sig)
                 .abs(0.0, 0.0)
                 .w(Len::Fill)
                 .h(Len::Fill)
+                .radius(t::R_LG)
+                .placeholder_fill(t::PLACEHOLDER);
+        } else {
+            b.rect(())
+                .abs(0.0, 0.0)
+                .w(Len::Fill)
+                .h(Len::Fill)
+                .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
                 .radius(t::R_LG);
         }
     });
@@ -631,17 +635,19 @@ fn track_row(
             });
             // Thumb.
             row.col(()).w_px(t::THUMB_SM).h_px(t::THUMB_SM).child(|b| {
-                b.rect(())
-                    .abs(0.0, 0.0)
-                    .w(Len::Fill)
-                    .h(Len::Fill)
-                    .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
-                    .radius(t::R_SM);
                 if let Some(sig) = r.art.clone() {
                     b.image_bound((), sig)
                         .abs(0.0, 0.0)
                         .w(Len::Fill)
                         .h(Len::Fill)
+                        .radius(t::R_SM)
+                        .placeholder_fill(t::PLACEHOLDER);
+                } else {
+                    b.rect(())
+                        .abs(0.0, 0.0)
+                        .w(Len::Fill)
+                        .h(Len::Fill)
+                        .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
                         .radius(t::R_SM);
                 }
             });

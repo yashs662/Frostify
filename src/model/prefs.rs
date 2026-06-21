@@ -72,6 +72,7 @@ impl PrefsModel {
                 album_image_url: p.album_image_url.clone(),
                 progress_ms: p.live_progress_ms().min(p.duration_ms),
                 duration_ms: p.duration_ms,
+                context_uri: p.context_uri.clone(),
             });
         }
     }

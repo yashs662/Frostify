@@ -571,17 +571,19 @@ pub(crate) fn tile(
             .w_px(t::TILE_THUMB)
             .h_px(t::TILE_THUMB)
             .child(|b| {
-                b.rect(())
-                    .abs(0.0, 0.0)
-                    .w(Len::Fill)
-                    .h(Len::Fill)
-                    .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
-                    .radius(t::R_MD);
                 if let Some(sig) = art {
                     b.image_bound((), sig)
                         .abs(0.0, 0.0)
                         .w(Len::Fill)
                         .h(Len::Fill)
+                        .radius(t::R_MD)
+                        .placeholder_fill(t::PLACEHOLDER);
+                } else {
+                    b.rect(())
+                        .abs(0.0, 0.0)
+                        .w(Len::Fill)
+                        .h(Len::Fill)
+                        .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
                         .radius(t::R_MD);
                 }
             });

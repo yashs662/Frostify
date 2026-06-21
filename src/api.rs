@@ -56,6 +56,8 @@ fn url_key(url: &str) -> String {
 
 #[derive(Debug, Clone)]
 pub struct Profile {
+    /// Spotify user id — owner-match for "which playlists can I edit".
+    pub id: String,
     pub display_name: String,
     pub avatar_url: Option<String>,
     /// ISO 3166-1 alpha-2 country (from `user-read-private`). Used as the
@@ -212,6 +214,10 @@ pub struct CurrentlyPlaying {
     pub duration_ms: u64,
     pub shuffle: bool,
     pub repeat: RepeatMode,
+    /// The playing context (`spotify:album:…` / `spotify:playlist:…`), if any.
+    /// Persisted so a cold-start resume can restart *within* the context and
+    /// keep playing past the one track (librespot autoplay needs a context).
+    pub context_uri: Option<String>,
 }
 
 impl CurrentlyPlaying {
@@ -241,6 +247,8 @@ pub async fn get_me(token: &str) -> Result<Profile, AuthError> {
     #[derive(Deserialize)]
     struct R {
         #[serde(default)]
+        id: String,
+        #[serde(default)]
         display_name: String,
         #[serde(default)]
         images: Vec<RawImg>,
@@ -249,6 +257,7 @@ pub async fn get_me(token: &str) -> Result<Profile, AuthError> {
     }
     let r: R = get_json(token, &format!("{API}/me"), ttl::SLOW).await?;
     Ok(Profile {
+        id: r.id,
         display_name: r.display_name,
         avatar_url: pick_thumb(&r.images),
         country: r.country,
@@ -280,6 +289,164 @@ pub async fn get_playlists(token: &str) -> Result<Vec<PlaylistRef>, AuthError> {
             image_url_small: pick_tiny(&p.images),
         })
         .collect())
+}
+
+/// One of the user's playlists, with the bits needed to decide editability
+/// (owner + collaborative) — only owned or collaborative playlists can take
+/// add/remove writes. Used to build the track→playlists membership index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryPlaylist {
+    pub id: String,
+    pub name: String,
+    pub owner_id: String,
+    pub collaborative: bool,
+}
+
+impl LibraryPlaylist {
+    /// Can the current user (`me`) add/remove tracks here?
+    pub fn editable(&self, me: &str) -> bool {
+        self.collaborative || (!me.is_empty() && self.owner_id == me)
+    }
+}
+
+/// Uncached GET → JSON. The membership scan caches the *derived index*, not
+/// the raw playlist pages, so these go straight to the network.
+async fn http_get_json<T: serde::de::DeserializeOwned>(
+    token: &str,
+    url: &str,
+) -> Result<T, AuthError> {
+    let res = reqwest::Client::new().get(url).bearer_auth(token).send().await?;
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(AuthError::Api(body, Some(status.as_u16())));
+    }
+    Ok(res.json::<T>().await?)
+}
+
+/// Every playlist in the user's library (paginated `/me/playlists`),
+/// fetched fresh. The caller filters to editable ones + caches the derived
+/// membership index.
+pub async fn get_my_playlists(token: &str) -> Result<Vec<LibraryPlaylist>, AuthError> {
+    #[derive(Deserialize)]
+    struct Page {
+        items: Vec<Item>,
+        next: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        id: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        collaborative: bool,
+        owner: Owner,
+    }
+    #[derive(Deserialize)]
+    struct Owner {
+        #[serde(default)]
+        id: String,
+    }
+    let mut out = Vec::new();
+    let mut url = format!("{API}/me/playlists?limit=50");
+    loop {
+        let page: Page = http_get_json(token, &url).await?;
+        for it in page.items {
+            out.push(LibraryPlaylist {
+                id: it.id,
+                name: it.name,
+                owner_id: it.owner.id,
+                collaborative: it.collaborative,
+            });
+        }
+        match page.next {
+            Some(n) => url = n,
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
+/// Every `spotify:track:…` URI in a playlist (paginated, uri-only fields).
+/// Local files and other non-track items are skipped.
+pub async fn playlist_track_uris(token: &str, playlist_id: &str) -> Result<Vec<String>, AuthError> {
+    #[derive(Deserialize)]
+    struct Page {
+        items: Vec<Item>,
+        next: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        track: Option<Track>,
+    }
+    #[derive(Deserialize)]
+    struct Track {
+        #[serde(default)]
+        uri: String,
+    }
+    let mut out = Vec::new();
+    let mut url =
+        format!("{API}/playlists/{playlist_id}/tracks?fields=items(track(uri)),next&limit=100");
+    loop {
+        let page: Page = http_get_json(token, &url).await?;
+        for it in page.items {
+            if let Some(t) = it.track
+                && t.uri.starts_with("spotify:track:")
+            {
+                out.push(t.uri);
+            }
+        }
+        match page.next {
+            Some(n) => url = n,
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
+/// Add `track_uri` to a playlist (`POST /playlists/{id}/tracks`).
+pub async fn add_to_playlist(
+    token: &str,
+    playlist_id: &str,
+    track_uri: &str,
+) -> Result<(), AuthError> {
+    let body = serde_json::json!({ "uris": [track_uri] });
+    let res = reqwest::Client::new()
+        .post(format!("{API}/playlists/{playlist_id}/tracks"))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await?;
+    playlist_write_result(res).await
+}
+
+/// Remove all occurrences of `track_uri` from a playlist
+/// (`DELETE /playlists/{id}/tracks`).
+pub async fn remove_from_playlist(
+    token: &str,
+    playlist_id: &str,
+    track_uri: &str,
+) -> Result<(), AuthError> {
+    let body = serde_json::json!({ "tracks": [{ "uri": track_uri }] });
+    let res = reqwest::Client::new()
+        .request(
+            reqwest::Method::DELETE,
+            format!("{API}/playlists/{playlist_id}/tracks"),
+        )
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await?;
+    playlist_write_result(res).await
+}
+
+async fn playlist_write_result(res: reqwest::Response) -> Result<(), AuthError> {
+    let status = res.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = res.text().await.unwrap_or_default();
+    Err(AuthError::Api(body, Some(status.as_u16())))
 }
 
 /// Sentinel id used everywhere (nav state, cache key) to mean the Liked
@@ -565,6 +732,34 @@ pub fn playlist_tracks_url(playlist_id: &str, offset: u32, limit: u32) -> String
 /// `market=from_token` for `is_playable`, as above.
 pub fn liked_tracks_url(offset: u32, limit: u32) -> String {
     format!("{API}/me/tracks?market=from_token&limit={limit}&offset={offset}")
+}
+
+/// Drop every cached page of a track collection after we mutate it
+/// (add/remove/like), so the next open re-fetches live data. Pages are
+/// contiguous from offset 0; walk forward evicting each cached page and
+/// stop at the first offset that was never cached — no network, no guess
+/// at the track count. Blocking fs; call off the async runtime.
+fn evict_track_pages(mut url_at: impl FnMut(u32) -> String, page: u32) {
+    let mut offset = 0u32;
+    loop {
+        let key = url_key(&url_at(offset));
+        if !disk_cache::exists(&key) {
+            break;
+        }
+        disk_cache::remove(&key);
+        offset += page;
+    }
+}
+
+/// Invalidate a playlist's cached track-list pages (after add/remove).
+pub fn invalidate_playlist_tracks(playlist_id: &str) {
+    let id = playlist_id.to_string();
+    evict_track_pages(|off| playlist_tracks_url(&id, off, PLAYLIST_PAGE), PLAYLIST_PAGE);
+}
+
+/// Invalidate the Liked Songs cached pages (after like/unlike).
+pub fn invalidate_liked_tracks() {
+    evict_track_pages(|off| liked_tracks_url(off, LIKED_PAGE), LIKED_PAGE);
 }
 
 pub async fn get_recently_played(token: &str) -> Result<Vec<RecentTrack>, AuthError> {
@@ -962,6 +1157,8 @@ pub async fn get_track(token: &str, track_id: &str) -> Result<TrackDetails, Auth
     #[derive(Deserialize, Default)]
     struct Album {
         #[serde(default)]
+        id: String,
+        #[serde(default)]
         images: Vec<RawImg>,
     }
     // Track metadata is immutable — the hot path (refetched on every
@@ -978,6 +1175,7 @@ pub async fn get_track(token: &str, track_id: &str) -> Result<TrackDetails, Auth
             .unwrap_or_default(),
         // Now-playing cover (large + full-window blurred backdrop) — full res.
         album_image_url: pick_full(&r.album.images),
+        album_id: r.album.id,
     })
 }
 
@@ -987,6 +1185,7 @@ pub struct TrackDetails {
     pub name: String,
     pub artist: String,
     pub album_image_url: Option<String>,
+    pub album_id: String,
 }
 
 /// Strip the `spotify:track:` URI prefix to get the bare ID Web API needs.
@@ -1007,6 +1206,13 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
         #[serde(default)]
         repeat_state: String,
         item: Option<Track>,
+        #[serde(default)]
+        context: Option<Ctx>,
+    }
+    #[derive(Deserialize)]
+    struct Ctx {
+        #[serde(default)]
+        uri: String,
     }
     #[derive(Deserialize)]
     struct Track {
@@ -1078,6 +1284,10 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
         duration_ms: item.duration_ms,
         shuffle: r.shuffle_state,
         repeat,
+        context_uri: r
+            .context
+            .map(|c| c.uri)
+            .filter(|u| !u.is_empty()),
     }))
 }
 
@@ -1133,6 +1343,17 @@ pub enum PlayTarget {
     Context { context_uri: String, offset: u32 },
     ContextAt { context_uri: String, track_uri: String },
     Uris { uris: Vec<String>, offset: u32 },
+    /// Resume the last track at an absolute position (ms) — the cold-start
+    /// play button starting the last-played track exactly where the chrome
+    /// shows the progress bar, so display and action stay coherent. When a
+    /// `context_uri` is known it restarts *within* that context (so playback
+    /// continues past the one track + librespot autoplay can take over);
+    /// otherwise it plays the single track.
+    Resume {
+        uri: String,
+        position_ms: u32,
+        context_uri: Option<String>,
+    },
 }
 
 /// Start playback of a context (playlist/album) or explicit track list.
@@ -1164,6 +1385,26 @@ pub async fn play_context(
         PlayTarget::Uris { uris, offset } => serde_json::json!({
             "uris": uris,
             "offset": { "position": offset },
+        }),
+        // Within a context: restart at the track + position, but keep the
+        // queue/context so playback continues (and autoplay can engage).
+        PlayTarget::Resume {
+            uri,
+            position_ms,
+            context_uri: Some(ctx),
+        } => serde_json::json!({
+            "context_uri": ctx,
+            "offset": { "uri": uri },
+            "position_ms": position_ms,
+        }),
+        // No context known — single track at position.
+        PlayTarget::Resume {
+            uri,
+            position_ms,
+            context_uri: None,
+        } => serde_json::json!({
+            "uris": [uri],
+            "position_ms": position_ms,
         }),
     };
     let url = match device_id {

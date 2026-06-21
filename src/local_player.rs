@@ -64,6 +64,9 @@ where
                     duration_ms: audio_item.duration_ms as u64,
                     shuffle: prev.as_ref().map(|p| p.shuffle).unwrap_or(false),
                     repeat: prev.as_ref().map(|p| p.repeat).unwrap_or(RepeatMode::Off),
+                    // Local PlayerEvents don't carry the context; keep any
+                    // previously-known one so it isn't lost across tracks.
+                    context_uri: prev.as_ref().and_then(|p| p.context_uri.clone()),
                 });
                 on_state(current.clone());
             }

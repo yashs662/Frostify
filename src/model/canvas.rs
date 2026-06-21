@@ -12,7 +12,7 @@
 //! lifecycle + the per-frame ticks.
 
 use std::cell::{Cell, RefCell};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -71,6 +71,11 @@ pub struct CanvasModel {
     hover_last: Cell<bool>,
     /// Active decode session. Replaced on track change; `None` when idle.
     decode: RefCell<Option<CanvasSession>>,
+    /// Monotonic decode-session counter. Each `start_decode` takes the next
+    /// value and tags every frame it pushes with it, so the GPU side drops a
+    /// previous clip's resident frames the instant this one's first frame
+    /// lands — no stale frames can ever be looped into the new clip.
+    epoch: AtomicU64,
 }
 
 impl CanvasModel {
@@ -87,6 +92,7 @@ impl CanvasModel {
             has_video: Arc::new(AtomicBool::new(false)),
             hover_last: Cell::new(false),
             decode: RefCell::default(),
+            epoch: AtomicU64::new(0),
         }
     }
 
@@ -209,6 +215,9 @@ impl CanvasModel {
         };
         let node = self.node.clone();
         let has_video = self.has_video.clone();
+        // Unique generation for this decode — tags every pushed frame so the
+        // GPU side evicts the previous clip's resident set on our first frame.
+        let epoch = self.epoch.fetch_add(1, Ordering::Relaxed) + 1;
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
         let spawned = std::thread::Builder::new()
@@ -276,7 +285,7 @@ impl CanvasModel {
                                         has_video.store(true, Ordering::Relaxed);
                                     }
                                     durations.push(dur);
-                                    sink.push_frame(b, frame.width, frame.height, frame.rgba);
+                                    sink.push_frame(b, epoch, frame.width, frame.height, frame.rgba);
                                 }
                                 dur
                             }
@@ -294,7 +303,7 @@ impl CanvasModel {
                     } else {
                         // Loop phase: just re-bind the next resident frame.
                         if let Some(b) = bound {
-                            sink.select(b, idx);
+                            sink.select(b, epoch, idx);
                         }
                         let dur = durations[idx];
                         idx = (idx + 1) % durations.len();

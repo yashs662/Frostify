@@ -153,6 +153,25 @@ pub enum WorkerCommand {
         access_token: String,
         uri: String,
     },
+    /// Build (or load from disk) the playlist-membership index — scans all
+    /// editable playlists once, caches 6h. The heavy index lives on the
+    /// worker; the UI gets the playlist list + per-track lookups.
+    LoadMembership {
+        access_token: String,
+    },
+    /// Look up which playlists the given track is in (against the loaded
+    /// index) → `TrackMembership`.
+    QueryMembership {
+        track_uri: String,
+    },
+    /// Add/remove a track to/from a playlist, then update the index + disk
+    /// cache. `add=false` removes.
+    EditMembership {
+        access_token: String,
+        playlist_id: String,
+        track_uri: String,
+        add: bool,
+    },
 }
 
 /// A transport intent dispatched from a player-bar button. Resolved to
@@ -309,6 +328,27 @@ pub enum WorkerResponse {
     SpotifySessionFailed {
         error: String,
     },
+    /// The librespot `spirc_task` ended (dealer/AP socket dropped on a long
+    /// session) — the Connect device is offline. The reducer reconnects with
+    /// a fresh token; the worker already backed off before sending this.
+    SpotifySessionLost,
+    /// The playlist-membership index is ready — carries the editable
+    /// playlist list (id + name) for the heart picker.
+    MembershipLoaded {
+        playlists: Vec<crate::model::membership::MembershipPlaylist>,
+    },
+    /// Which playlists the given track is in (answer to `QueryMembership`).
+    TrackMembership {
+        track_uri: String,
+        playlist_ids: Vec<String>,
+    },
+    /// An `EditMembership` failed — roll the optimistic checkbox back.
+    MembershipEditFailed {
+        track_uri: String,
+        playlist_id: String,
+        /// The edit that failed was an add (`true`) or remove (`false`).
+        was_add: bool,
+    },
 }
 
 pub struct Worker {
@@ -345,6 +385,11 @@ impl Worker {
             // Spirc handle — dropping this disconnects the Connect device.
             // Held on the worker for lifetime parity with `session`.
             let spirc: Arc<AsyncMutex<Option<Spirc>>> = Arc::new(AsyncMutex::new(None));
+            // Canonical playlist-membership index (track→playlists). Lives
+            // here so the heavy map never crosses to the UI; the UI gets the
+            // playlist list + per-track lookups + edit confirmations.
+            let membership: Arc<AsyncMutex<crate::model::membership::MembershipSnapshot>> =
+                Arc::new(AsyncMutex::new(Default::default()));
             rt.block_on(async move {
                 while let Some(cmd) = cmd_rx.recv().await {
                     match cmd {
@@ -442,6 +487,25 @@ impl Worker {
                                 }
                             });
                         }
+                        WorkerCommand::LoadMembership { access_token } => {
+                            spawn_load_membership(resp.clone(), membership.clone(), access_token)
+                        }
+                        WorkerCommand::QueryMembership { track_uri } => {
+                            spawn_query_membership(resp.clone(), membership.clone(), track_uri)
+                        }
+                        WorkerCommand::EditMembership {
+                            access_token,
+                            playlist_id,
+                            track_uri,
+                            add,
+                        } => spawn_edit_membership(
+                            resp.clone(),
+                            membership.clone(),
+                            access_token,
+                            playlist_id,
+                            track_uri,
+                            add,
+                        ),
                     }
                 }
             });
@@ -565,6 +629,28 @@ impl Worker {
         let _ = self
             .cmd_tx
             .send(WorkerCommand::AddToQueue { access_token, uri });
+    }
+    pub fn load_membership(&self, access_token: String) {
+        let _ = self
+            .cmd_tx
+            .send(WorkerCommand::LoadMembership { access_token });
+    }
+    pub fn query_membership(&self, track_uri: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::QueryMembership { track_uri });
+    }
+    pub fn edit_membership(
+        &self,
+        access_token: String,
+        playlist_id: String,
+        track_uri: String,
+        add: bool,
+    ) {
+        let _ = self.cmd_tx.send(WorkerCommand::EditMembership {
+            access_token,
+            playlist_id,
+            track_uri,
+            add,
+        });
     }
     pub fn poll(&self) -> Option<WorkerResponse> {
         self.resp_rx.try_recv().ok()
@@ -971,6 +1057,33 @@ fn spawn_playback(
     local: bool,
 ) {
     tokio::spawn(async move {
+        // Cold-start resume with no captured context (self-play never reports
+        // one): fall back to the track's album so playback continues past the
+        // one track instead of ending dead. Cheap + cached (immutable track
+        // metadata); best-effort — a lookup failure just resumes the single
+        // track as before.
+        let cmd = match cmd {
+            PlaybackCmd::PlayContext(api::PlayTarget::Resume {
+                uri,
+                position_ms,
+                context_uri: None,
+            }) => {
+                let album = match api::track_id_from_uri(&uri) {
+                    Some(id) => api::get_track(&access_token, id)
+                        .await
+                        .ok()
+                        .filter(|d| !d.album_id.is_empty())
+                        .map(|d| format!("spotify:album:{}", d.album_id)),
+                    None => None,
+                };
+                PlaybackCmd::PlayContext(api::PlayTarget::Resume {
+                    uri,
+                    position_ms,
+                    context_uri: album,
+                })
+            }
+            other => other,
+        };
         // When Frostify is the active device, drive our own Spirc directly.
         // The Web API round-trip (Spotify → dealer relay → our Spirc) can
         // silently no-op after a long uptime if the relay path goes stale —
@@ -1459,10 +1572,18 @@ fn spawn_connect_session(
         } = boot;
         *spirc_slot.lock().await = Some(spirc);
 
-        // Drive the Connect device event loop forever.
+        // Drive the Connect device event loop. If it ends, the dealer/AP
+        // socket dropped (a long-idle session, a network blip) — the device
+        // is offline and playback can't recover on its own. Back off briefly,
+        // then ask the host to reconnect with a fresh token (the reducer
+        // re-dispatches `ConnectSpotifySession`); the back-off keeps a hard
+        // failure from hot-looping.
+        let resp_for_task = resp.clone();
         tokio::spawn(async move {
             spirc_task.await;
-            warn!("spirc_task ended — Connect device offline");
+            warn!("spirc_task ended — Connect device offline, reconnecting");
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            resp_for_task.send(WorkerResponse::SpotifySessionLost);
         });
 
         // Drain cluster updates into UI-thread responses (remote devices'
@@ -1601,8 +1722,13 @@ fn spawn_check_saved(resp: Responder, access_token: String, track_id: String) {
 fn spawn_set_saved(resp: Responder, access_token: String, track_id: String, saved: bool) {
     tokio::spawn(async move {
         match api::set_track_saved(&access_token, &track_id, saved).await {
-            // Echo the committed state (idempotent for the optimistic UI).
-            Ok(()) => resp.send(WorkerResponse::SavedState { track_id, saved }),
+            // Echo the committed state (idempotent for the optimistic UI),
+            // and drop the stale Liked Songs page cache so a re-open shows
+            // the change.
+            Ok(()) => {
+                tokio::task::spawn_blocking(api::invalidate_liked_tracks);
+                resp.send(WorkerResponse::SavedState { track_id, saved });
+            }
             Err(e) => {
                 warn!("set_track_saved({track_id}, {saved}) failed: {e}");
                 // Roll the optimistic heart back.
@@ -1621,6 +1747,175 @@ fn spawn_fetch_queue(resp: Responder, access_token: String) {
             Ok(tracks) => resp.send(WorkerResponse::QueueLoaded { tracks }),
             Err(e) => warn!("get_queue failed: {e}"),
         }
+    });
+}
+
+/// Disk-cache key for the playlist-membership index snapshot.
+const MEMBERSHIP_KEY: &str = "playlist_membership";
+/// How many playlists to scan concurrently when (re)building the index.
+const MEMBERSHIP_SCAN_CONCURRENCY: usize = 5;
+
+type MembershipArc = Arc<AsyncMutex<crate::model::membership::MembershipSnapshot>>;
+
+/// Persist the current index snapshot to disk (cloned under the lock, written
+/// off-thread). Re-read on startup so the heart is correct before any scan.
+async fn persist_membership(membership: &MembershipArc) {
+    let snap = membership.lock().await.clone();
+    tokio::task::spawn_blocking(move || disk_cache::write_json(MEMBERSHIP_KEY, &snap));
+}
+
+/// Build (or load from disk) the membership index. Disk hit within the 6h
+/// TTL → instant. Miss/stale → scan every editable playlist's track URIs and
+/// cache the result. Either way the UI gets the editable playlist list.
+fn spawn_load_membership(resp: Responder, membership: MembershipArc, access_token: String) {
+    use crate::model::membership::{MembershipPlaylist, MembershipSnapshot};
+    tokio::spawn(async move {
+        // 1. Fresh disk cache (within TTL) — use as-is, no scan needed.
+        let fresh = tokio::task::spawn_blocking(|| {
+            disk_cache::read_json::<MembershipSnapshot>(MEMBERSHIP_KEY, api::ttl::MUTABLE)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(snap) = fresh {
+            let playlists = snap.playlists.clone();
+            info!("membership: {} playlists from disk cache", playlists.len());
+            *membership.lock().await = snap;
+            resp.send(WorkerResponse::MembershipLoaded { playlists });
+            return;
+        }
+        // 2. Stale-but-present cache — show it *immediately* (so the heart +
+        // picker work on startup), then revalidate in the background below and
+        // swap the fresh result in when the scan finishes.
+        let stale = tokio::task::spawn_blocking(|| {
+            disk_cache::read_json::<MembershipSnapshot>(MEMBERSHIP_KEY, std::time::Duration::MAX)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(snap) = stale {
+            let playlists = snap.playlists.clone();
+            info!(
+                "membership: {} playlists from stale cache — revalidating",
+                playlists.len()
+            );
+            *membership.lock().await = snap;
+            resp.send(WorkerResponse::MembershipLoaded { playlists });
+        }
+        // 3. Scan. Editable = owned or collaborative (only those take writes).
+        let me = api::get_me(&access_token)
+            .await
+            .map(|p| p.id)
+            .unwrap_or_default();
+        let editable: Vec<api::LibraryPlaylist> = match api::get_my_playlists(&access_token).await {
+            Ok(all) => all.into_iter().filter(|p| p.editable(&me)).collect(),
+            Err(e) => {
+                warn!("membership: get_my_playlists failed: {e}");
+                return;
+            }
+        };
+        info!("membership: scanning {} editable playlists", editable.len());
+        let mut index: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for chunk in editable.chunks(MEMBERSHIP_SCAN_CONCURRENCY) {
+            let futs = chunk.iter().map(|p| {
+                let token = access_token.clone();
+                let id = p.id.clone();
+                async move { (id.clone(), api::playlist_track_uris(&token, &id).await) }
+            });
+            for (id, res) in futures::future::join_all(futs).await {
+                match res {
+                    Ok(uris) => {
+                        for uri in uris {
+                            index.entry(uri).or_default().push(id.clone());
+                        }
+                    }
+                    Err(e) => warn!("membership: scan playlist {id} failed: {e}"),
+                }
+            }
+        }
+        let playlists: Vec<MembershipPlaylist> = editable
+            .into_iter()
+            .map(|p| MembershipPlaylist {
+                id: p.id,
+                name: p.name,
+            })
+            .collect();
+        info!(
+            "membership: index built — {} tracks across {} playlists",
+            index.len(),
+            playlists.len()
+        );
+        *membership.lock().await = MembershipSnapshot {
+            playlists: playlists.clone(),
+            index,
+        };
+        persist_membership(&membership).await;
+        resp.send(WorkerResponse::MembershipLoaded { playlists });
+    });
+}
+
+/// Look up the current track's playlist membership against the index.
+fn spawn_query_membership(resp: Responder, membership: MembershipArc, track_uri: String) {
+    tokio::spawn(async move {
+        let playlist_ids = membership
+            .lock()
+            .await
+            .index
+            .get(&track_uri)
+            .cloned()
+            .unwrap_or_default();
+        resp.send(WorkerResponse::TrackMembership {
+            track_uri,
+            playlist_ids,
+        });
+    });
+}
+
+/// Add/remove a track to/from a playlist, then update the index + disk cache.
+/// On API failure, tell the UI to roll its optimistic checkbox back.
+fn spawn_edit_membership(
+    resp: Responder,
+    membership: MembershipArc,
+    access_token: String,
+    playlist_id: String,
+    track_uri: String,
+    add: bool,
+) {
+    tokio::spawn(async move {
+        let res = if add {
+            api::add_to_playlist(&access_token, &playlist_id, &track_uri).await
+        } else {
+            api::remove_from_playlist(&access_token, &playlist_id, &track_uri).await
+        };
+        if let Err(e) = res {
+            warn!("membership edit ({playlist_id}, add={add}) failed: {e}");
+            resp.send(WorkerResponse::MembershipEditFailed {
+                track_uri,
+                playlist_id,
+                was_add: add,
+            });
+            return;
+        }
+        // Update the in-memory index for `track_uri`, then re-persist.
+        {
+            let mut guard = membership.lock().await;
+            let entry = guard.index.entry(track_uri.clone()).or_default();
+            if add {
+                if !entry.contains(&playlist_id) {
+                    entry.push(playlist_id.clone());
+                }
+            } else {
+                entry.retain(|p| p != &playlist_id);
+                if entry.is_empty() {
+                    guard.index.remove(&track_uri);
+                }
+            }
+        }
+        persist_membership(&membership).await;
+        // Drop the playlist's cached track-list pages so re-opening it
+        // shows the just-added/removed track instead of stale data.
+        tokio::task::spawn_blocking(move || api::invalidate_playlist_tracks(&playlist_id));
     });
 }
 

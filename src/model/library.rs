@@ -170,6 +170,75 @@ impl LibraryModel {
         }
     }
 
+    // --- live membership edits ----------------------------------------
+
+    /// Drop a playlist's in-memory cached detail so the next open re-fetches
+    /// (the disk-cache pages are evicted worker-side). Pairs with the live
+    /// patches below so an edit is reflected both now and on re-open.
+    pub fn invalidate_cached(&self, id: &str) {
+        self.playlist_cache.borrow_mut().remove(id);
+    }
+
+    /// Whether the playlist `id` (or Liked Songs, when `liked`) is the page
+    /// currently open in the centre pane.
+    fn open_is(open: &OpenPlaylist, liked: bool, id: &str) -> bool {
+        if liked {
+            open.liked
+        } else {
+            open.context_uri.as_deref() == Some(format!("spotify:playlist:{id}").as_str())
+        }
+    }
+
+    /// If the affected playlist (or Liked Songs) is open, append a row for
+    /// `track` live — playlists gain it at the end, Liked Songs at the top
+    /// (newest-first). No-op (returns false) when that page isn't open or the
+    /// track is already present.
+    pub fn open_add_track(
+        &self,
+        art: &ArtModel,
+        liked: bool,
+        id: &str,
+        track: &PlaylistTrack,
+    ) -> bool {
+        let mut guard = self.open_playlist.borrow_mut();
+        let Some(open) = guard.as_mut() else {
+            return false;
+        };
+        if !Self::open_is(open, liked, id) || open.rows.borrow().iter().any(|r| r.uri == track.uri) {
+            return false;
+        }
+        self.build_rows(art, &open.rows, std::slice::from_ref(track));
+        if liked {
+            // Liked Songs lists most-recent first — move the just-appended
+            // row to the front (rotate_right(1) sends the last to index 0).
+            open.rows.borrow_mut().rotate_right(1);
+        }
+        open.total += 1;
+        self.rows_appended.set(true);
+        true
+    }
+
+    /// If the affected playlist (or Liked Songs) is open, drop every row for
+    /// `uri` live. Returns whether anything was removed.
+    pub fn open_remove_track(&self, liked: bool, id: &str, uri: &str) -> bool {
+        let mut guard = self.open_playlist.borrow_mut();
+        let Some(open) = guard.as_mut() else {
+            return false;
+        };
+        if !Self::open_is(open, liked, id) {
+            return false;
+        }
+        let before = open.rows.borrow().len();
+        open.rows.borrow_mut().retain(|r| r.uri != uri);
+        let removed = (before - open.rows.borrow().len()) as u32;
+        if removed == 0 {
+            return false;
+        }
+        open.total = open.total.saturating_sub(removed);
+        self.rows_appended.set(true);
+        true
+    }
+
     // --- opening / loading --------------------------------------------
 
     /// Set up `open_playlist` for a nav target. A fresh in-memory cache

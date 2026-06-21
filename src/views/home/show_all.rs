@@ -151,17 +151,19 @@ fn show_all_row(
     r.child(|r| {
             // Thumb.
             r.col(()).w_px(t::THUMB_MD).h_px(t::THUMB_MD).child(|b| {
-                b.rect(())
-                    .abs(0.0, 0.0)
-                    .w(Len::Fill)
-                    .h(Len::Fill)
-                    .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
-                    .radius(radius);
                 if let Some(sig) = row.thumb.clone() {
                     b.image_bound((), sig)
                         .abs(0.0, 0.0)
                         .w(Len::Fill)
                         .h(Len::Fill)
+                        .radius(radius)
+                        .placeholder_fill(t::PLACEHOLDER);
+                } else {
+                    b.rect(())
+                        .abs(0.0, 0.0)
+                        .w(Len::Fill)
+                        .h(Len::Fill)
+                        .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
                         .radius(radius);
                 }
             });

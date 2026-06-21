@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use frostify_gfx::{Align, Computed, Curve, CursorIcon, Justify, Len, Scene};
 
-use crate::model::{BackdropModel, DevicesModel, PlayerModel};
+use crate::model::{BackdropModel, DevicesModel, MembershipModel, PlayerModel};
 use crate::views::MainNav;
 use crate::views::home::{NavFn, PlayerAction};
 use crate::widgets::color::accent_fg;
@@ -37,6 +37,11 @@ pub struct PlayerBar<'a> {
     pub on_devices_open: Rc<dyn Fn()>,
     /// Queue icon → the queue page.
     pub on_navigate: NavFn,
+    /// Library-membership slice — fills the heart (Liked OR any playlist),
+    /// drives the hover hint, and owns the playlist-picker overlay.
+    pub membership: &'a MembershipModel,
+    /// Set the picker target to the current track + rebuild (the picker opened).
+    pub on_like_open: Rc<dyn Fn()>,
     /// `&Rc<IconSet>` (not `&IconSet`) so the host can pass `&icons`
     /// directly; deref-coercion handles the `render`/`get`/helper calls.
     pub icons: &'a Rc<IconSet>,
@@ -81,22 +86,53 @@ impl Component for PlayerBar<'_> {
                                     .color(t::TEXT_DIM)
                                     .max_width_px(180.0);
                             });
-                        // Heart — accent when the track is liked; click
-                        // toggles (optimistic, worker echo is authority).
+                        // Heart — accent when the track is in the library
+                        // (Liked Songs OR any playlist), and a *filled* glyph
+                        // there (vs an outline when not). Click opens the
+                        // playlist picker (Liked Songs is a row there).
                         let heart_tint = Computed::new(
-                            (self.player.liked.clone(), self.backdrop.accent.clone()),
-                            |(liked, acc)| if liked { acc } else { t::TEXT_DIM },
+                            (
+                                self.player.liked.clone(),
+                                self.membership.in_playlist.clone(),
+                                self.backdrop.accent.clone(),
+                            ),
+                            |(liked, in_pl, acc)| {
+                                if liked || in_pl {
+                                    acc
+                                } else {
+                                    t::TEXT_DIM
+                                }
+                            },
                         );
-                        let like_act = self.on_action.clone();
+                        let heart_h = icons.get(Icon::Heart);
+                        let heart_filled_h = icons.get(Icon::HeartFilled);
+                        let heart_glyph = Computed::new(
+                            (
+                                self.player.liked.clone(),
+                                self.membership.in_playlist.clone(),
+                            ),
+                            move |(liked, in_pl)| {
+                                Some(if liked || in_pl { heart_filled_h } else { heart_h })
+                            },
+                        );
+                        let like_overlay = self.membership.overlay.clone();
+                        let on_like_open = self.on_like_open.clone();
                         l.row(())
                             .push_end()
                             .w_px(t::SP_7)
                             .h_px(t::SP_7)
                             .center()
                             .hover_opacity(0.8)
-                            .on_click(move |_| like_act(PlayerAction::ToggleLike))
+                            .hover_hint_bind(self.membership.hint.clone())
+                            .on_click(move |ctx| {
+                                like_overlay.open(ctx.timeline, ctx.now);
+                                on_like_open();
+                            })
                             .child(|h| {
-                                icons.render(h, Icon::Heart, t::ICON_MD, heart_tint);
+                                h.image_bound((), heart_glyph)
+                                    .w_px(t::ICON_MD)
+                                    .h_px(t::ICON_MD)
+                                    .color(heart_tint);
                             });
                     });
                 // Centre: transport controls + progress.

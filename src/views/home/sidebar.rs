@@ -220,6 +220,9 @@ fn library_row(
     } else {
         row.hover_color(t::HOVER_LIFT_SUBTLE);
     }
+    // Tooltip with the full name — the whole point when collapsed (icon only,
+    // no label), and still handy expanded when a long name truncates.
+    row.hover_hint(title);
     row.child(|r| {
         if liked {
             liked_thumb(r, icons, t::THUMB_LG, t::R_SM);

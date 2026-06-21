@@ -86,17 +86,19 @@ pub fn view(
                         .w_px(t::THUMB_2XL)
                         .h_px(t::THUMB_2XL)
                         .child(|b| {
-                            b.rect(())
-                                .abs(0.0, 0.0)
-                                .w(Len::Fill)
-                                .h(Len::Fill)
-                                .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
-                                .radius(t::R_FULL);
                             if let Some(sig) = data.image.clone() {
                                 b.image_bound((), sig)
                                     .abs(0.0, 0.0)
                                     .w(Len::Fill)
                                     .h(Len::Fill)
+                                    .radius(t::R_FULL)
+                                    .placeholder_fill(t::PLACEHOLDER);
+                            } else {
+                                b.rect(())
+                                    .abs(0.0, 0.0)
+                                    .w(Len::Fill)
+                                    .h(Len::Fill)
+                                    .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
                                     .radius(t::R_FULL);
                             }
                         });
@@ -190,17 +192,19 @@ fn popular_row(s: &mut Scene, index: u32, track: &ArtistTrack, on_play: &PlayFn)
                     .color(t::TEXT_DIM);
             });
             r.col(()).w_px(t::THUMB_SM).h_px(t::THUMB_SM).child(|b| {
-                b.rect(())
-                    .abs(0.0, 0.0)
-                    .w(Len::Fill)
-                    .h(Len::Fill)
-                    .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
-                    .radius(t::R_SM);
                 if let Some(sig) = track.cover.clone() {
                     b.image_bound((), sig)
                         .abs(0.0, 0.0)
                         .w(Len::Fill)
                         .h(Len::Fill)
+                        .radius(t::R_SM)
+                        .placeholder_fill(t::PLACEHOLDER);
+                } else {
+                    b.rect(())
+                        .abs(0.0, 0.0)
+                        .w(Len::Fill)
+                        .h(Len::Fill)
+                        .rgba(t::PLACEHOLDER[0], t::PLACEHOLDER[1], t::PLACEHOLDER[2], 1.0)
                         .radius(t::R_SM);
                 }
             });

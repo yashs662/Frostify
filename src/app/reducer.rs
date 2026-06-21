@@ -55,6 +55,26 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
         WorkerResponse::OAuthComplete { auth } | WorkerResponse::TokensLoaded { auth } => {
             log::info!("auth ok — switching to Home");
             worker.fetch_home(auth.access_token.clone());
+            // Build/load the playlist-membership index (disk cache → instant;
+            // else a background scan) so the heart reflects playlist
+            // membership, not just Liked Songs.
+            worker.load_membership(auth.access_token.clone());
+            // Cold start: the snapshot was seeded from disk, but the heart's
+            // liked + membership need the API/index. Resolve them now for the
+            // restored track (membership also re-resolves when the index
+            // lands; this covers the fresh-cache fast path).
+            if let Some(uri) = state
+                .player_ui
+                .snapshot
+                .borrow()
+                .as_ref()
+                .map(|p| p.track_id.clone())
+            {
+                if let Some(id) = track_id_from_uri(&uri) {
+                    worker.check_saved(auth.access_token.clone(), id.to_string());
+                }
+                worker.query_membership(uri);
+            }
             let (initial_volume, quality, normalize) = {
                 let p = state.prefs.data.borrow();
                 (p.audio.volume, p.audio.quality, p.audio.normalize)
@@ -134,6 +154,12 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
                 .and_then(|p| track_id_from_uri(&p.track_id).map(|s| s.to_string()));
             if current.as_deref() == Some(track_id.as_str()) {
                 state.player_ui.liked.set(saved);
+                // Liked is one of the heart's "in library" inputs — refresh
+                // the tooltip (which lists Liked Songs + playlists).
+                state.membership.rebuild_hint(saved);
+                if state.membership.overlay.is_open() {
+                    cx.rebuild();
+                }
             }
         }
         WorkerResponse::QueueLoaded { tracks } => {
@@ -150,8 +176,91 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
                 cx.rebuild();
             }
         }
+        WorkerResponse::MembershipLoaded { playlists } => {
+            log::info!("playlist-membership ready: {} playlists", playlists.len());
+            state.membership.set_playlists(playlists);
+            // Resolve the current track's membership now that the index is up.
+            if let Some(uri) = state
+                .player_ui
+                .snapshot
+                .borrow()
+                .as_ref()
+                .map(|p| p.track_id.clone())
+            {
+                worker.query_membership(uri);
+            }
+            // The picker may already be open waiting on its rows.
+            if state.membership.overlay.is_open() {
+                cx.rebuild();
+            }
+        }
+        WorkerResponse::TrackMembership {
+            track_uri,
+            playlist_ids,
+        } => {
+            // Ignore a late answer for a track we've skipped past.
+            let current = state
+                .player_ui
+                .snapshot
+                .borrow()
+                .as_ref()
+                .map(|p| p.track_id.clone());
+            if current.as_deref() == Some(track_uri.as_str()) {
+                state
+                    .membership
+                    .set_current(playlist_ids, state.player_ui.liked.get());
+                if state.membership.overlay.is_open() {
+                    cx.rebuild();
+                }
+            }
+        }
+        WorkerResponse::MembershipEditFailed {
+            track_uri,
+            playlist_id,
+            was_add,
+        } => {
+            // Undo the optimistic checkbox flip (re-toggle the opposite way),
+            // but only if we're still on that track.
+            let current = state
+                .player_ui
+                .snapshot
+                .borrow()
+                .as_ref()
+                .map(|p| p.track_id.clone());
+            if current.as_deref() == Some(track_uri.as_str()) {
+                state
+                    .membership
+                    .toggle_local(&playlist_id, !was_add, state.player_ui.liked.get());
+                if state.membership.overlay.is_open() {
+                    cx.rebuild();
+                }
+            }
+            // Undo the optimistic live-patch of the open page (an added row
+            // can be dropped by uri; a failed remove can't be cheaply re-added,
+            // so drop the cache and let a re-open re-fetch the truth).
+            if was_add {
+                state
+                    .library
+                    .open_remove_track(false, &playlist_id, &track_uri);
+            }
+            state.library.invalidate_cached(&playlist_id);
+            cx.rebuild();
+        }
         WorkerResponse::SpotifySessionFailed { error } => {
             log::warn!("librespot session failed: {error}. Falling back to Web API polling.");
+        }
+        WorkerResponse::SpotifySessionLost => {
+            // The Connect device dropped (long session) — re-bootstrap it with
+            // the current (proactively-refreshed) token so playback recovers
+            // without an app restart. The worker already backed off.
+            if let Some(token) = state.auth.token() {
+                log::warn!("librespot session lost — reconnecting Connect device");
+                let (initial_volume, quality, normalize) = {
+                    let p = state.prefs.data.borrow();
+                    (p.audio.volume, p.audio.quality, p.audio.normalize)
+                };
+                worker.connect_spotify_session(token, initial_volume, quality, normalize);
+            }
         }
         WorkerResponse::PlayerState { mut player } => {
             // Overlay cached track details (artist) and request a fetch
@@ -235,6 +344,21 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
                         && let Some(token) = state.auth.token()
                     {
                         worker.check_saved(token, id.to_string());
+                    }
+                    // Resolve playlist membership for the heart fill + tooltip
+                    // (cheap index lookup on the worker). Clear the old state
+                    // first so a stale heart doesn't linger until the answer.
+                    state.membership.set_current(Vec::new(), false);
+                    worker.query_membership(p.track_id.clone());
+                    // Self-play has no cluster queue echo, so the queue page
+                    // would freeze on a stale list as autoplay advances. While
+                    // it's open and we're the active player, re-pull the Web
+                    // API queue each track so the continuation stays live.
+                    if state.devices.playing_on_self.get()
+                        && matches!(*state.router.nav.borrow(), crate::views::MainNav::Queue)
+                        && let Some(token) = state.auth.token()
+                    {
+                        worker.fetch_queue(token);
                     }
                 }
                 // Canvas video: fetch on a real track change (not a

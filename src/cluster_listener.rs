@@ -220,6 +220,7 @@ fn into_currently_playing(state: ProtoPlayerState) -> CurrentlyPlaying {
     let shuffle = opts.shuffling_context;
 
     let track_id = track.uri.clone();
+    let context_uri = (!state.context_uri.is_empty()).then(|| state.context_uri.clone());
 
     CurrentlyPlaying {
         track_id,
@@ -232,6 +233,7 @@ fn into_currently_playing(state: ProtoPlayerState) -> CurrentlyPlaying {
         duration_ms,
         shuffle,
         repeat,
+        context_uri,
     }
 }
 
