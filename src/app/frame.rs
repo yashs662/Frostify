@@ -10,7 +10,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use frostify_gfx::{SceneCtx, Timeline};
+use opal_gfx::{SceneCtx, Timeline};
 
 use crate::app::AppState;
 use crate::app::cx::Cx;
@@ -136,7 +136,7 @@ pub fn tick(
                     pulse,
                     1.0,
                     0.45,
-                    frostify_gfx::Curve::EaseInOut,
+                    opal_gfx::Curve::EaseInOut,
                     std::time::Duration::from_millis(650),
                     cx.now,
                 );

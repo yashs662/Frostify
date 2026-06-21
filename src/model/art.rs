@@ -9,7 +9,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use frostify_gfx::{ImageHandle, Signal};
+use opal_gfx::{ImageHandle, Signal};
 
 use crate::album_art;
 use crate::api::{HomeData, TrackDetails};

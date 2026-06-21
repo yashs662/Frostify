@@ -7,7 +7,7 @@
 
 use std::rc::Rc;
 
-use frostify_gfx::{Align, Computed, ImageHandle, Justify, Len, Overflow, Scene, Signal};
+use opal_gfx::{Align, Computed, ImageHandle, Justify, Len, Overflow, Scene, Signal};
 
 use crate::album_art;
 use crate::api::{HomeData, LIKED_SONGS_ID};

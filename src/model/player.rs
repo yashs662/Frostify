@@ -13,7 +13,7 @@
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};
 
-use frostify_gfx::{Curve, Signal, TextSignal, Timeline};
+use opal_gfx::{Curve, Signal, TextSignal, Timeline};
 
 use crate::api::{CurrentlyPlaying, RepeatMode};
 

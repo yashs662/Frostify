@@ -16,8 +16,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use frostify_gfx::node::NodeId;
-use frostify_gfx::{Curve, FrameSink, ImageHandle, Signal, Timeline};
+use opal_gfx::node::NodeId;
+use opal_gfx::{Curve, FrameSink, ImageHandle, Signal, Timeline};
 
 use crate::api::{CurrentlyPlaying, track_id_from_uri};
 use crate::worker::Worker;

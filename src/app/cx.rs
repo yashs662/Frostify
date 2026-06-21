@@ -17,7 +17,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use frostify_gfx::Timeline;
+use opal_gfx::Timeline;
 
 pub struct Cx<'a> {
     /// Animation timeline — `animate`/`stop_for` tweens keyed by signal.

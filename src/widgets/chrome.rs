@@ -1,4 +1,4 @@
-use frostify_gfx::{Align, Len, Scene, WindowAction};
+use opal_gfx::{Align, Len, Scene, WindowAction};
 
 use crate::widgets::icon::{Icon, IconSet};
 use crate::widgets::tokens;

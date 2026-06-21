@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use std::time::Duration;
 
-use frostify_gfx::{
+use opal_gfx::{
     Align, Computed, Curve, ImageHandle, Justify, Len, NodeId, Scene, Signal, animated,
 };
 
@@ -450,7 +450,7 @@ fn scroll_arrows(
     s: &mut Scene,
     icons: &IconSet,
     row_id: NodeId,
-    vis: impl Into<frostify_gfx::Bind<f32>>,
+    vis: impl Into<opal_gfx::Bind<f32>>,
 ) {
     s.row(())
         .abs(0.0, 0.0)

@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use frostify_gfx::WakeHandle;
+use opal_gfx::WakeHandle;
 
 /// Re-entry point for hot-patched code. With `hotreload` on, routes the
 /// closure through subsecond's jump table so an applied patch re-runs the

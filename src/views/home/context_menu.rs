@@ -8,7 +8,7 @@
 
 use std::rc::Rc;
 
-use frostify_gfx::{Align, Len, Scene};
+use opal_gfx::{Align, Len, Scene};
 
 use crate::model::MenuModel;
 use crate::views::MainNav;
@@ -89,7 +89,7 @@ pub fn view(
 }
 
 /// One menu row — a hover-highlighted label with a click action.
-fn item(s: &mut Scene, label: &str, on_click: impl Fn(&mut frostify_gfx::EventCtx) + 'static) {
+fn item(s: &mut Scene, label: &str, on_click: impl Fn(&mut opal_gfx::EventCtx) + 'static) {
     s.row(())
         .w(Len::Fill)
         .h_px(t::SP_9)

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Opal mark</title>
+<style>
+  body{margin:0;font:14px system-ui,sans-serif;color:#ddd;background:#1a1a1d}
+  h1{font-weight:600;padding:20px 24px 0}
+  p{padding:0 24px;color:#888}
+  .row{display:flex;flex-wrap:wrap;gap:24px;padding:24px;align-items:center}
+  .light,.dark{width:200px;height:200px;display:flex;align-items:center;justify-content:center;border-radius:14px}
+  .light{background:#f3efe9}.dark{background:#202024}
+  img{width:150px;height:auto}
+</style></head><body>
+  <h1>Static</h1>
+  <div class="row">
+    <div class="light"><img src="geometric-opal.svg"></div>
+    <div class="dark"><img src="geometric-opal.svg"></div>
+    <div class="dark"><img src="geometric-opal.svg" style="width:48px"></div>
+  </div>
+  <h1>Loading — pivot flutter + fade (1.8s loop)</h1>
+  <div class="row">
+    <div class="light"><img src="geometric-opal-loading.svg"></div>
+    <div class="dark"><img src="geometric-opal-loading.svg"></div>
+    <div class="dark"><img src="geometric-opal-loading.svg" style="width:48px"></div>
+  </div>
+</body></html>

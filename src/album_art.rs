@@ -2,8 +2,8 @@
 //!
 //! Spotify serves album art at `https://i.scdn.co/image/<sha256-hex>`
 //! in JPEG (occasionally PNG). The trailing hex doubles as a perfect
-//! cache key. Decode → RGBA → frostify-gfx atlas via
-//! `frostify_gfx::Uploader::upload_rgba` from the worker thread.
+//! cache key. Decode → RGBA → opal-gfx atlas via
+//! `opal_gfx::Uploader::upload_rgba` from the worker thread.
 
 use crate::widgets::tokens;
 use image::ImageReader;

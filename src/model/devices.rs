@@ -1,4 +1,4 @@
-//! Connect-devices slice — the devices popup + "playing on Frostify"
+//! Connect-devices slice — the devices popup + "playing on Opal"
 //! chrome state.
 //!
 //! The device list is fetched fresh on every popup open (it's live state
@@ -8,7 +8,7 @@
 
 use std::cell::RefCell;
 
-use frostify_gfx::{Overlay, Signal};
+use opal_gfx::{Overlay, Signal};
 
 use crate::api::Device;
 
@@ -21,14 +21,14 @@ pub struct DevicesModel {
     /// The cluster's active device id ("" = none) — highlights the
     /// active row even when the REST list's `is_active` lags a push.
     pub active_id: RefCell<String>,
-    /// Frostify's own librespot device id, for the "This device" row tag.
+    /// Opal's own librespot device id, for the "This device" row tag.
     pub self_id: RefCell<String>,
-    /// Frostify is the active device. Drives transport routing (local Spirc
+    /// Opal is the active device. Drives transport routing (local Spirc
     /// vs Web API) and the "This device" affordances.
     pub playing_on_self: Signal<bool>,
     /// Some *other* device is the active player — lights the player-bar
     /// Devices icon with the accent (Spotify's "connected to a device"
-    /// cue). False when Frostify is playing or nothing is active.
+    /// cue). False when Opal is playing or nothing is active.
     pub remote_active: Signal<bool>,
 }
 

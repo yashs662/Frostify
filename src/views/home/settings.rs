@@ -1,7 +1,7 @@
 //! Settings panel — the *interior* of the settings modal.
 //!
 //! The modal shell (scrim, fade, input-blocking, click-to-dismiss) is the
-//! engine's reusable [`frostify_gfx::Overlay`]; this module only builds
+//! engine's reusable [`opal_gfx::Overlay`]; this module only builds
 //! what goes inside it. `home::build` calls `overlay.render(.., |panel|
 //! settings::panel(panel, ..))`.
 //!
@@ -10,7 +10,7 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use frostify_gfx::{Align, Computed, Curve, Len, Overlay, Scene, Signal};
+use opal_gfx::{Align, Computed, Curve, Len, Overlay, Scene, Signal};
 
 use crate::api::Profile;
 use crate::disk_cache::{self, CacheUsage};
@@ -263,7 +263,7 @@ fn cache_section(
             .h_px(t::SP_2)
             .radius(t::R_FULL)
             .rgba(1.0, 1.0, 1.0, 0.08)
-            .overflow(frostify_gfx::Overflow::Hidden, frostify_gfx::Overflow::Hidden)
+            .overflow(opal_gfx::Overflow::Hidden, opal_gfx::Overflow::Hidden)
             .child(move |bar| {
                 for (f, col) in &segments {
                     bar.rect(()).w(Len::Pct(*f)).h(Len::Fill).color(*col);

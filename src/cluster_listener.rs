@@ -17,7 +17,7 @@ use crate::api::{CurrentlyPlaying, PlaylistTrack, RepeatMode, TrackArtist};
 ///
 /// Spotify's cluster carries the *globally-active* playback — the same
 /// state the official app shows regardless of which device is the
-/// audio output. So even if Frostify isn't the active device, we still
+/// audio output. So even if Opal isn't the active device, we still
 /// reflect what the user's phone / web player is doing. (Our OWN
 /// playback never arrives here — the dealer doesn't echo a device's
 /// state back to itself; that path is `local_player`.)

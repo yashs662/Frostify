@@ -10,7 +10,7 @@
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use frostify_gfx::{Align, ImageHandle, Justify, Len, Overflow, Scene, Signal};
+use opal_gfx::{Align, ImageHandle, Justify, Len, Overflow, Scene, Signal};
 
 use crate::api::PlayTarget;
 use crate::model::MenuTarget;

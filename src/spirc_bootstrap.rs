@@ -25,14 +25,14 @@ pub struct SpircBootstrap {
     pub spirc_task: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
     pub cluster_sub: Subscription,
     /// Local player event stream — the UI's source of truth while
-    /// Frostify itself is the active device (the dealer doesn't echo our
+    /// Opal itself is the active device (the dealer doesn't echo our
     /// own connect-state back; see `local_player`).
     pub player_events: librespot_playback::player::PlayerEventChannel,
 }
 
-/// `initial_volume` is the device volume Frostify advertises before any
+/// `initial_volume` is the device volume Opal advertises before any
 /// volume command lands (0..=1, from the persisted preference) — without
-/// it, every transfer to Frostify snaps the user back to librespot's
+/// it, every transfer to Opal snaps the user back to librespot's
 /// 50% default. `quality` maps the persisted streaming-quality pref to
 /// the librespot bitrate tier (applies from the next session, i.e. app
 /// start — the player is built once here).
@@ -52,7 +52,7 @@ pub async fn start(
         .map_err(|e| AuthError::Server(format!("dealer cluster subscribe: {e}")))?;
 
     let connect_config = ConnectConfig {
-        name: "Frostify".to_string(),
+        name: "Opal".to_string(),
         device_type: DeviceType::Computer,
         initial_volume: (initial_volume.clamp(0.0, 1.0) * u16::MAX as f32) as u16,
         ..Default::default()
@@ -72,7 +72,7 @@ pub async fn start(
     );
     let volume_getter = mixer.get_soft_volume();
 
-    // Real audio output (rodio → cpal → the OS default device): Frostify
+    // Real audio output (rodio → cpal → the OS default device): Opal
     // is an audible player, not just a Connect remote. Bitrate320 (the
     // "High" pref) is the highest tier librespot can stream (premium
     // "Very High", 320 kbps OGG Vorbis). Spotify's lossless FLAC tier is

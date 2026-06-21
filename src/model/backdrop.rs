@@ -9,7 +9,7 @@
 
 use std::time::{Duration, Instant};
 
-use frostify_gfx::{Curve, ImageHandle, Signal, Timeline};
+use opal_gfx::{Curve, ImageHandle, Signal, Timeline};
 
 use crate::widgets::tokens;
 

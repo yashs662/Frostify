@@ -12,7 +12,7 @@
 //! builders fed a wide prop bundle: each component now reads the slices
 //! it needs directly off the model.
 
-use frostify_gfx::Scene;
+use opal_gfx::Scene;
 
 pub trait Component {
     /// Build this component's subtree into `s`, binding to its model

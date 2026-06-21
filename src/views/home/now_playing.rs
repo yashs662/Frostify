@@ -5,7 +5,7 @@
 //! a square album-art layout (with the live crossfade) and a full-bleed
 //! Spotify-Canvas video layout depending on whether a clip is decoding.
 
-use frostify_gfx::{Computed, Justify, Len, Overflow, Scene, Signal};
+use opal_gfx::{Computed, Justify, Len, Overflow, Scene, Signal};
 
 use crate::model::{BackdropModel, CanvasModel, PlayerModel};
 use crate::widgets::component::Component;

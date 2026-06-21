@@ -1293,7 +1293,7 @@ pub async fn get_currently_playing(token: &str) -> Result<Option<CurrentlyPlayin
 
 /// Transport control against the user's **active** Connect device.
 /// These hit the Web API player endpoints (not librespot/Spirc) on
-/// purpose: Frostify registers as a Connect device with a NullSink, so
+/// purpose: Opal registers as a Connect device with a NullSink, so
 /// taking over via Spirc would route audio into silence. The Web API
 /// commands instead steer whatever device is already playing (phone,
 /// desktop app, etc.), and the dealer cluster subscription pushes the
@@ -1322,7 +1322,7 @@ async fn player_command(token: &str, method: reqwest::Method, path: &str) -> Res
 
 /// Resume playback. `device_id = None` targets the active device;
 /// `Some(id)` targets that device explicitly — the no-active-device
-/// fallback, where the worker resumes on Frostify's own librespot player.
+/// fallback, where the worker resumes on Opal's own librespot player.
 pub async fn play(token: &str, device_id: Option<&str>) -> Result<(), AuthError> {
     let path = match device_id {
         Some(id) => format!("/me/player/play?device_id={id}"),
@@ -1359,7 +1359,7 @@ pub enum PlayTarget {
 /// Start playback of a context (playlist/album) or explicit track list.
 /// `device_id = None` targets the user's active Connect device; `Some(id)`
 /// targets that device explicitly (the no-active-device fallback — play on
-/// Frostify's own librespot player). Body shape mirrors the official
+/// Opal's own librespot player). Body shape mirrors the official
 /// client's `PUT /me/player/play`. A `404` (no active device) surfaces
 /// as `AuthError::Api`.
 pub async fn play_context(
@@ -1543,7 +1543,7 @@ pub async fn set_track_saved(token: &str, track_id: &str, saved: bool) -> Result
 
 /// The active device's play queue: the playing track + what's next, in
 /// order. Never cached — it changes with every skip/enqueue. When
-/// Frostify is the active device this still works: Spirc publishes its
+/// Opal is the active device this still works: Spirc publishes its
 /// queue to connect-state and the endpoint reads from there.
 pub async fn get_queue(token: &str) -> Result<Vec<PlaylistTrack>, AuthError> {
     #[derive(Deserialize)]
@@ -1561,7 +1561,7 @@ pub async fn get_queue(token: &str) -> Result<Vec<PlaylistTrack>, AuthError> {
         .collect())
 }
 
-/// Set the active device's volume (0..=100). When Frostify is the active
+/// Set the active device's volume (0..=100). When Opal is the active
 /// device, Spotify routes this back to our Spirc, which adjusts the
 /// SoftMixer — confirmation arrives via the local `VolumeChanged` event.
 pub async fn set_volume(token: &str, percent: u8) -> Result<(), AuthError> {

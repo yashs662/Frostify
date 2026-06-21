@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use frostify_gfx::Signal;
+use opal_gfx::Signal;
 
 use crate::album_art;
 use crate::api::{AlbumRef, HomeData, PlaylistDetail, PlaylistTrack};

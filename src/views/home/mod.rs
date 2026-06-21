@@ -22,7 +22,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use frostify_gfx::{Computed, EventCtx, ImageHandle, Len, Scene, Signal, WakeHandle};
+use opal_gfx::{Computed, EventCtx, ImageHandle, Len, Scene, Signal, WakeHandle};
 
 use crate::album_art;
 use crate::api::PlayTarget;
@@ -55,7 +55,7 @@ pub type CtxMenuFn = Rc<dyn Fn(&mut EventCtx, crate::model::MenuTarget)>;
 /// this, so the menu behaves identically everywhere instead of each view
 /// re-implementing the `on_right_click` + clone dance.
 pub fn attach_context_menu(
-    row: &mut frostify_gfx::NodeBuilderRef<'_>,
+    row: &mut opal_gfx::NodeBuilderRef<'_>,
     on_context_menu: &CtxMenuFn,
     target: crate::model::MenuTarget,
 ) {
@@ -341,7 +341,7 @@ impl HomeView {
                     }
                     PlayerAction::SetVolume(pct) => PlaybackCmd::Volume(pct),
                 };
-                // Drive our own Spirc directly when Frostify is the active
+                // Drive our own Spirc directly when Opal is the active
                 // device (instant + reliable; the Web API relay to self can
                 // go stale after long uptime).
                 let local = state.devices.playing_on_self.get();
@@ -476,7 +476,7 @@ impl HomeView {
             let worker = worker.clone();
             Rc::new(move |device_id| {
                 let Some(token) = state.auth.token() else { return };
-                // When leaving Frostify itself, carry our locally-tracked
+                // When leaving Opal itself, carry our locally-tracked
                 // position — the Web API transfer drops the librespot
                 // device's position and the target would restart at 0:00.
                 let position_ms = state.devices.playing_on_self.get().then(|| {
@@ -516,7 +516,7 @@ impl HomeView {
             let worker = worker.clone();
             Rc::new(move |count| {
                 let Some(token) = state.auth.token() else { return };
-                // Local (Spirc) skip when Frostify is the active device —
+                // Local (Spirc) skip when Opal is the active device —
                 // instant + reliable; else repeated Web API next on the
                 // remote device.
                 let local = state.devices.playing_on_self.get();
@@ -1014,7 +1014,7 @@ fn navigate(state: &Rc<AppState>, cx: &mut Cx, worker: &Worker, nav: MainNav) {
             *state.library.open_playlist.borrow_mut() = None;
             *state.library.open_artist.borrow_mut() = None;
             // A remote device's queue arrives live off the cluster (full,
-            // uncapped, auto-updating) — keep it. But when *Frostify itself*
+            // uncapped, auto-updating) — keep it. But when *Opal itself*
             // is the active player the cluster never echoes our queue, so a
             // previously-cached list goes stale (it won't show autoplay's
             // continuation): refetch from the Web API on every open. Also

@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use std::time::Duration;
 
-use frostify_gfx::{Align, Computed, Curve, CursorIcon, Justify, Len, Scene};
+use opal_gfx::{Align, Computed, Curve, CursorIcon, Justify, Len, Scene};
 
 use crate::model::{BackdropModel, DevicesModel, MembershipModel, PlayerModel};
 use crate::views::MainNav;
@@ -31,7 +31,7 @@ pub struct PlayerBar<'a> {
     pub backdrop: &'a BackdropModel,
     pub player: &'a PlayerModel,
     pub on_action: Rc<dyn Fn(PlayerAction)>,
-    /// Devices slice — the popup overlay + "playing on Frostify" tint.
+    /// Devices slice — the popup overlay + "playing on Opal" tint.
     pub devices: &'a DevicesModel,
     /// Fetch a fresh device list + rebuild (the popup opened).
     pub on_devices_open: Rc<dyn Fn()>,
@@ -216,7 +216,7 @@ impl Component for PlayerBar<'_> {
                         });
                         // Devices popup — accent-lit only when another device
                         // is the active player (Spotify's "connected to a
-                        // device" cue); plain while Frostify itself plays or
+                        // device" cue); plain while Opal itself plays or
                         // nothing is active.
                         let dev_tint = Computed::new(
                             (
@@ -485,8 +485,8 @@ fn icon_btn(
     s: &mut Scene,
     icons: &IconSet,
     icon: Icon,
-    tint: frostify_gfx::Bind<[f32; 4]>,
-    on_click: impl for<'h> Fn(&mut frostify_gfx::EventCtx<'h>) + 'static,
+    tint: opal_gfx::Bind<[f32; 4]>,
+    on_click: impl for<'h> Fn(&mut opal_gfx::EventCtx<'h>) + 'static,
 ) {
     s.row(())
         .w_px(t::SP_7)
@@ -507,7 +507,7 @@ fn transport_btn(
     icons: &IconSet,
     icon: Icon,
     size: f32,
-    tint: impl Into<frostify_gfx::Bind<[f32; 4]>>,
+    tint: impl Into<opal_gfx::Bind<[f32; 4]>>,
     on_click: impl Fn() + 'static,
 ) {
     s.row(())

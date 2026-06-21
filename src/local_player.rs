@@ -1,6 +1,6 @@
 //! Local librespot player → UI state bridge.
 //!
-//! When **Frostify itself** is the active Connect device, the dealer does
+//! When **Opal itself** is the active Connect device, the dealer does
 //! not echo our own connect-state back to us — the cluster subscription
 //! ([`crate::cluster_listener`]) goes silent and the chrome would never
 //! learn what we're playing. This task listens to the player's own event

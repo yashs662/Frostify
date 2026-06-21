@@ -1,5 +1,5 @@
 [package]
-name = "frostify"
+name = "opal"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,7 +7,7 @@ edition = "2024"
 # Debug-only scripted-input + screenshot harness (REMOVABLE before ship).
 # Forwards to the engine's `automation` feature + enables the `--config`
 # script branch in `main.rs` (see `src/debug_config.rs`). Off by default.
-automation = ["frostify-gfx/automation"]
+automation = ["opal-gfx/automation"]
 
 # Runtime hot-patching of `Component::view` bodies via subsecond (Dioxus).
 # Dev-only — never ship it. Run with `dx serve --hotpatch --features hotreload`
@@ -15,7 +15,7 @@ automation = ["frostify-gfx/automation"]
 hotreload = ["dep:subsecond", "dep:dioxus-devtools"]
 
 [dependencies]
-frostify-gfx = { path = "../frostify-gfx" }
+opal-gfx = { path = "../opal-gfx" }
 log = "0.4.31"
 env_logger = "0.11"
 
@@ -46,7 +46,7 @@ librespot-protocol = { git = "https://github.com/librespot-org/librespot", branc
 librespot-connect = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
 librespot-metadata = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
 # `rodio-backend` (cpal under the hood) is the real audio output — this is
-# what makes Frostify an actually-audible Connect device, not just a remote.
+# what makes Opal an actually-audible Connect device, not just a remote.
 librespot-playback = { git = "https://github.com/librespot-org/librespot", branch = "dev", default-features = false, features = ["rodio-backend"] }
 # Must match the version librespot-protocol generates against (3.7.x);
 # protobuf 4.x reorganised the API + the generated code implements 3.x traits.
@@ -76,3 +76,7 @@ apple-native-keyring-store = { version = "1.0.0", features = ["keychain"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 linux-keyutils-keyring-store = "1.0.0"
+
+# Embeds the Windows executable icon (assets/logo/icon.ico) via build.rs.
+[build-dependencies]
+winresource = "0.1"

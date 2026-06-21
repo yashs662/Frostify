@@ -8,7 +8,7 @@
 //! and a lift that brightens a failing accent until icons/pills tinted
 //! with it clear a minimum contrast over the chrome.
 
-use frostify_gfx::{Computed, Signal};
+use opal_gfx::{Computed, Signal};
 
 /// WCAG relative luminance of an sRGB colour (alpha ignored): channels
 /// are linearized then weighted (Rec. 709). 0 = black, 1 = white.

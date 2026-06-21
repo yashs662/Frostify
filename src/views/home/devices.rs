@@ -7,7 +7,7 @@
 
 use std::rc::Rc;
 
-use frostify_gfx::{Align, Len, Scene, Signal};
+use opal_gfx::{Align, Len, Scene, Signal};
 
 use crate::model::DevicesModel;
 use crate::widgets::component::Component;
@@ -79,7 +79,7 @@ fn device_row(
     active: bool,
     is_self: bool,
     accent: &Signal<[f32; 4]>,
-    overlay: &frostify_gfx::Overlay,
+    overlay: &opal_gfx::Overlay,
     on_transfer: &Rc<dyn Fn(String)>,
 ) {
     let mut row = s.row(());

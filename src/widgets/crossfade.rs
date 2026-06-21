@@ -1,6 +1,6 @@
 //! Two-layer album-art crossfade widget.
 
-use frostify_gfx::{Computed, ImageHandle, Len, Scene, Signal};
+use opal_gfx::{Computed, ImageHandle, Len, Scene, Signal};
 
 use crate::widgets::tokens as t;
 

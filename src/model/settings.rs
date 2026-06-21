@@ -8,7 +8,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use frostify_gfx::{Overlay, Signal, WakeHandle};
+use opal_gfx::{Overlay, Signal, WakeHandle};
 
 use crate::disk_cache;
 

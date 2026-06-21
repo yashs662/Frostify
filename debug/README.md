@@ -6,7 +6,7 @@ ship build.** To rip out: delete this `debug/` dir, the `automation`
 feature in both `Cargo.toml`s, `src/debug_config.rs`, the
 `#[cfg(feature = "automation")]` lines in `src/main.rs`, and the
 `#[cfg(feature = "automation")]` blocks + `src/automation.rs` in
-`../frostify-gfx`.
+`../opal-gfx`.
 
 ## Run
 
@@ -16,7 +16,7 @@ feature in both `Cargo.toml`s, `src/debug_config.rs`, the
 ./debug/run.ps1 debug/liked.json
 ```
 
-The launcher kills any stale `frostify.exe` (the lock that breaks
+The launcher kills any stale `opal.exe` (the lock that breaks
 `cargo run` mid-session), builds with `--features automation`, and runs
 `--config <path>`.
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use frostify_gfx::{App, Bind, ImageHandle, Scene};
+use opal_gfx::{App, Bind, ImageHandle, Scene};
 
 const RASTER_PX: u32 = 64;
 

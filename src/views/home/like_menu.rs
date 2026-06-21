@@ -10,7 +10,7 @@
 
 use std::rc::Rc;
 
-use frostify_gfx::{Align, Len, Scene, Signal};
+use opal_gfx::{Align, Len, Scene, Signal};
 
 use crate::model::MembershipModel;
 use crate::widgets::component::Component;

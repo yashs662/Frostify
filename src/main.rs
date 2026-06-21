@@ -28,7 +28,7 @@ mod worker;
 
 use std::rc::Rc;
 
-use frostify_gfx::App;
+use opal_gfx::App;
 
 use crate::app::AppState;
 use crate::model::CanvasModel;
@@ -62,10 +62,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "automation")]
     let debug_cfg = debug_config::from_args();
 
-    // `frostify_gfx=debug` would spam per-frame `[loop] WaitUntil(...)` +
+    // `opal_gfx=debug` would spam per-frame `[loop] WaitUntil(...)` +
     // active-tick lines while the progress tween runs (60 fps during
-    // playback). Drop the lib to `info`; keep `frostify` at debug.
-    let default_filter = "info,wgpu_hal=warn,wgpu_core=warn,frostify=debug,frostify_gfx=info";
+    // playback). Drop the lib to `info`; keep `opal` at debug.
+    let default_filter = "info,wgpu_hal=warn,wgpu_core=warn,opal=debug,opal_gfx=info";
     #[cfg(feature = "automation")]
     let filter = debug_cfg
         .as_ref()
@@ -114,17 +114,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let state = Rc::new(AppState::from_prefs(prefs));
-    let force_home = std::env::var_os("FROSTIFY_FORCE_HOME").is_some();
+    let force_home = std::env::var_os("OPAL_FORCE_HOME").is_some();
     #[cfg(feature = "automation")]
     let force_home = force_home || debug_cfg.as_ref().map(|c| c.force_home).unwrap_or(false);
     if force_home {
         state.router.view.set(View::Home);
     }
 
-    let mut app = App::new("Frostify", win_w, win_h)
+    let mut app = App::new("Opal", win_w, win_h)
         .decorations(false)
         .window_corner_radius(tokens::R_XL)
         .capture_from_env();
+    // Taskbar / alt-tab icon. Decoded from the bundled 256px PNG (the same
+    // art embedded as the exe icon via build.rs). Fail-soft: a decode error
+    // just leaves winit on the exe-icon fallback.
+    match image::load_from_memory(include_bytes!("../assets/logo/png/icon-256.png")) {
+        Ok(img) => {
+            let rgba = img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            app = app.window_icon_rgba(w, h, rgba.into_raw());
+        }
+        Err(e) => log::warn!("window icon decode failed: {e}"),
+    }
     let icons = std::rc::Rc::new(widgets::icon::load_all(&mut app));
     let rebuild = app.rebuild_token();
     // Connect to the dx devserver for runtime hot-patching (no-op unless the

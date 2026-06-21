@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use frostify_gfx::{Align, Len, Overlay, Scene, WindowAction};
+use opal_gfx::{Align, Len, Overlay, Scene, WindowAction};
 
 use crate::widgets::component::Component;
 use crate::widgets::icon::{Icon, IconSet};
@@ -84,7 +84,7 @@ fn topbar_icon_btn_click(
     s: &mut Scene,
     icons: &IconSet,
     icon: Icon,
-    on_click: impl Fn(&mut frostify_gfx::EventCtx) + 'static,
+    on_click: impl Fn(&mut opal_gfx::EventCtx) + 'static,
 ) {
     s.row(())
         .w_px(t::TOPBAR_BTN)

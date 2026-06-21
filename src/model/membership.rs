@@ -11,7 +11,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 
-use frostify_gfx::{Overlay, Signal, TextSignal};
+use opal_gfx::{Overlay, Signal, TextSignal};
 use serde::{Deserialize, Serialize};
 
 /// One editable playlist (picker row + name lookup).

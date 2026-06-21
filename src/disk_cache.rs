@@ -52,12 +52,12 @@ pub fn set_root(dir: Option<PathBuf>) {
     }
 }
 
-/// The active cache root (`<override>/frostify` or `<os-cache>/frostify`).
+/// The active cache root (`<override>/opal` or `<os-cache>/opal`).
 fn root() -> Option<PathBuf> {
     let over = CACHE_ROOT.read().ok().and_then(|g| g.clone());
     match over {
-        Some(d) => Some(d.join("frostify")),
-        None => dirs::cache_dir().map(|d| d.join("frostify")),
+        Some(d) => Some(d.join("opal")),
+        None => dirs::cache_dir().map(|d| d.join("opal")),
     }
 }
 

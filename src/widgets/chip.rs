@@ -1,6 +1,6 @@
 //! Pill-shaped content filter chip.
 
-use frostify_gfx::{Scene, Signal};
+use opal_gfx::{Scene, Signal};
 
 use crate::widgets::color::accent_fg;
 use crate::widgets::tokens as t;

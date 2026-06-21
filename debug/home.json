@@ -1,7 +1,7 @@
 {
   "force_home": true,
   "window": [1280, 780],
-  "log_filter": "info,wgpu_hal=warn,wgpu_core=warn,frostify=info,frostify_gfx=warn",
+  "log_filter": "info,wgpu_hal=warn,wgpu_core=warn,opal=info,opal_gfx=warn",
   "script": [
     { "wait_ms": 2500 },
     { "screenshot": "debug_captures/01_home.png" },

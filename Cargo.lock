@@ -1292,62 +1292,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "frostify"
-version = "0.1.0"
-dependencies = [
- "apple-native-keyring-store",
- "base64",
- "dioxus-devtools",
- "dirs",
- "env_logger",
- "frostify-gfx",
- "futures",
- "image",
- "keyring-core",
- "librespot-connect",
- "librespot-core",
- "librespot-metadata",
- "librespot-oauth",
- "librespot-playback",
- "librespot-protocol",
- "linux-keyutils-keyring-store",
- "log",
- "oauth2",
- "openh264",
- "protobuf",
- "rand 0.10.1",
- "re_mp4",
- "reqwest 0.13.4",
- "rfd",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "subsecond",
- "tokio",
- "url",
- "webbrowser",
- "windows-native-keyring-store",
-]
-
-[[package]]
-name = "frostify-gfx"
-version = "0.0.0"
-dependencies = [
- "arboard",
- "bytemuck",
- "cosmic-text",
- "env_logger",
- "etagere",
- "log",
- "png 0.18.1",
- "pollster",
- "resvg",
- "tiny-skia",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "fs_extra"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3239,6 +3183,63 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "opal"
+version = "0.1.0"
+dependencies = [
+ "apple-native-keyring-store",
+ "base64",
+ "dioxus-devtools",
+ "dirs",
+ "env_logger",
+ "futures",
+ "image",
+ "keyring-core",
+ "librespot-connect",
+ "librespot-core",
+ "librespot-metadata",
+ "librespot-oauth",
+ "librespot-playback",
+ "librespot-protocol",
+ "linux-keyutils-keyring-store",
+ "log",
+ "oauth2",
+ "opal-gfx",
+ "openh264",
+ "protobuf",
+ "rand 0.10.1",
+ "re_mp4",
+ "reqwest 0.13.4",
+ "rfd",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "subsecond",
+ "tokio",
+ "url",
+ "webbrowser",
+ "windows-native-keyring-store",
+ "winresource",
+]
+
+[[package]]
+name = "opal-gfx"
+version = "0.0.0"
+dependencies = [
+ "arboard",
+ "bytemuck",
+ "cosmic-text",
+ "env_logger",
+ "etagere",
+ "log",
+ "png 0.18.1",
+ "pollster",
+ "resvg",
+ "tiny-skia",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "open"
 version = "5.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4466,6 +4467,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5193,6 +5203,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml"
+version = "1.1.2+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81f3d15e84cbcd896376e6730314d59fb5a87f31e4b038454184435cd57defee"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
+]
+
+[[package]]
 name = "toml_datetime"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5221,6 +5246,12 @@ checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.1.1+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "tower"
@@ -6612,6 +6643,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0592e1c9d151f854e6fd382574c3a0855250e1d9b2f99d9281c6e6391af352f1"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winresource"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0986a8b1d586b7d3e4fe3d9ea39fb451ae22869dcea4aa109d287a374d866087"
+dependencies = [
+ "toml",
+ "version_check",
 ]
 
 [[package]]

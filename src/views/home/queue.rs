@@ -4,12 +4,12 @@
 //! Live state, refetched on every open (no cache — it changes with every
 //! skip/enqueue). Bounded (Spotify returns ~20 entries), so a plain
 //! `scroll_y` column. Works whichever device is active: Spirc publishes
-//! Frostify's own queue to connect-state, and `/me/player/queue` reads
+//! Opal's own queue to connect-state, and `/me/player/queue` reads
 //! from there.
 
 use std::rc::Rc;
 
-use frostify_gfx::{Align, CursorIcon, Justify, Len, Overflow, Scene, Signal};
+use opal_gfx::{Align, CursorIcon, Justify, Len, Overflow, Scene, Signal};
 
 use crate::api::PlaylistTrack;
 use crate::model::ArtModel;

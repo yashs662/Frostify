@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Opal mark">
+  <defs>
+    <linearGradient id="opal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0"    stop-color="#9CF6D8"/>
+      <stop offset="0.22" stop-color="#8FD3FF"/>
+      <stop offset="0.45" stop-color="#C9B3FF"/>
+      <stop offset="0.68" stop-color="#FF9ECF"/>
+      <stop offset="0.85" stop-color="#FFC59E"/>
+      <stop offset="1"    stop-color="#FFE3A8"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#opal)">
+    <circle cx="100" cy="34" r="9"/>
+    <path d="M96,73 L104,73 L101,166 L99,166 Z"/>
+    <path d="M100,73 C134,54 170,48 186,50 C170,61 134,72 100,73 Z"/>
+    <path d="M100,73 C66,54 30,48 14,50 C30,61 66,72 100,73 Z"/>
+    <path d="M100,73 C132,78 166,90 186,98 C170,86 134,73 100,73 Z"/>
+    <path d="M100,73 C68,78 34,90 14,98 C30,86 66,73 100,73 Z"/>
+    <circle cx="100" cy="73" r="4.5"/>
+  </g>
+</svg>

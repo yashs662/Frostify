@@ -4,7 +4,7 @@
 //!
 //! Each sub-model owns its slice of reactive state (Rc-backed `Signal`s
 //! plus plain data) and the methods that mutate it. State lives here, on
-//! the host; views (in the `frostify` binary crate) read it and bind to
+//! the host; views (in the `opal` binary crate) read it and bind to
 //! it. This split is also what keeps future hot-reload viable —
 //! subsecond can patch view/logic fn bodies but cannot reload struct
 //! layout, so the model structs stay put while the fns around them

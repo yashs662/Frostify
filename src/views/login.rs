@@ -5,7 +5,7 @@
 
 use std::rc::Rc;
 
-use frostify_gfx::{Len, Scene};
+use opal_gfx::{Len, Scene};
 
 use crate::app::AppState;
 use crate::views::View;
@@ -39,7 +39,7 @@ fn render(s: &mut Scene, icons: &IconSet, on_login: Rc<dyn Fn()>, checking: bool
         .fill()
         .rgba(tokens::BG[0], tokens::BG[1], tokens::BG[2], 1.0)
         .child(|root| {
-            chrome::title_bar(root, icons, "Frostify");
+            chrome::title_bar(root, icons, "Opal");
 
             root.col(())
                 .w(Len::Fill)
@@ -47,7 +47,7 @@ fn render(s: &mut Scene, icons: &IconSet, on_login: Rc<dyn Fn()>, checking: bool
                 .center()
                 .gap(20.0)
                 .child(|c| {
-                    c.text((), "Frostify", 36.0).color(tokens::TEXT);
+                    c.text((), "Opal", 36.0).color(tokens::TEXT);
                     c.text((), "An unofficial Spotify desktop client.", 14.0)
                         .color(tokens::TEXT_DIM);
 

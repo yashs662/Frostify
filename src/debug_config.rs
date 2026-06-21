@@ -1,7 +1,7 @@
 //! Debug-only launch config + scripted-input loader — **REMOVABLE**.
 //!
 //! Gated behind the `automation` feature. Replaces the brittle
-//! `FROSTIFY_FORCE_HOME` / `FROSTIFY_AUTOCAPTURE` env-var path (which kept
+//! `OPAL_FORCE_HOME` / `OPAL_AUTOCAPTURE` env-var path (which kept
 //! failing under PowerShell `$env:` scoping + stale-exe locks) with a
 //! reliable JSON config file passed via `--config <path>`. The config can
 //! force a startup view, set window size, override the log filter, and
@@ -15,20 +15,20 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use frostify_gfx::{Script, Step};
+use opal_gfx::{Script, Step};
 use serde::Deserialize;
 
 /// Parsed launch config.
 #[derive(Debug, Deserialize, Default)]
 pub struct DebugConfig {
     /// Boot straight to Home (skip Splash/Login) — same as the old
-    /// `FROSTIFY_FORCE_HOME`.
+    /// `OPAL_FORCE_HOME`.
     #[serde(default)]
     pub force_home: bool,
     /// `[width, height]` logical-px window size.
     #[serde(default)]
     pub window: Option<[u32; 2]>,
-    /// `env_logger` filter override (e.g. `"info,frostify=debug"`).
+    /// `env_logger` filter override (e.g. `"info,opal=debug"`).
     #[serde(default)]
     pub log_filter: Option<String>,
     /// Timed scripted actions. Empty = launch + sit (no automation).

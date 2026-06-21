@@ -51,7 +51,7 @@ pub struct UserPreferences {
     /// user's choice so it's honoured the moment canvas support lands.
     #[serde(default = "default_show_canvas")]
     pub show_canvas: bool,
-    /// User-chosen cache directory (parent of `frostify/art` + `json`).
+    /// User-chosen cache directory (parent of `opal/art` + `json`).
     /// `None` = the OS cache dir. Lets the user relocate the on-disk cache
     /// (album art, Canvas videos, API JSON) to another drive/folder.
     #[serde(default)]
@@ -251,10 +251,10 @@ impl UserPreferences {
     }
 }
 
-/// `<config_dir>/frostify/preferences.json`. `None` if the OS doesn't
+/// `<config_dir>/opal/preferences.json`. `None` if the OS doesn't
 /// expose a config dir (extremely rare; e.g. some headless containers).
 pub fn preferences_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("frostify").join("preferences.json"))
+    dirs::config_dir().map(|d| d.join("opal").join("preferences.json"))
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use frostify_gfx::{Computed, CursorIcon, Len, Scene, Signal, deps};
+use opal_gfx::{Computed, CursorIcon, Len, Scene, Signal, deps};
 
 /// Width of the (transparent) hit zone in logical pixels. Wide enough
 /// to grab without precision, narrow enough to act as the panel gutter

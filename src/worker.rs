@@ -7,7 +7,7 @@ use crate::errors::AuthError;
 use crate::extracted_color;
 use crate::widgets::{color, tokens};
 use crate::{cluster_listener, spirc_bootstrap, spotify_session};
-use frostify_gfx::{ImageHandle, Uploader, WakeHandle};
+use opal_gfx::{ImageHandle, Uploader, WakeHandle};
 use librespot_connect::Spirc;
 use librespot_core::Session;
 use librespot_core::authentication::Credentials;
@@ -26,7 +26,7 @@ use tokio::sync::mpsc::{self as tmpsc, UnboundedSender};
 /// Decoded RGBA cap per cover. Matches Spotify's largest variant
 /// (640) — keeps the now-playing pane (~308 px logical, ~616 px @2×
 /// DPI) and full-window backdrop sharp. Atlas headroom comes from
-/// the 4096² image atlas in frostify-gfx, which fits ~40 covers at
+/// the 4096² image atlas in opal-gfx, which fits ~40 covers at
 /// this size.
 const ALBUM_ART_MAX_DIM: u32 = 640;
 
@@ -87,7 +87,7 @@ pub enum WorkerCommand {
     ConnectSpotifySession {
         access_token: String,
         /// Persisted volume preference (0..=1) — the Connect device's
-        /// advertised initial volume, so a transfer to Frostify doesn't
+        /// advertised initial volume, so a transfer to Opal doesn't
         /// snap the user back to librespot's 50% default.
         initial_volume: f32,
         /// Persisted streaming-quality preference → librespot bitrate.
@@ -96,7 +96,7 @@ pub enum WorkerCommand {
         /// normalisation + limiter.
         normalize: bool,
     },
-    /// Transport control on the active Connect device. `local` (Frostify is
+    /// Transport control on the active Connect device. `local` (Opal is
     /// the active device) drives our own Spirc directly — instant + reliable;
     /// the Web API relay to our own device can silently no-op after a long
     /// uptime. Otherwise the Web API acts on the remote device.
@@ -107,7 +107,7 @@ pub enum WorkerCommand {
     },
     /// Skip forward `count` tracks — "skip to" a queue item (playing the
     /// N-th queued song consumes the ones before it). `local` uses our
-    /// Spirc handle (instant, reliable) when Frostify is the active
+    /// Spirc handle (instant, reliable) when Opal is the active
     /// device; otherwise it falls back to repeated Web API `next`.
     SkipForward {
         access_token: String,
@@ -124,7 +124,7 @@ pub enum WorkerCommand {
         access_token: String,
     },
     /// Transfer playback to a device (and resume there). `position_ms` is
-    /// `Some` only when leaving Frostify itself: the Web API transfer drops
+    /// `Some` only when leaving Opal itself: the Web API transfer drops
     /// our librespot device's position (the target restarts at 0:00), so we
     /// re-apply the position we track locally — see `spawn_transfer`.
     TransferPlayback {
@@ -197,7 +197,7 @@ pub enum PlaybackCmd {
 
 #[derive(Debug, Clone)]
 pub enum WorkerResponse {
-    /// A transport command failed for good (after the claim-on-Frostify
+    /// A transport command failed for good (after the claim-on-Opal
     /// fallback). The UI rolls back its optimistic toggle flips to the
     /// authoritative snapshot.
     PlaybackFailed {
@@ -220,7 +220,7 @@ pub enum WorkerResponse {
     Devices {
         devices: Vec<api::Device>,
     },
-    /// The cluster's active device changed; `is_self` = Frostify is it.
+    /// The cluster's active device changed; `is_self` = Opal is it.
     ActiveDeviceChanged {
         device_id: String,
         is_self: bool,
@@ -321,7 +321,7 @@ pub enum WorkerResponse {
         track_id: String,
     },
     SpotifySessionConnected {
-        /// Frostify's own librespot device id — the devices popup tags
+        /// Opal's own librespot device id — the devices popup tags
         /// this row "This device".
         device_id: String,
     },
@@ -1001,7 +1001,7 @@ async fn fetch_canvas_entry(
     crate::canvas::parse_canvas(&any.value)
 }
 
-/// Skip forward `count` tracks. When `local` (Frostify is the active
+/// Skip forward `count` tracks. When `local` (Opal is the active
 /// device) and our Spirc exists, advance the queue in-process — instant
 /// and reliable. Otherwise repeatedly hit Web API `next` on the active
 /// (remote) device, spaced out a little so the rapid skips don't race or
@@ -1084,7 +1084,7 @@ fn spawn_playback(
             }
             other => other,
         };
-        // When Frostify is the active device, drive our own Spirc directly.
+        // When Opal is the active device, drive our own Spirc directly.
         // The Web API round-trip (Spotify → dealer relay → our Spirc) can
         // silently no-op after a long uptime if the relay path goes stale —
         // the command 200s but nothing happens, leaving the optimistic
@@ -1135,7 +1135,7 @@ fn spawn_playback(
                 api::play_context(&access_token, target, None).await
             }
         };
-        // No active device + a "start playing" intent → Frostify IS a
+        // No active device + a "start playing" intent → Opal IS a
         // playable Connect device (real rodio sink): retry the same
         // command targeted at our own librespot device id, so playback
         // simply starts here instead of dead-ending on a 404.
@@ -1144,11 +1144,11 @@ fn spawn_playback(
                 let device_id = { session_slot.lock().await.as_ref().map(|s| s.device_id().to_string()) };
                 match (device_id, cmd.clone()) {
                     (Some(id), PlaybackCmd::Play) => {
-                        info!("no active device — resuming on Frostify ({id})");
+                        info!("no active device — resuming on Opal ({id})");
                         api::play(&access_token, Some(&id)).await
                     }
                     (Some(id), PlaybackCmd::PlayContext(target)) => {
-                        info!("no active device — playing on Frostify ({id})");
+                        info!("no active device — playing on Opal ({id})");
                         api::play_context(&access_token, target, Some(&id)).await
                     }
                     // Pause/Next/Seek/… with nothing playing anywhere:
@@ -1563,7 +1563,7 @@ fn spawn_connect_session(
                 return;
             }
         };
-        info!("spirc connect device registered as 'Frostify'");
+        info!("spirc connect device registered as 'Opal'");
         let spirc_bootstrap::SpircBootstrap {
             spirc,
             spirc_task,
@@ -1588,7 +1588,7 @@ fn spawn_connect_session(
 
         // Drain cluster updates into UI-thread responses (remote devices'
         // playback, the active device's volume, and which device is
-        // active — `is_self` lights the "playing on Frostify" chrome).
+        // active — `is_self` lights the "playing on Opal" chrome).
         let resp_for_cluster = resp.clone();
         let self_device_id = {
             let guard = session_slot.lock().await;
@@ -1598,7 +1598,7 @@ fn spawn_connect_session(
         let self_id_for_local = self_device_id.clone();
         // Last-announced active device id, SHARED between the cluster and
         // local-player tasks. It must be shared: the dealer never echoes our
-        // own connect-state, so a transfer *to* Frostify produces no cluster
+        // own connect-state, so a transfer *to* Opal produces no cluster
         // push — the local task announces it instead. If the dedup were
         // per-task, the cluster task's stale `last_active` would then also
         // swallow the *next* remote switch, leaving the devices UI stuck.
@@ -1631,7 +1631,7 @@ fn spawn_connect_session(
         });
 
         // Drain LOCAL player events — the only state source while
-        // Frostify itself is the active device (no dealer self-echo).
+        // Opal itself is the active device (no dealer self-echo).
         let resp_for_local = resp.clone();
         let resp_for_local_vol = resp.clone();
         let last_active_local = last_active;
@@ -1639,7 +1639,7 @@ fn spawn_connect_session(
             crate::local_player::run(
                 player_events,
                 move |player| {
-                    // Frostify is emitting playback state ⇒ it is now the
+                    // Opal is emitting playback state ⇒ it is now the
                     // active Connect device (a transfer-to-self the cluster
                     // can't report). Announce it once per activation so the
                     // devices popup + chrome leave the previous remote's
@@ -1681,7 +1681,7 @@ fn spawn_transfer(access_token: String, device_id: String, position_ms: Option<u
     tokio::spawn(async move {
         // The cluster push after the transfer is the UI's confirmation.
         match position_ms {
-            // Leaving Frostify: the Web API transfer doesn't carry our
+            // Leaving Opal: the Web API transfer doesn't carry our
             // librespot device's position (the target would restart at
             // 0:00). Transfer PAUSED, seek the target to the position we
             // tracked locally, then resume — all repositioning happens while
@@ -1698,7 +1698,7 @@ fn spawn_transfer(access_token: String, device_id: String, position_ms: Option<u
                     warn!("resume on transfer to {device_id} failed: {e}");
                 }
             }
-            // Transferring between other devices (or to Frostify): the source
+            // Transferring between other devices (or to Opal): the source
             // hands its position off correctly, so a plain resume-on-transfer
             // preserves it.
             None => {

@@ -16,7 +16,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use frostify_gfx::{Align, Computed, ImageHandle, Justify, Len, Overflow, Scene, Signal};
+use opal_gfx::{Align, Computed, ImageHandle, Justify, Len, Overflow, Scene, Signal};
 
 use crate::api::PlayTarget;
 use crate::views::MainNav;
@@ -714,7 +714,7 @@ pub(crate) fn artist_line(
                 let id = a.id.clone();
                 line.text((), &a.name, 12.0)
                     .color(t::TEXT_DIM)
-                    .cursor(frostify_gfx::CursorIcon::Pointer)
+                    .cursor(opal_gfx::CursorIcon::Pointer)
                     .hover_color(t::TEXT)
                     .on_click(move |ctx| nav(ctx, MainNav::Artist { id: id.clone() }));
             }

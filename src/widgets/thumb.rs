@@ -1,6 +1,6 @@
 //! Fixed-size square cover thumbnail.
 
-use frostify_gfx::{ImageHandle, Len, Scene, Signal};
+use opal_gfx::{ImageHandle, Len, Scene, Signal};
 
 use crate::widgets::tokens as t;
 

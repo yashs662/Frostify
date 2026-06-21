@@ -14,7 +14,7 @@
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};
 
-use frostify_gfx::{Curve, Signal, Timeline};
+use opal_gfx::{Curve, Signal, Timeline};
 
 use crate::api::CurrentlyPlaying;
 use crate::prefs::{StoredPlayer, UserPreferences};
