@@ -1,6 +1,5 @@
 pub const CREDENTIAL_SERVICE_NAME: &str = "Opal";
 pub const CREDENTIAL_USER_NAME: &str = "Opal_user";
-pub const SPOTIFY_CLIENT_ID: &str = "f6f1788623fa400ebab54272bb3f515c";
 pub const SPOTIFY_REDIRECT_URI: &str = "http://127.0.0.1:8888/callback";
 pub const SPOTIFY_ACCESS_SCOPES: &str = "streaming,user-read-email,user-read-private,playlist-read-private,playlist-read-collaborative,playlist-modify-public,playlist-modify-private,user-follow-modify,user-follow-read,user-library-read,user-library-modify,user-top-read,user-read-recently-played,user-read-playback-state,user-read-currently-playing,user-modify-playback-state";
 

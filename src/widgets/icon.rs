@@ -87,9 +87,18 @@ const ALL: &[Icon] = &[
     Icon::Devices,
 ];
 
+/// Raster size for the brand logo (gradient dragonfly). Larger than the
+/// monochrome icons since it renders bigger (beside the app name) and must
+/// keep its gradient crisp.
+const LOGO_PX: u32 = 192;
+
 #[derive(Clone)]
 pub struct IconSet {
     handles: HashMap<Icon, ImageHandle>,
+    /// The full-colour Opal brand mark (gradient dragonfly). Rendered
+    /// untinted via [`IconSet::render_logo`] — unlike the monochrome icons,
+    /// it must NOT be colour-tinted.
+    logo: ImageHandle,
 }
 
 impl IconSet {
@@ -109,6 +118,12 @@ impl IconSet {
             .h_px(size_px)
             .color(color);
     }
+
+    /// Render the brand logo at `size_px` (square), keeping its gradient —
+    /// no colour tint. Used in the login/setup header beside "Opal".
+    pub fn render_logo(&self, s: &mut Scene, size_px: f32) {
+        s.image((), self.logo).w_px(size_px).h_px(size_px);
+    }
 }
 
 pub fn load_all(app: &mut App) -> IconSet {
@@ -117,5 +132,6 @@ pub fn load_all(app: &mut App) -> IconSet {
         let h = app.stage_image_svg(icon.svg_bytes(), RASTER_PX);
         handles.insert(icon, h);
     }
-    IconSet { handles }
+    let logo = app.stage_image_svg(include_bytes!("../../assets/logo/geometric-opal.svg"), LOGO_PX);
+    IconSet { handles, logo }
 }

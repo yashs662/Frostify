@@ -21,18 +21,31 @@ pub fn title_bar(s: &mut Scene, icons: &IconSet, title: &str) {
         });
 }
 
-fn chrome_btn(s: &mut Scene, icons: &IconSet, icon: Icon, action: WindowAction, hover: [f32; 4], push_end: bool) {
+/// A window-control button (minimize / maximize / close). The single
+/// source of truth for window-control chrome — reused by both the login
+/// title bar and the Home top bar so they stay visually identical.
+/// `push_end` shoves the button (and the trailing siblings that follow it)
+/// to the right edge.
+pub fn chrome_btn(
+    s: &mut Scene,
+    icons: &IconSet,
+    icon: Icon,
+    action: WindowAction,
+    hover: [f32; 4],
+    push_end: bool,
+) {
     let mut b = s.row(());
-    b.w_px(44.0)
-        .h_px(36.0)
+    b.w_px(tokens::SP_11)
+        .h_px(tokens::SP_8)
         .rgba(0.0, 0.0, 0.0, 0.0)
         .hover_color(hover)
+        .radius(tokens::R_MD)
         .center()
         .window_action(action);
     if push_end {
         b.push_end();
     }
     b.child(|c| {
-        icons.render(c, icon, 14.0, tokens::TEXT);
+        icons.render(c, icon, tokens::ICON_XS, tokens::TEXT);
     });
 }

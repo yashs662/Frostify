@@ -99,7 +99,7 @@ pub fn tick(
     // window (the in-flight gate holds until the response lands).
     if let Some(rt) = state.auth.refresh_due(cx.now) {
         log::info!("access token nearing expiry — refreshing");
-        worker.refresh_tokens(rt);
+        worker.refresh_tokens(rt, state.prefs.data.borrow().client_id().unwrap_or_default());
     }
     // Drain worker responses through the reducer.
     while let Some(resp) = worker.poll() {

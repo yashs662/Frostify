@@ -11,6 +11,27 @@ use crate::app::cx::Cx;
 use crate::views::View;
 use crate::worker::{Worker, WorkerResponse};
 
+/// Route to the right pre-auth screen when there's no usable session:
+/// the setup view if the user hasn't configured a client id yet, else the
+/// login view. Eases in via `go_view` (no-op if already there) + requests
+/// the mount rebuild.
+fn land_pre_auth(state: &Rc<AppState>, cx: &mut Cx) {
+    // Landing here is startup/logout, not a Setup→Login save, so no Back.
+    state.router.came_from_setup.set(false);
+    // From Splash (the startup credential check) go to login when a client
+    // id is configured, else to first-run setup. `go_view` retweens + we
+    // request the mount rebuild; it no-ops if we're already there.
+    let target = if state.prefs.data.borrow().client_id().is_some() {
+        View::Login
+    } else {
+        View::Setup
+    };
+    if state.router.view.get() != target {
+        state.router.go_view(target, cx.tl, cx.now);
+        cx.rebuild();
+    }
+}
+
 pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: WorkerResponse) {
     match resp {
         WorkerResponse::PlaybackFailed { cmd } => {
@@ -93,17 +114,11 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
         }
         WorkerResponse::OAuthFailed { error } => {
             log::error!("OAuth failed: {error}");
-            if state.router.view.get() != View::Login {
-                state.router.view.set(View::Login);
-                cx.rebuild();
-            }
+            land_pre_auth(state, cx);
         }
         WorkerResponse::NoStoredTokens => {
-            log::info!("no stored tokens — showing Login");
-            if state.router.view.get() != View::Login {
-                state.router.view.set(View::Login);
-                cx.rebuild();
-            }
+            log::info!("no stored tokens — showing pre-auth screen");
+            land_pre_auth(state, cx);
         }
         WorkerResponse::HomeData { data } => {
             log::info!(

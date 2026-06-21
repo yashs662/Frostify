@@ -1,5 +1,5 @@
 use crate::constants::{
-    LOGIN_ERR_HTML, LOGIN_OK_HTML, SPOTIFY_ACCESS_SCOPES, SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI,
+    LOGIN_ERR_HTML, LOGIN_OK_HTML, SPOTIFY_ACCESS_SCOPES, SPOTIFY_REDIRECT_URI,
 };
 use crate::errors::AuthError;
 use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
@@ -22,13 +22,13 @@ pub struct SpotifyAuthResponse {
     pub scope: String,
 }
 
-pub fn get_spotify_auth_url() -> (String, String) {
+pub fn get_spotify_auth_url(client_id: &str) -> (String, String) {
     let code_verifier = generate_pkce_code_verifier();
     let code_challenge = generate_code_challenge(&code_verifier);
     let auth_url = Url::parse_with_params(
         "https://accounts.spotify.com/authorize",
         &[
-            ("client_id", SPOTIFY_CLIENT_ID),
+            ("client_id", client_id),
             ("response_type", "code"),
             ("redirect_uri", SPOTIFY_REDIRECT_URI),
             ("scope", SPOTIFY_ACCESS_SCOPES),
@@ -68,7 +68,10 @@ async fn write_html(socket: &mut tokio::net::TcpStream, html: &str) -> Result<()
     Ok(())
 }
 
-pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthResponse, AuthError> {
+pub async fn listen_for_callback(
+    code_verifier: String,
+    client_id: String,
+) -> Result<SpotifyAuthResponse, AuthError> {
     let listener = TcpListener::bind("127.0.0.1:8888")
         .await
         .map_err(|e| AuthError::Server(e.to_string()))?;
@@ -109,7 +112,7 @@ pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthRes
 
     let client = Client::new();
     let params = [
-        ("client_id", SPOTIFY_CLIENT_ID),
+        ("client_id", client_id.as_str()),
         ("grant_type", "authorization_code"),
         ("code", code.as_str()),
         ("redirect_uri", SPOTIFY_REDIRECT_URI),
@@ -146,10 +149,13 @@ pub async fn listen_for_callback(code_verifier: String) -> Result<SpotifyAuthRes
     })
 }
 
-pub async fn refresh_token(refresh: &str) -> Result<SpotifyAuthResponse, AuthError> {
+pub async fn refresh_token(
+    refresh: &str,
+    client_id: &str,
+) -> Result<SpotifyAuthResponse, AuthError> {
     let client = Client::new();
     let params = [
-        ("client_id", SPOTIFY_CLIENT_ID),
+        ("client_id", client_id),
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh),
     ];

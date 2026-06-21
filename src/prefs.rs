@@ -56,6 +56,14 @@ pub struct UserPreferences {
     /// (album art, Canvas videos, API JSON) to another drive/folder.
     #[serde(default)]
     pub cache_dir: Option<String>,
+    /// The user's own Spotify app client id, used for the OAuth web flow.
+    /// `None`/empty = not yet configured: the login view shows the setup
+    /// screen (paste-field + dashboard instructions) instead of the
+    /// "Log in" button. There is intentionally no bundled fallback — the
+    /// consent screen names the registering app, so every user brings their
+    /// own. See [`Self::client_id`].
+    #[serde(default)]
+    pub spotify_client_id: Option<String>,
 }
 
 fn default_version() -> u32 {
@@ -76,6 +84,7 @@ impl Default for UserPreferences {
             last_player: None,
             show_canvas: default_show_canvas(),
             cache_dir: None,
+            spotify_client_id: None,
         }
     }
 }
@@ -173,8 +182,8 @@ pub struct AudioPrefs {
     #[serde(default)]
     pub quality: AudioQuality,
     /// Volume normalisation + peak limiter (Spotify's "Normalize volume").
-    /// On by default: matches loudness across tracks and prevents loud
-    /// masters from clipping. Applies from the next app start.
+    /// Off by default; when on, matches loudness across tracks and prevents
+    /// loud masters from clipping. Applies from the next app start.
     #[serde(default = "default_normalize")]
     pub normalize: bool,
 }
@@ -184,7 +193,7 @@ fn default_volume() -> f32 {
 }
 
 fn default_normalize() -> bool {
-    true
+    false
 }
 
 impl Default for AudioPrefs {
@@ -209,6 +218,17 @@ pub enum AudioQuality {
 }
 
 impl UserPreferences {
+    /// The configured Spotify client id, or `None` when unset/blank.
+    /// Whitespace-only values count as unset so a stray space saved into
+    /// the field doesn't masquerade as a real id.
+    pub fn client_id(&self) -> Option<String> {
+        self.spotify_client_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    }
+
     /// Read + parse the JSON file. Returns [`Self::default`] on any
     /// failure (missing file, malformed JSON, permission denied) so a
     /// fresh install / corrupted state always boots cleanly.

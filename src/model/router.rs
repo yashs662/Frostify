@@ -23,6 +23,16 @@ const NAV_CURVE: Curve = Curve::CubicBezier([0.16, 1.0, 0.3, 1.0]);
 
 pub struct RouterModel {
     pub view: Cell<View>,
+    /// 0 → 1 fade/slide progress for a top-level view change (Splash ↔ Setup
+    /// ↔ Login ↔ Home), retween'd by [`RouterModel::go_view`]. Parks at 1.0.
+    /// The pre-auth views (`setup`/`login`) wrap their content in it so a
+    /// view switch eases in instead of hard-cutting.
+    pub view_t: Signal<f32>,
+    /// True only when the Login view was reached *from* Setup (the user just
+    /// saved a client id), so Login shows a "Back" affordance to edit it.
+    /// Cleared on every other path to Login (startup, logout) — there's
+    /// nowhere meaningful to go "back" to in those cases.
+    pub came_from_setup: Cell<bool>,
     /// What the Home centre pane is showing (feed vs a playlist page).
     pub nav: RefCell<MainNav>,
     /// 0 → 1 slide/fade progress for the centre-pane content, retween'd on
@@ -39,10 +49,24 @@ impl RouterModel {
     pub fn new() -> Self {
         Self {
             view: Cell::default(),
+            view_t: Signal::new(1.0),
+            came_from_setup: Cell::new(false),
             nav: RefCell::default(),
             main_t: Signal::new(1.0),
             detail_collapse: Signal::new(0.0),
         }
+    }
+
+    /// Switch the mounted top-level view and restart its entrance tween
+    /// (`view_t` 0 → 1). No-op if already on `view`. The caller still owns
+    /// requesting the one-shot scene rebuild that mounts the new view.
+    pub fn go_view(&self, view: View, tl: &mut Timeline, now: Instant) {
+        if self.view.get() == view {
+            return;
+        }
+        self.view.set(view);
+        self.view_t.set(0.0);
+        tl.animate(&self.view_t, 1.0, NAV_CURVE, MAIN_NAV_DURATION, now);
     }
 
     /// Whether the centre pane is showing the detail page (playlist or album)

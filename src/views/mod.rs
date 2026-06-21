@@ -7,12 +7,16 @@
 
 pub mod home;
 pub mod login;
+pub mod setup;
 
 /// Which top-level view is mounted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum View {
     #[default]
     Splash,
+    /// First-run client-id setup (paste id + dashboard instructions). Shown
+    /// when no client id is configured, and returned to by a prefs reset.
+    Setup,
     Login,
     Home,
 }

@@ -32,8 +32,16 @@ const ALBUM_ART_MAX_DIM: u32 = 640;
 
 #[derive(Debug)]
 pub enum WorkerCommand {
-    StartOAuth,
-    TryLoadTokens,
+    /// Begin the OAuth web flow with the user's configured client id.
+    StartOAuth {
+        client_id: String,
+    },
+    /// Load stored tokens on launch; `client_id` is needed only to refresh
+    /// an expired pair (empty when the user hasn't configured one yet —
+    /// the refresh then fails and we fall through to the login screen).
+    TryLoadTokens {
+        client_id: String,
+    },
     FetchHome {
         access_token: String,
     },
@@ -118,6 +126,7 @@ pub enum WorkerCommand {
     /// by the frame tick's due-check; see `AuthModel::refresh_due`).
     RefreshTokens {
         refresh_token: String,
+        client_id: String,
     },
     /// List Connect devices for the devices popup.
     FetchDevices {
@@ -390,11 +399,27 @@ impl Worker {
             // playlist list + per-track lookups + edit confirmations.
             let membership: Arc<AsyncMutex<crate::model::membership::MembershipSnapshot>> =
                 Arc::new(AsyncMutex::new(Default::default()));
+            // The in-flight OAuth task (callback listener on 127.0.0.1:8888).
+            // A retry (e.g. after a wrong client id) must abort the previous
+            // one first — otherwise the stale listener keeps the port and
+            // steals the new callback, doing the token exchange with the old
+            // verifier/client id → a bogus "login failed".
+            let mut oauth_task: Option<tokio::task::JoinHandle<()>> = None;
             rt.block_on(async move {
                 while let Some(cmd) = cmd_rx.recv().await {
                     match cmd {
-                        WorkerCommand::StartOAuth => spawn_oauth(resp.clone()),
-                        WorkerCommand::TryLoadTokens => spawn_try_load(resp.clone()),
+                        WorkerCommand::StartOAuth { client_id } => {
+                            if let Some(h) = oauth_task.take() {
+                                h.abort();
+                                // Await teardown so the old listener's socket
+                                // is fully dropped before we rebind the port.
+                                let _ = h.await;
+                            }
+                            oauth_task = Some(spawn_oauth(resp.clone(), client_id));
+                        }
+                        WorkerCommand::TryLoadTokens { client_id } => {
+                            spawn_try_load(resp.clone(), client_id)
+                        }
                         WorkerCommand::FetchHome { access_token } => {
                             spawn_fetch_home(resp.clone(), access_token)
                         }
@@ -457,8 +482,8 @@ impl Worker {
                             count,
                             local,
                         } => spawn_skip_forward(spirc.clone(), access_token, count, local),
-                        WorkerCommand::RefreshTokens { refresh_token } => {
-                            spawn_refresh_tokens(resp.clone(), refresh_token)
+                        WorkerCommand::RefreshTokens { refresh_token, client_id } => {
+                            spawn_refresh_tokens(resp.clone(), refresh_token, client_id)
                         }
                         WorkerCommand::FetchDevices { access_token } => {
                             spawn_fetch_devices(resp.clone(), access_token)
@@ -514,11 +539,11 @@ impl Worker {
         Self { cmd_tx, resp_rx }
     }
 
-    pub fn start_oauth(&self) {
-        let _ = self.cmd_tx.send(WorkerCommand::StartOAuth);
+    pub fn start_oauth(&self, client_id: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::StartOAuth { client_id });
     }
-    pub fn try_load_tokens(&self) {
-        let _ = self.cmd_tx.send(WorkerCommand::TryLoadTokens);
+    pub fn try_load_tokens(&self, client_id: String) {
+        let _ = self.cmd_tx.send(WorkerCommand::TryLoadTokens { client_id });
     }
     pub fn fetch_home(&self, access_token: String) {
         let _ = self.cmd_tx.send(WorkerCommand::FetchHome { access_token });
@@ -591,8 +616,10 @@ impl Worker {
             local,
         });
     }
-    pub fn refresh_tokens(&self, refresh_token: String) {
-        let _ = self.cmd_tx.send(WorkerCommand::RefreshTokens { refresh_token });
+    pub fn refresh_tokens(&self, refresh_token: String, client_id: String) {
+        let _ = self
+            .cmd_tx
+            .send(WorkerCommand::RefreshTokens { refresh_token, client_id });
     }
     pub fn fetch_devices(&self, access_token: String) {
         let _ = self.cmd_tx.send(WorkerCommand::FetchDevices { access_token });
@@ -657,11 +684,11 @@ impl Worker {
     }
 }
 
-fn spawn_oauth(resp: Responder) {
+fn spawn_oauth(resp: Responder, client_id: String) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let (url, verifier) = oauth::get_spotify_auth_url();
+        let (url, verifier) = oauth::get_spotify_auth_url(&client_id);
         resp.send(WorkerResponse::OAuthStarted { auth_url: url });
-        match listen_for_callback(verifier).await {
+        match listen_for_callback(verifier, client_id).await {
             Ok(auth) => {
                 debug!("OAuth complete");
                 let stored = StoredTokens::from(auth.clone());
@@ -676,7 +703,7 @@ fn spawn_oauth(resp: Responder) {
                 });
             }
         }
-    });
+    })
 }
 
 fn spawn_fetch_home(resp: Responder, access_token: String) {
@@ -1922,12 +1949,14 @@ fn spawn_edit_membership(
 /// Proactive token refresh (mid-session — the startup path lives in
 /// `spawn_try_load`). Persists the rotated tokens so the next launch
 /// starts from the fresh pair.
-fn spawn_refresh_tokens(resp: Responder, refresh: String) {
+fn spawn_refresh_tokens(resp: Responder, refresh: String, client_id: String) {
     tokio::spawn(async move {
-        match refresh_token(&refresh).await {
+        match refresh_token(&refresh, &client_id).await {
             Ok(auth) => {
                 info!("access token refreshed proactively");
-                let _ = token_manager::save_tokens(&StoredTokens::from(auth.clone()));
+                let prev = token_manager::load_tokens().ok();
+                let stored = StoredTokens::from_refresh(auth.clone(), prev.as_ref());
+                let _ = token_manager::save_tokens(&stored);
                 resp.send(WorkerResponse::TokensRefreshed { auth });
             }
             Err(e) => {
@@ -1938,7 +1967,7 @@ fn spawn_refresh_tokens(resp: Responder, refresh: String) {
     });
 }
 
-fn spawn_try_load(resp: Responder) {
+fn spawn_try_load(resp: Responder, client_id: String) {
     tokio::spawn(async move {
         match token_manager::load_tokens() {
             Ok(tokens) => {
@@ -1951,11 +1980,22 @@ fn spawn_try_load(resp: Responder) {
                     resp.send(WorkerResponse::NoStoredTokens);
                     return;
                 }
+                // Spotify caps refresh tokens at ~180 days. Past that the
+                // refresh grant fails, so wipe the dead credentials and send
+                // the user back to the login screen instead of erroring.
+                if tokens.refresh_expired() {
+                    info!("refresh token older than 180 days — wiping + re-auth");
+                    let _ = token_manager::delete_tokens();
+                    resp.send(WorkerResponse::NoStoredTokens);
+                    return;
+                }
                 if tokens.is_expired() {
                     info!("refreshing expired token");
-                    match refresh_token(&tokens.refresh_token).await {
+                    match refresh_token(&tokens.refresh_token, &client_id).await {
                         Ok(auth) => {
-                            let _ = token_manager::save_tokens(&StoredTokens::from(auth.clone()));
+                            let stored =
+                                StoredTokens::from_refresh(auth.clone(), Some(&tokens));
+                            let _ = token_manager::save_tokens(&stored);
                             resp.send(WorkerResponse::TokensLoaded { auth });
                         }
                         Err(e) => {

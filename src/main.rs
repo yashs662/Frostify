@@ -119,6 +119,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let force_home = force_home || debug_cfg.as_ref().map(|c| c.force_home).unwrap_or(false);
     if force_home {
         state.router.view.set(View::Home);
+    } else if state.prefs.data.borrow().client_id().is_none() {
+        // No client id yet → go straight to first-run setup instead of
+        // flashing the Splash "checking credentials" (there's nothing to
+        // check, and an expired token couldn't be refreshed without an id).
+        state.router.view.set(View::Setup);
     }
 
     let mut app = App::new("Opal", win_w, win_h)
@@ -143,7 +148,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // loop; the per-frame tick drains it into a scene rebuild.
     hotreload::connect(app.wake_handle());
     let worker = Rc::new(Worker::new(app.wake_handle(), app.uploader()));
-    worker.try_load_tokens();
+    // Stored tokens can only be refreshed with the user's own client id;
+    // empty when unconfigured (then an expired pair just routes to login).
+    worker.try_load_tokens(state.prefs.data.borrow().client_id().unwrap_or_default());
     // Hand the state the engine's frame sink so the Canvas decode thread
     // can push video frames onto the now-playing external node.
     state.canvas.set_frame_sink(app.frame_sink());
@@ -195,7 +202,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         icons.clone(),
         wake,
     );
-    let login_view = views::login::LoginView::new(state.clone(), worker.clone(), icons.clone());
+    let login_view =
+        views::login::LoginView::new(state.clone(), worker.clone(), icons.clone(), rebuild.clone());
+    let setup_view = views::setup::SetupView::new(state.clone(), icons.clone(), rebuild.clone());
 
     let app = {
         let state = state.clone();
@@ -205,6 +214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // is off.
         app.scene(move |s| {
             hotreload::call(|| match state.router.view.get() {
+                View::Setup => setup_view.build(s),
                 View::Splash | View::Login => login_view.build(s),
                 View::Home => home_view.build(s),
             })

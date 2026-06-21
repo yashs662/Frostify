@@ -365,6 +365,8 @@ impl HomeView {
                 state.auth.sign_out();
                 // Leaving Home — snap the modal shut so it isn't up next sign-in.
                 state.settings.overlay.reset();
+                // Logout lands on Login directly (not from Setup) → no Back.
+                state.router.came_from_setup.set(false);
                 state.router.view.set(View::Login);
                 rebuild.set(true);
             })

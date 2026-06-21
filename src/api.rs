@@ -377,7 +377,8 @@ pub async fn playlist_track_uris(token: &str, playlist_id: &str) -> Result<Vec<S
     }
     #[derive(Deserialize)]
     struct Item {
-        track: Option<Track>,
+        // Playlist `/items` rows wrap the track in `item` (post-migration).
+        item: Option<Track>,
     }
     #[derive(Deserialize)]
     struct Track {
@@ -385,12 +386,13 @@ pub async fn playlist_track_uris(token: &str, playlist_id: &str) -> Result<Vec<S
         uri: String,
     }
     let mut out = Vec::new();
+    // `/items` (was `/tracks`, now 403 for Dev-Mode apps).
     let mut url =
-        format!("{API}/playlists/{playlist_id}/tracks?fields=items(track(uri)),next&limit=100");
+        format!("{API}/playlists/{playlist_id}/items?fields=items(item(uri)),next&limit=100");
     loop {
         let page: Page = http_get_json(token, &url).await?;
         for it in page.items {
-            if let Some(t) = it.track
+            if let Some(t) = it.item
                 && t.uri.starts_with("spotify:track:")
             {
                 out.push(t.uri);
@@ -404,7 +406,8 @@ pub async fn playlist_track_uris(token: &str, playlist_id: &str) -> Result<Vec<S
     Ok(out)
 }
 
-/// Add `track_uri` to a playlist (`POST /playlists/{id}/tracks`).
+/// Add `track_uri` to a playlist (`POST /playlists/{id}/items` — the
+/// Mar-2026 migration replaced `/tracks`, which now 403s for Dev-Mode apps).
 pub async fn add_to_playlist(
     token: &str,
     playlist_id: &str,
@@ -412,7 +415,7 @@ pub async fn add_to_playlist(
 ) -> Result<(), AuthError> {
     let body = serde_json::json!({ "uris": [track_uri] });
     let res = reqwest::Client::new()
-        .post(format!("{API}/playlists/{playlist_id}/tracks"))
+        .post(format!("{API}/playlists/{playlist_id}/items"))
         .bearer_auth(token)
         .json(&body)
         .send()
@@ -421,17 +424,18 @@ pub async fn add_to_playlist(
 }
 
 /// Remove all occurrences of `track_uri` from a playlist
-/// (`DELETE /playlists/{id}/tracks`).
+/// (`DELETE /playlists/{id}/items`). The migration also renamed the body
+/// param `tracks` → `items`.
 pub async fn remove_from_playlist(
     token: &str,
     playlist_id: &str,
     track_uri: &str,
 ) -> Result<(), AuthError> {
-    let body = serde_json::json!({ "tracks": [{ "uri": track_uri }] });
+    let body = serde_json::json!({ "items": [{ "uri": track_uri }] });
     let res = reqwest::Client::new()
         .request(
             reqwest::Method::DELETE,
-            format!("{API}/playlists/{playlist_id}/tracks"),
+            format!("{API}/playlists/{playlist_id}/items"),
         )
         .bearer_auth(token)
         .json(&body)
@@ -475,13 +479,25 @@ fn join_artist_names(artists: &[TrackArtist]) -> String {
         .join(", ")
 }
 
-// Shared deserialize shapes for the playlist + saved-tracks endpoints —
-// both wrap items in `{ track: <RawTrack> }`, so one set of structs maps
-// both.
+// Shared deserialize shape for the playlist + saved-tracks endpoints.
+// Spotify's 2026 Dev-Mode migration moved playlist contents to
+// `GET /playlists/{id}/items`, whose wrapper field is `item` (the old
+// `track` is deprecated there). `/me/tracks` is unchanged and wraps each
+// row in `track`. Both fields are genuine current fields on their
+// respective endpoints, so the row carries both and `track()` resolves
+// the populated one (preferring the non-deprecated `item`).
 #[derive(Deserialize)]
 struct RawItem {
     #[serde(default)]
+    item: Option<RawTrack>,
+    #[serde(default)]
     track: Option<RawTrack>,
+}
+
+impl RawItem {
+    fn track(self) -> Option<RawTrack> {
+        self.item.or(self.track)
+    }
 }
 #[derive(Deserialize)]
 struct RawTrack {
@@ -628,7 +644,7 @@ impl RawTrack {
 fn tracks_from_items(items: Vec<RawItem>) -> Vec<PlaylistTrack> {
     items
         .into_iter()
-        .filter_map(|i| i.track)
+        .filter_map(RawItem::track)
         // Keep unplayable-but-displayable tracks (local files, region
         // blocks) — they render faded. Drop only nameless husks (a fully
         // null track object) that have nothing to show.
@@ -722,9 +738,11 @@ pub async fn fetch_tracks_page(token: &str, url: &str) -> Result<TracksPage, Aut
 /// (region availability against the account's country) — without it
 /// every track looks playable until the play request 403s.
 pub fn playlist_tracks_url(playlist_id: &str, offset: u32, limit: u32) -> String {
-    let fields = "total,items(track(id,uri,name,duration_ms,is_local,is_playable,artists(name),album(name,images)))";
+    // 2026 migration: contents moved to `/items` (the old `/tracks` now 403s
+    // for Dev-Mode apps) and each row's wrapper is `item` (not `track`).
+    let fields = "total,items(item(id,uri,name,duration_ms,is_local,is_playable,artists(name),album(name,images)))";
     format!(
-        "{API}/playlists/{playlist_id}/tracks?market=from_token&limit={limit}&offset={offset}&fields={fields}"
+        "{API}/playlists/{playlist_id}/items?market=from_token&limit={limit}&offset={offset}&fields={fields}"
     )
 }
 
@@ -1510,10 +1528,13 @@ pub async fn transfer_playback(token: &str, device_id: &str, play: bool) -> Resu
 
 /// Whether the current user has saved (liked) `track_id`.
 pub async fn is_track_saved(token: &str, track_id: &str) -> Result<bool, AuthError> {
+    // 2026 migration: `/me/tracks/contains` (IDs) → `/me/library/contains`
+    // (Spotify URIs); now 403s for Dev-Mode apps. Same `[bool,…]` response.
     // Live state — a like toggled on another device must show here.
+    let uri = format!("spotify:track:{track_id}");
     let r: Vec<bool> = get_json(
         token,
-        &format!("{API}/me/tracks/contains?ids={track_id}"),
+        &format!("{API}/me/library/contains?uris={uri}"),
         ttl::NONE,
     )
     .await?;
@@ -1522,15 +1543,18 @@ pub async fn is_track_saved(token: &str, track_id: &str) -> Result<bool, AuthErr
 
 /// Save / unsave (like / unlike) a track for the current user.
 pub async fn set_track_saved(token: &str, track_id: &str, saved: bool) -> Result<(), AuthError> {
+    // 2026 migration: `PUT/DELETE /me/tracks?ids=` → `PUT/DELETE /me/library`
+    // with a JSON body of Spotify URIs (the `?ids=` form now 403s).
     let method = if saved {
         reqwest::Method::PUT
     } else {
         reqwest::Method::DELETE
     };
+    let body = serde_json::json!({ "uris": [format!("spotify:track:{track_id}")] });
     let res = reqwest::Client::new()
-        .request(method, format!("{API}/me/tracks?ids={track_id}"))
+        .request(method, format!("{API}/me/library"))
         .bearer_auth(token)
-        .header(reqwest::header::CONTENT_LENGTH, 0)
+        .json(&body)
         .send()
         .await?;
     let status = res.status();
@@ -1678,8 +1702,9 @@ mod tests {
     /// skeletons. `null_default` must absorb them.
     #[test]
     fn playlist_item_with_null_track_fields_parses() {
+        // Post-migration playlist `/items` rows wrap the track in `item`.
         let json = r#"{
-            "track": {
+            "item": {
                 "id": null,
                 "uri": null,
                 "name": "Local file",
@@ -1689,7 +1714,7 @@ mod tests {
             }
         }"#;
         let item: RawItem = serde_json::from_str(json).expect("null fields must parse");
-        let t = item.track.expect("track present");
+        let t = item.track().expect("track present");
         assert_eq!(t.id, "");
         assert_eq!(t.uri, "");
         assert_eq!(t.name, "Local file");
@@ -1699,9 +1724,16 @@ mod tests {
     }
 
     #[test]
-    fn playlist_item_with_null_track_parses() {
-        let item: RawItem = serde_json::from_str(r#"{ "track": null }"#).unwrap();
-        assert!(item.track.is_none());
+    fn item_resolver_handles_both_wrappers() {
+        // Playlist `/items` → `item`; saved `/me/tracks` → `track`. Both map.
+        let from_item: RawItem =
+            serde_json::from_str(r#"{ "item": { "name": "P" } }"#).unwrap();
+        assert_eq!(from_item.track().unwrap().name, "P");
+        let from_track: RawItem =
+            serde_json::from_str(r#"{ "track": { "name": "S" } }"#).unwrap();
+        assert_eq!(from_track.track().unwrap().name, "S");
+        let empty: RawItem = serde_json::from_str(r#"{ "item": null }"#).unwrap();
+        assert!(empty.track().is_none());
     }
 
     /// Local files and region-blocked tracks stay IN the list (rendered
@@ -1710,13 +1742,13 @@ mod tests {
     #[test]
     fn unplayable_tracks_are_kept_but_marked() {
         let json = r#"[
-            { "track": { "id": null, "uri": "spotify:local:abc", "name": "Local song",
+            { "item": { "id": null, "uri": "spotify:local:abc", "name": "Local song",
                          "is_local": true, "artists": [], "album": { "images": [] } } },
-            { "track": { "id": "x1", "uri": "spotify:track:x1", "name": "Blocked here",
+            { "item": { "id": "x1", "uri": "spotify:track:x1", "name": "Blocked here",
                          "is_playable": false, "artists": [], "album": { "images": [] } } },
-            { "track": { "id": "x2", "uri": "spotify:track:x2", "name": "Fine",
+            { "item": { "id": "x2", "uri": "spotify:track:x2", "name": "Fine",
                          "is_playable": true, "artists": [], "album": { "images": [] } } },
-            { "track": { "id": null, "uri": null, "name": "", "artists": [],
+            { "item": { "id": null, "uri": null, "name": "", "artists": [],
                          "album": { "images": [] } } }
         ]"#;
         let items: Vec<RawItem> = serde_json::from_str(json).unwrap();

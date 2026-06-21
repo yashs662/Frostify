@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use opal_gfx::{Align, Len, Overlay, Scene, WindowAction};
 
+use crate::widgets::chrome::chrome_btn;
 use crate::widgets::component::Component;
 use crate::widgets::icon::{Icon, IconSet};
 use crate::widgets::tokens as t;
@@ -24,7 +25,7 @@ impl Component for TopBar<'_> {
         s.row("topbar")
             .w(Len::Fill)
             .h(Len::Auto)
-            .pad_ltrb(t::SP_2, t::SP_2, t::SP_2, t::SP_0)
+            .pad_ltrb(t::SP_2, t::SP_2, t::SP_2, t::SP_2)
             .gap(t::SP_2)
             .align(Align::Center)
             .rgba(0.0, 0.0, 0.0, 0.0)
@@ -73,6 +74,7 @@ impl Component for TopBar<'_> {
                     false,
                 );
                 chrome_btn(t_row, icons, Icon::Close, WindowAction::Close, t::CLOSE_HOVER, false);
+                // ^ window controls share the canonical widget in `chrome`.
             });
     }
 }
@@ -112,26 +114,3 @@ fn topbar_icon_btn(s: &mut Scene, icons: &IconSet, icon: Icon) {
         });
 }
 
-fn chrome_btn(
-    s: &mut Scene,
-    icons: &IconSet,
-    icon: Icon,
-    action: WindowAction,
-    hover: [f32; 4],
-    push_end: bool,
-) {
-    let mut b = s.row(());
-    b.w_px(t::SP_11)
-        .h_px(t::SP_8)
-        .rgba(0.0, 0.0, 0.0, 0.0)
-        .hover_color(hover)
-        .radius(t::R_MD)
-        .center()
-        .window_action(action);
-    if push_end {
-        b.push_end();
-    }
-    b.child(|c| {
-        icons.render(c, icon, t::ICON_XS, t::TEXT);
-    });
-}

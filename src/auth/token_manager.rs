@@ -6,6 +6,11 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 
+/// Spotify refresh tokens stop working after ~180 days; past that the
+/// refresh grant fails and the user must re-authorise. We proactively wipe
+/// + force re-login a touch early so a stale token never 400s mid-launch.
+pub const REFRESH_TOKEN_MAX_AGE_SECS: u64 = 180 * 24 * 60 * 60;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredTokens {
     pub access_token: String,
@@ -13,6 +18,12 @@ pub struct StoredTokens {
     pub expires_at: u64,
     pub token_type: String,
     pub scope: String,
+    /// Unix seconds when the current `refresh_token` was issued. Set on the
+    /// initial OAuth and reset whenever Spotify rotates the refresh token on
+    /// a refresh; used to enforce the 180-day cap. `0` = legacy file written
+    /// before this field existed — treated as "unknown age", never expired.
+    #[serde(default)]
+    pub refresh_issued_at: u64,
 }
 
 fn now_secs() -> u64 {
@@ -30,11 +41,39 @@ impl From<SpotifyAuthResponse> for StoredTokens {
             expires_at: now_secs() + a.expires_in,
             token_type: a.token_type,
             scope: a.scope,
+            // A bare conversion is a *fresh* authorisation → the refresh
+            // token's clock starts now. Refresh-grant results go through
+            // [`StoredTokens::from_refresh`] instead to carry the age over.
+            refresh_issued_at: now_secs(),
         }
     }
 }
 
 impl StoredTokens {
+    /// Build stored tokens from a refresh-grant response, preserving the
+    /// refresh token's age unless Spotify actually rotated it. Spotify
+    /// usually returns a new refresh token on each refresh (the clock
+    /// resets); when it returns the same one, we keep the original
+    /// `refresh_issued_at` so the 180-day cap counts from first issue.
+    pub fn from_refresh(auth: SpotifyAuthResponse, prev: Option<&StoredTokens>) -> Self {
+        let mut t = StoredTokens::from(auth);
+        if let Some(p) = prev
+            && t.refresh_token == p.refresh_token
+            && p.refresh_issued_at != 0
+        {
+            t.refresh_issued_at = p.refresh_issued_at;
+        }
+        t
+    }
+
+    /// True when the refresh token is past the 180-day cap and should be
+    /// discarded in favour of a fresh login. `0` (legacy/unknown) is never
+    /// considered expired.
+    pub fn refresh_expired(&self) -> bool {
+        self.refresh_issued_at != 0
+            && now_secs().saturating_sub(self.refresh_issued_at) > REFRESH_TOKEN_MAX_AGE_SECS
+    }
+
     pub fn to_auth_response(&self) -> SpotifyAuthResponse {
         let expires_in = self.expires_at.saturating_sub(now_secs());
         SpotifyAuthResponse {

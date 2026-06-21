@@ -120,6 +120,23 @@ impl PrefsModel {
         }
     }
 
+    /// Wipe **all** preferences back to defaults and persist immediately
+    /// (the "Reset preferences" action on the login screen). Re-seeds the
+    /// signal-backed panel widths too so the live UI matches, and clears the
+    /// configured client id — the caller then routes back to the setup view.
+    /// Best-effort write; logged, not propagated.
+    pub fn reset(&self) {
+        let defaults = UserPreferences::default();
+        self.sidebar_w.set(defaults.panels.sidebar_w);
+        self.now_playing_w.set(defaults.panels.now_playing_w);
+        *self.data.borrow_mut() = defaults;
+        self.dirty_since.set(None);
+        match self.data.borrow().save() {
+            Ok(()) => log::info!("preferences reset to defaults"),
+            Err(e) => log::warn!("preferences reset save failed: {e}"),
+        }
+    }
+
     /// Force a final flush on app close — picks up a mouse-up we might
     /// have missed (drag released outside the window) and persists the
     /// live snapshot so the next launch re-hydrates immediately.
