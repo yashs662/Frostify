@@ -4,6 +4,7 @@ use futures::StreamExt;
 use librespot_core::dealer::Subscription;
 use librespot_core::dealer::protocol::PayloadValue;
 use librespot_protocol::connect::ClusterUpdate;
+use librespot_protocol::connect::ClusterUpdateReason;
 use librespot_protocol::player::PlayerState as ProtoPlayerState;
 use librespot_protocol::player::ProvidedTrack;
 use log::{debug, info, warn};
@@ -27,6 +28,14 @@ use crate::api::{CurrentlyPlaying, PlaylistTrack, RepeatMode, TrackArtist};
 /// `queue_revision` changes — this is the uncapped, live alternative to the
 /// ~20-entry `/me/player/queue` Web API. `None` means "queue unchanged
 /// since the last push" (skip the rebuild).
+///
+/// The 5th arg (`vanished`) is `true` only on the push where the
+/// *globally-active* device dropped off the cluster (`DEVICES_DISAPPEARED`
+/// leaving no active device) — e.g. the phone/web player that was driving
+/// playback was quit mid-track. Spotify's player_state on that push is
+/// bogus (still "playing" at position 0), so we suppress it (`player =
+/// None`) and let the host take over on Opal instead of showing a frozen,
+/// dead transport.
 pub async fn run<F>(mut sub: Subscription, mut on_update: F)
 where
     F: FnMut(
@@ -34,6 +43,7 @@ where
         Option<f32>,
         Option<String>,
         Option<Vec<PlaylistTrack>>,
+        bool,
     ),
 {
     info!("cluster listener started — awaiting connect-state pushes");
@@ -61,9 +71,14 @@ where
             "cluster update: reason={:?} ack={} devices_changed={:?}",
             update.update_reason, update.ack_id, update.devices_that_changed
         );
+        let devices_disappeared =
+            update.update_reason.enum_value() == Ok(ClusterUpdateReason::DEVICES_DISAPPEARED);
         let Some(cluster) = update.cluster.into_option() else {
+            // No cluster at all after a device dropped off ⇒ the active
+            // player is gone. Signal the takeover so the host can claim
+            // playback on Opal.
             info!("  cluster: <empty>");
-            on_update(None, None, None, None);
+            on_update(None, None, None, None, devices_disappeared);
             continue;
         };
         info!(
@@ -78,9 +93,19 @@ where
             .map(|d| (d.volume as f32 / u16::MAX as f32).clamp(0.0, 1.0));
         let active_device = (!cluster.active_device_id.is_empty())
             .then(|| cluster.active_device_id.clone());
+        // The active device just dropped off the cluster (its app quit) and
+        // no other device took over. Spotify still ships a stale "playing"
+        // player_state here (frozen at position 0), which would leave Opal
+        // showing a dead, unresponsive transport. Suppress it and flag the
+        // takeover instead — the host resumes on Opal at the last position.
+        if devices_disappeared && active_device.is_none() {
+            info!("  active device vanished — signalling takeover");
+            on_update(None, volume, None, None, true);
+            continue;
+        }
         let Some(state) = cluster.player_state.into_option() else {
             info!("  player_state: <empty>");
-            on_update(None, volume, active_device, None);
+            on_update(None, volume, active_device, None, false);
             continue;
         };
         if !state.track.metadata.is_empty() {
@@ -112,7 +137,7 @@ where
             "  -> CurrentlyPlaying: name='{}' artist='{}' playing={} progress={}/{} img={:?}",
             cp.name, cp.artist, cp.is_playing, cp.progress_ms, cp.duration_ms, cp.album_image_url
         );
-        on_update(Some(cp), volume, active_device, queue);
+        on_update(Some(cp), volume, active_device, queue, false);
     }
     debug!("cluster subscription stream ended");
 }

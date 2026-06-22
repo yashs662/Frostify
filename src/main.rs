@@ -129,6 +129,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new("Opal", win_w, win_h)
         .decorations(false)
         .window_corner_radius(tokens::R_XL)
+        // CPU splash painted before the GPU back-end loads — fills the
+        // blank ~2 s cold-start gap with the brand logo + wordmark (same
+        // mark + text the login header uses). See opal_gfx::splash.
+        .splash(opal_gfx::SplashConfig {
+            logo_svg: include_bytes!("../assets/logo/geometric-opal.svg").to_vec(),
+            wordmark: "Opal".to_string(),
+            logo_px: 64.0,
+            wordmark_px: tokens::TEXT_4XL,
+            gap_px: 16.0,
+            wordmark_color: tokens::TEXT,
+            bg_color: tokens::BG,
+        })
         .capture_from_env();
     // Taskbar / alt-tab icon. Decoded from the bundled 256px PNG (the same
     // art embedded as the exe icon via build.rs). Fail-soft: a decode error

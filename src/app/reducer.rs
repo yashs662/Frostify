@@ -158,6 +158,27 @@ pub fn handle(state: &Rc<AppState>, cx: &mut Cx, worker: &Rc<Worker>, resp: Work
                 cx.rebuild();
             }
         }
+        WorkerResponse::ActiveDeviceVanished => {
+            // The remote device that was driving playback was quit
+            // mid-track. If we were showing it playing, claim playback on
+            // Opal (our own Connect device) **paused** at exactly the
+            // position it left — Opal becomes the active device so the
+            // transport is live + responsive, but playback doesn't resume on
+            // its own; the user presses play when they want it. (If it was
+            // already paused, do nothing; the following `PlayerState` push
+            // freezes the bar as stopped.)
+            let claim = state
+                .player_ui
+                .snapshot
+                .borrow()
+                .as_ref()
+                .filter(|p| p.is_playing)
+                .map(|p| (p.track_id.clone(), p.live_progress_ms() as u32, p.context_uri.clone()));
+            if let Some((track_uri, position_ms, context_uri)) = claim {
+                log::info!("active device vanished while playing — taking over on Opal (paused)");
+                worker.claim_playback_paused(context_uri, track_uri, position_ms);
+            }
+        }
         WorkerResponse::SavedState { track_id, saved } => {
             // Only the current track's heart — a late echo for a track
             // we've skipped past must not flip the new track's state.

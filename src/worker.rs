@@ -8,7 +8,7 @@ use crate::extracted_color;
 use crate::widgets::{color, tokens};
 use crate::{cluster_listener, spirc_bootstrap, spotify_session};
 use opal_gfx::{ImageHandle, Uploader, WakeHandle};
-use librespot_connect::Spirc;
+use librespot_connect::{LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
 use librespot_core::Session;
 use librespot_core::authentication::Credentials;
 use librespot_protocol::extended_metadata::{BatchedEntityRequest, EntityRequest, ExtensionQuery};
@@ -112,6 +112,17 @@ pub enum WorkerCommand {
         access_token: String,
         cmd: PlaybackCmd,
         local: bool,
+    },
+    /// Claim playback on Opal **paused** at `position_ms`, after the active
+    /// remote device vanished mid-track. Drives our own Spirc `load` with
+    /// `start_playing: false` so Opal becomes the active Connect device with
+    /// the track loaded but held — the user resumes when they choose.
+    /// `context_uri` is the playlist/album to load (so next/prev work); when
+    /// `None` we load the single track.
+    ClaimPlaybackPaused {
+        context_uri: Option<String>,
+        track_uri: String,
+        position_ms: u32,
     },
     /// Skip forward `count` tracks — "skip to" a queue item (playing the
     /// N-th queued song consumes the ones before it). `local` uses our
@@ -234,6 +245,11 @@ pub enum WorkerResponse {
         device_id: String,
         is_self: bool,
     },
+    /// The globally-active device dropped off the cluster mid-playback (its
+    /// app was quit) with nothing taking over. If we were showing it
+    /// playing, the host claims playback on Opal at the last position —
+    /// otherwise the transport would freeze, dead and unresponsive.
+    ActiveDeviceVanished,
     /// Liked-state of a track (heart) — both the on-track-change check
     /// and the authoritative echo after a save/unsave (a failed write
     /// sends the rolled-back value).
@@ -477,6 +493,16 @@ impl Worker {
                             cmd,
                             local,
                         ),
+                        WorkerCommand::ClaimPlaybackPaused {
+                            context_uri,
+                            track_uri,
+                            position_ms,
+                        } => spawn_claim_paused(
+                            spirc.clone(),
+                            context_uri,
+                            track_uri,
+                            position_ms,
+                        ),
                         WorkerCommand::SkipForward {
                             access_token,
                             count,
@@ -614,6 +640,18 @@ impl Worker {
             access_token,
             cmd,
             local,
+        });
+    }
+    pub fn claim_playback_paused(
+        &self,
+        context_uri: Option<String>,
+        track_uri: String,
+        position_ms: u32,
+    ) {
+        let _ = self.cmd_tx.send(WorkerCommand::ClaimPlaybackPaused {
+            context_uri,
+            track_uri,
+            position_ms,
         });
     }
     pub fn refresh_tokens(&self, refresh_token: String, client_id: String) {
@@ -1026,6 +1064,45 @@ async fn fetch_canvas_entry(
         any.value.len()
     );
     crate::canvas::parse_canvas(&any.value)
+}
+
+/// Claim playback on Opal **paused** at `position_ms`, after the active
+/// remote device dropped off the cluster mid-track. Drives our own Spirc
+/// `load` with `start_playing: false`, which activates Opal as the Connect
+/// device and loads the track held (no audible restart-then-pause). The
+/// resulting paused state flows back through the local-player path, so the
+/// chrome + transport become live and responsive on Opal. A missing local
+/// Spirc (session not up) is a no-op — there's nothing to claim onto.
+fn spawn_claim_paused(
+    spirc_slot: Arc<AsyncMutex<Option<Spirc>>>,
+    context_uri: Option<String>,
+    track_uri: String,
+    position_ms: u32,
+) {
+    tokio::spawn(async move {
+        let guard = spirc_slot.lock().await;
+        let Some(spirc) = guard.as_ref() else {
+            warn!("claim-paused: no local Spirc — cannot take over");
+            return;
+        };
+        let options = LoadRequestOptions {
+            start_playing: false,
+            seek_to: position_ms,
+            context_options: None,
+            playing_track: Some(PlayingTrack::Uri(track_uri.clone())),
+        };
+        // Prefer the real context (playlist/album) so next/prev keep working;
+        // fall back to the single track when the vanished device reported none.
+        let req = match context_uri {
+            Some(ctx) => LoadRequest::from_context_uri(ctx, options),
+            None => LoadRequest::from_tracks(vec![track_uri], options),
+        };
+        if let Err(e) = spirc.load(req) {
+            warn!("claim-paused load failed: {e}");
+        } else {
+            info!("claimed playback on Opal (paused @ {position_ms}ms)");
+        }
+    });
 }
 
 /// Skip forward `count` tracks. When `local` (Opal is the active
@@ -1632,9 +1709,15 @@ fn spawn_connect_session(
         let last_active = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
         let last_active_cluster = last_active.clone();
         tokio::spawn(async move {
-            cluster_listener::run(cluster_sub, move |player, volume, active_device, queue| {
+            cluster_listener::run(cluster_sub, move |player, volume, active_device, queue, vanished| {
                 if let Some(v) = volume {
                     resp_for_cluster.send(WorkerResponse::VolumeChanged { fraction: v });
+                }
+                // Emit BEFORE the PlayerState below: the reducer reads the
+                // still-live snapshot (correct track + position) to decide the
+                // takeover, before PlayerState wipes it to "stopped".
+                if vanished {
+                    resp_for_cluster.send(WorkerResponse::ActiveDeviceVanished);
                 }
                 {
                     let mut la = last_active_cluster.lock().unwrap();
